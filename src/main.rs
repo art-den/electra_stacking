@@ -60,25 +60,6 @@ struct Opt {
 }
 
 fn main() -> anyhow::Result<()> {
-/*    let raw = image_raw::RawImage::load_camera_raw_file(
-        &r"F:\temp\23\IMG_8405.CR2".into(),
-        image_raw::RawLoadFlags::APPLY_BLACK_AND_WB
-    )?;
-    let image = raw.demosaic_linear()?;
-    image_formats::save_image_to_file(&image, &raw.info.exif, &r"F:\result.tif".into())?;
-    return Ok(());
-*/
-/*/
-    let cal_data = light_file::CalibrationData { dark_image: None, flat_image: None, hot_pixels: Vec::new(), };
-    for _ in 0..10 {
-        let _file = light_file::LightFile::load(
-            &r"F:\astro\test_2\lights2\00000250.DNG".into(),
-            &cal_data,
-            light_file::LoadLightFlags::STARS
-        )?;
-    }
-    return Ok(());
-*/
     let opt = Opt::from_args();
 
     if let Some(log_path) = &opt.log_path {
