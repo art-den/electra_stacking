@@ -115,5 +115,5 @@ astro_utils.exe                                        ^
   --mode        CappaSigma                             ^
   --kappa       2.5                                    ^
   --repeats     5                                      ^
-  --num-tasks   12
+  --num-tasks   4
 ```
