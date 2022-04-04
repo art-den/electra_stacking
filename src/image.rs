@@ -1,4 +1,3 @@
-use itertools::{Itertools, izip};
 use serde::{Serialize, Deserialize};
 use crate::calc::*;
 
@@ -274,14 +273,14 @@ impl ImageLayer<f32> {
         let mut dx = (x - ix as f64) as f32;
         if x.is_sign_negative() {
             ix -= 1;
-            dx = -dx + 1.0;
+            dx = 1.0 - dx;
         }
 
         let mut iy = y as Crd;
         let mut dy = (y - iy as f64) as f32;
         if y.is_sign_negative() {
             iy -= 1;
-            dy = -dy + 1.0;
+            dy = 1.0 - dy;
         }
 
         let p11 = self.get(ix, iy);
@@ -295,10 +294,10 @@ impl ImageLayer<f32> {
         let s22 = if p22.is_some() { dx * dy } else { 0.0 };
 
         let mut sum =
-            s11*p11.unwrap_or(0.0) +
-            s21*p21.unwrap_or(0.0) +
-            s12*p12.unwrap_or(0.0) +
-            s22*p22.unwrap_or(0.0);
+            s11 * p11.unwrap_or(0.0) +
+            s21 * p21.unwrap_or(0.0) +
+            s12 * p12.unwrap_or(0.0) +
+            s22 * p22.unwrap_or(0.0);
 
         if sum.is_nan() { // can be if 0*INF (sXX * pXX). Recalc more carefully
             const MIN_S: f32 = 1e-10;
@@ -458,11 +457,13 @@ impl ImageLayer<f32> {
         let res_height = self.height / 2;
         let mut result = ImageLayerF32::new(res_width, res_height);
         for y in 0..res_height {
-            let it1 = &self.iter_row(2*y).chunks(2);
-            let it2 = &self.iter_row(2*y+1).chunks(2);
-            let dst = result.iter_row_mut(y);
-            for (ch1, ch2, d) in izip!(it1, it2, dst) {
-                *d = 0.25 * (ch1.sum::<f32>() + ch2.sum::<f32>());
+            let mut it1 = self.iter_row(2*y);
+            let mut it2 = self.iter_row(2*y+1);
+            for d in result.iter_row_mut(y) {
+                *d = 0.25 * (
+                    it1.next().unwrap_or(&0.0) + it1.next().unwrap_or(&0.0) +
+                    it2.next().unwrap_or(&0.0) + it2.next().unwrap_or(&0.0)
+                );
             }
         }
         result

@@ -2,7 +2,7 @@ use std::{path::*};
 use bitflags::bitflags;
 use itertools::Itertools;
 use serde::{Serialize, Deserialize};
-use crate::{image::*, image_formats::*, image_raw::*, stars::*, log_utils::*, calc::*};
+use crate::{image::*, image_formats::*, image_raw::*, stars::*, log_utils::*, calc::*, fs_utils};
 
 bitflags! { pub struct LoadLightFlags: u32 {
     const STARS = 1;
@@ -34,7 +34,9 @@ impl LightFile {
         }?;
 
         if bin == 2 {
+            let bin_log = TimeLogger::start();
             src_data.image = src_data.image.decrease_2x();
+            bin_log.log("decreasing image 2x");
         }
 
         let grey_image = if !flags.is_empty() {
@@ -219,6 +221,10 @@ impl CalibrationData {
     ) -> anyhow::Result<CalibrationData> {
         let dark_image = match master_dark {
             Some(file_name) => {
+                log::info!(
+                    "loading master dark '{}'...",
+                    fs_utils::path_to_str(file_name)
+                );
                 Some(RawImage::new_from_internal_format_file(file_name)?)
             }
             None => None,
@@ -235,6 +241,10 @@ impl CalibrationData {
 
         let flat_image = match master_flat {
             Some(file_name) => {
+                log::info!(
+                    "loading master flat '{}'...",
+                    fs_utils::path_to_str(file_name)
+                );
                 let mut image = RawImage::new_from_internal_format_file(file_name)?;
                 image.remove_hot_pixels(&hot_pixels);
                 let filter_log = TimeLogger::start();

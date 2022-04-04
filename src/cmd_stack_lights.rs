@@ -197,7 +197,7 @@ fn create_temp_files(
 
     progress.lock().unwrap().set_total(file_names_list.len());
 
-    let save_mutex = Arc::new(Mutex::new(()));
+    let disk_access_mutex = Arc::new(Mutex::new(()));
 
     let all_tasks_finished_waiter = WaitGroup::new();
     for file in file_names_list.iter() {
@@ -208,7 +208,7 @@ fn create_temp_files(
         let progress = Arc::clone(&progress);
         let file = file.clone();
         let wait = all_tasks_finished_waiter.clone();
-        let disk_access_mutex = Arc::clone(&save_mutex);
+        let disk_access_mutex = Arc::clone(&disk_access_mutex);
 
         thread_pool.spawn(move || {
             progress.lock().unwrap().progress(true, extract_file_name(&file));
@@ -292,10 +292,10 @@ fn create_temp_file_from_light_file(
         norm_log.log("bg normalization TOTAL");
 
         let temp_file_name = get_temp_light_file_name(&file);
-        let save_log = TimeLogger::start();
         let save_lock = disk_access_mutex.lock();
-        save_log.log("saving temp file");
+        let save_log = TimeLogger::start();
         save_image_into_internal_format(&light_file.image, &temp_file_name)?;
+        save_log.log("saving temp file");
         drop(save_lock);
 
 /*

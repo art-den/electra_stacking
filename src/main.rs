@@ -12,6 +12,7 @@ mod consts;
 mod stars;
 mod tests;
 mod progress;
+mod compression;
 mod cmd_merge_lrgb;
 mod cmd_create_master_dark;
 mod cmd_create_master_flat;

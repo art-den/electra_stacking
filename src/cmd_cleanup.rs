@@ -108,7 +108,11 @@ pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
         let mut new_file_name = bad_file_path.clone();
         new_file_name.push(&item.file_name);
 
-        log::info!("Moving from {} to {}", path_to_str(&existing_name), path_to_str(&new_file_name));
+        log::info!(
+            "Moving from {} to {}",
+            path_to_str(&existing_name),
+            path_to_str(&new_file_name)
+        );
 
         std::fs::rename(&existing_name, &new_file_name)?;
 

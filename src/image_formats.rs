@@ -2,7 +2,8 @@ use std::{path::*, io::*, fs::*};
 use tiff::encoder::*;
 use fitrs::*;
 use itertools::*;
-use crate::{image::*, fs_utils::*};
+use bitstream_io::{BigEndian, BitWriter, BitReader};
+use crate::{image::*, fs_utils::*, compression::*};
 
 pub fn load_image_from_file(file_name: &PathBuf) -> anyhow::Result<SrcImageData> {
     let ext = extract_extension(file_name);
@@ -397,7 +398,6 @@ pub fn save_image_to_fits_file(
     Ok(())
 }
 
-
 /*****************************************************************************/
 
 // Internal compressed format
@@ -407,57 +407,66 @@ pub fn save_image_into_internal_format(
     file_name: &PathBuf
 ) -> anyhow::Result<()> {
     if image.is_empty() { anyhow::bail!("Image is empty"); }
+
     let mut file = BufWriter::with_capacity(1024 * 256, File::create(file_name)?);
+    let mut writer = BitWriter::endian(&mut file, BigEndian);
+
     if image.is_rgb() {
-        let mut r_prev = 0_u32;
-        let mut g_prev = 0_u32;
-        let mut b_prev = 0_u32;
+        let mut r_writer = F32Compressor::new();
+        let mut g_writer = F32Compressor::new();
+        let mut b_writer = F32Compressor::new();
 
         for (_, _, r, g, b) in image.iter_rgb_crd() {
-            let r_bits = r.to_bits();
-            let g_bits = g.to_bits();
-            let b_bits = b.to_bits();
-            leb128::write::unsigned(&mut file, (r_prev^r_bits) as u64)?;
-            leb128::write::unsigned(&mut file, (g_prev^g_bits) as u64)?;
-            leb128::write::unsigned(&mut file, (b_prev^b_bits) as u64)?;
-            r_prev = r_bits;
-            g_prev = g_bits;
-            b_prev = b_bits;
+            r_writer.write(r, &mut writer)?;
+            g_writer.write(g, &mut writer)?;
+            b_writer.write(b, &mut writer)?;
         }
+
+        r_writer.flush(&mut writer)?;
+        g_writer.flush(&mut writer)?;
+        b_writer.flush(&mut writer)?;
+
     } else {
-        let mut prev_l = 0_u32;
+        let mut l_writer = F32Compressor::new();
         for l in image.l.iter() {
-            let l_bits = l.to_bits();
-            leb128::write::unsigned(&mut file, (prev_l^l_bits) as u64)?;
-            prev_l = l_bits;
+            l_writer.write(*l, &mut writer)?;
         }
+        l_writer.flush(&mut writer)?;
     }
+
     Ok(())
 }
 
 pub struct InternalFormatReader {
-    file: BufReader<File>,
-    r: u32,
-    g: u32,
-    b: u32,
-    l: u32
+    reader: BitReader<BufReader<File>, BigEndian>,
+    r: F32Decompressor,
+    g: F32Decompressor,
+    b: F32Decompressor,
+    l: F32Decompressor
 }
 
 impl InternalFormatReader {
     pub fn new(file_name: &PathBuf) -> anyhow::Result<InternalFormatReader> {
         let file = BufReader::with_capacity(1024*256, File::open(file_name)?);
-        Ok(InternalFormatReader { file, r: 0, g: 0, b: 0, l: 0 })
+        let reader = BitReader::endian(file, BigEndian);
+        Ok(InternalFormatReader {
+            reader,
+            r: F32Decompressor::new(),
+            g: F32Decompressor::new(),
+            b: F32Decompressor::new(),
+            l: F32Decompressor::new(),
+        })
     }
 
     pub fn get_rgb(&mut self) -> anyhow::Result<(f32, f32, f32)> {
-        self.r ^= leb128::read::unsigned(&mut self.file)? as u32;
-        self.g ^= leb128::read::unsigned(&mut self.file)? as u32;
-        self.b ^= leb128::read::unsigned(&mut self.file)? as u32;
-        Ok((f32::from_bits(self.r), f32::from_bits(self.g), f32::from_bits(self.b)))
+        Ok((
+            self.r.get(&mut self.reader)?,
+            self.g.get(&mut self.reader)?,
+            self.b.get(&mut self.reader)?,
+        ))
     }
 
     pub fn get_l(&mut self) -> anyhow::Result<f32> {
-        self.l ^= leb128::read::unsigned(&mut self.file)? as u32;
-        Ok(f32::from_bits(self.l))
+        Ok(self.l.get(&mut self.reader)?)
     }
 }
