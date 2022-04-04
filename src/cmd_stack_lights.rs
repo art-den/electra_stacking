@@ -54,6 +54,11 @@ pub struct CmdOptions {
     /// Number of parallel tasks
     #[structopt(long, default_value = "1")]
     num_tasks: usize,
+
+    /// reduce image size by `bin` times.
+    /// Only value 2 is supported
+    #[structopt(long)]
+    bin: Option<usize>,
 }
 
 struct DirData {
@@ -113,9 +118,16 @@ pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
         &dir_data[0].master_dark
     )?;
 
-    let ref_data = Arc::new(RefData::new(&options.ref_file, &ref_cal)?);
+    let ref_data = Arc::new(RefData::new(
+        &options.ref_file,
+        &ref_cal,
+        options.bin.unwrap_or(1)
+    )?);
 
-    let thread_pool = rayon::ThreadPoolBuilder::new().num_threads(options.num_tasks).build().unwrap();
+    let thread_pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(options.num_tasks)
+        .build()
+        .unwrap();
 
     for item in dir_data.iter() {
         let ref_data = Arc::clone(&ref_data);
@@ -126,6 +138,7 @@ pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
             &item.master_flat,
             &item.master_dark,
             ref_data,
+            options.bin.unwrap_or(1),
             &options.exts,
             Arc::clone(&temp_file_names),
             Arc::clone(&files_to_del_later),
@@ -168,6 +181,7 @@ fn create_temp_files(
     master_flat:        &Option<PathBuf>,
     master_dark:        &Option<PathBuf>,
     ref_data:           Arc<RefData>,
+    bin:                usize,
     exts:               &String,
     result_list:        Arc<Mutex<Vec<TempFileData>>>,
     files_to_del_later: FilesToDeleteLaterTs,
@@ -202,6 +216,7 @@ fn create_temp_files(
                 file,
                 cal_data,
                 ref_data,
+                bin,
                 files_to_del_later,
                 disk_access_mutex,
                 result_list
@@ -222,6 +237,7 @@ fn create_temp_file_from_light_file(
     file:               PathBuf,
     cal_data:           Arc<CalibrationData>,
     ref_data:           Arc<RefData>,
+    bin:                usize,
     files_to_del_later: FilesToDeleteLaterTs,
     disk_access_mutex:  Arc<Mutex<()>>,
     result_list:        Arc<Mutex<Vec<TempFileData>>>
@@ -234,7 +250,8 @@ fn create_temp_file_from_light_file(
         &cal_data,
         Some(&disk_access_mutex),
           LoadLightFlags::STARS
-        | LoadLightFlags::NOISE
+        | LoadLightFlags::NOISE,
+        bin
     )?;
     load_log.log("loading light file TOTAL");
 

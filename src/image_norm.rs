@@ -291,12 +291,17 @@ pub struct RefData {
 }
 
 impl RefData {
-    pub fn new(ref_file_name: &PathBuf, cal_data: &CalibrationData) -> anyhow::Result<RefData> {
+    pub fn new(
+        ref_file_name: &PathBuf,
+        cal_data:      &CalibrationData,
+        bin:           usize
+    ) -> anyhow::Result<RefData> {
         let image = LightFile::load(
             &ref_file_name,
             &cal_data,
             None,
-            LoadLightFlags::STARS
+            LoadLightFlags::STARS,
+            bin
         )?;
 
         let mut mask = ImageMask::new_empty();

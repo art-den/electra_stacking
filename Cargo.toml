@@ -1,7 +1,10 @@
 [package]
 name = "astro_utils"
-version = "0.0.1"
+version = "0.0.2"
 edition = "2021"
+description = "Utility for stacking astronimical images"
+repository = "https://github.com/art-den/astro_utils"
+license = "MIT"
 
 [dependencies]
 fitrs = "0.5.0"

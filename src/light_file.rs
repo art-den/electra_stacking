@@ -25,22 +25,17 @@ impl LightFile {
         cal_data:   &CalibrationData,
         disk_mutex: Option<&std::sync::Mutex<()>>,
         flags:      LoadLightFlags,
+        bin:        usize,
     ) -> anyhow::Result<LightFile> {
-        let load = || {
-            if is_image_file_name(file_name) {
-                load_image_from_tiff_file(file_name)
-            } else {
-                load_raw_light_file(file_name, cal_data)
-            }
-        };
-
-        let src_data = if let Some(mutex) = disk_mutex {
-            let _locker = mutex.lock().unwrap();
-            let result = load();
-            result
+        let mut src_data = if is_image_file_name(file_name) {
+            load_image_from_file(file_name)
         } else {
-            load()
+            load_raw_light_file(file_name, cal_data, disk_mutex)
         }?;
+
+        if bin == 2 {
+            src_data.image = src_data.image.decrease_2x();
+        }
 
         let grey_image = if !flags.is_empty() {
             let grey_log = TimeLogger::start();
@@ -129,15 +124,17 @@ fn check_raw_data(
 }
 
 fn load_raw_light_file(
-    file_name: &PathBuf,
-    cal_data:  &CalibrationData
+    file_name:  &PathBuf,
+    cal_data:   &CalibrationData,
+    disk_mutex: Option<&std::sync::Mutex<()>>,
 ) -> anyhow::Result<SrcImageData> {
     // load raw file
     let raw_log = TimeLogger::start();
     let mut raw_image = RawImage::load_camera_raw_file(
         file_name,
           RawLoadFlags::APPLY_BLACK_AND_WB
-        | RawLoadFlags::INF_OVEREXPOSURES
+        | RawLoadFlags::INF_OVEREXPOSURES,
+        disk_mutex
     )?;
     raw_log.log("loading raw image");
 

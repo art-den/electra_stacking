@@ -133,7 +133,7 @@ pub fn create_master_file(
     progress.lock().unwrap().set_total(file_names_list.len());
     for file_path in file_names_list.iter() {
         progress.lock().unwrap().progress(true, extract_file_name(file_path));
-        let mut raw = RawImage::load_camera_raw_file(&file_path, load_raw_flags)?;
+        let mut raw = RawImage::load_camera_raw_file(&file_path, load_raw_flags, None)?;
         let is_ok = after_load_fun(&mut raw);
         if !is_ok { continue; }
         let temp_fn = get_file_name_fun(&file_path);

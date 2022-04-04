@@ -154,9 +154,19 @@ impl RawImage {
         RawImage { info, data: ImageLayerF32::new(width, height) }
     }
 
-    pub fn load_camera_raw_file(file_name: &PathBuf, flags: RawLoadFlags) -> anyhow::Result<RawImage> {
-        let mut file = BufReader::new(File::open(file_name)?);
-        let raw = rawloader::decode(&mut file)?;
+    pub fn load_camera_raw_file(
+        file_name: &PathBuf,
+        flags: RawLoadFlags,
+        disk_mutex: Option<&std::sync::Mutex<()>>
+    ) -> anyhow::Result<RawImage> {
+        let raw = if let Some(mutex) = disk_mutex {
+            let _lock = mutex.lock();
+            let mut file = BufReader::new(File::open(file_name)?);
+            rawloader::decode(&mut file)?
+        } else {
+            let mut file = BufReader::new(File::open(file_name)?);
+            rawloader::decode(&mut file)?
+        };
 
         let crop_left = raw.crops[3] as Crd;
         let crop_top = raw.crops[0] as Crd;

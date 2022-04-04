@@ -42,7 +42,8 @@ pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
             None,
               LoadLightFlags::STARS
             | LoadLightFlags::NOISE
-            | LoadLightFlags::BACKGROUND
+            | LoadLightFlags::BACKGROUND,
+            1
         )?;
 
         let stars_stat = calc_stars_stat(&light_file.stars);

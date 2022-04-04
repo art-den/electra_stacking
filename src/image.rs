@@ -1,3 +1,4 @@
+use itertools::{Itertools, izip};
 use serde::{Serialize, Deserialize};
 use crate::calc::*;
 
@@ -451,6 +452,21 @@ impl ImageLayer<f32> {
         }
         Ok(())
     }
+
+    pub fn decrease_2x(&self) -> ImageLayerF32 {
+        let res_width = self.width / 2;
+        let res_height = self.height / 2;
+        let mut result = ImageLayerF32::new(res_width, res_height);
+        for y in 0..res_height {
+            let it1 = &self.iter_row(2*y).chunks(2);
+            let it2 = &self.iter_row(2*y+1).chunks(2);
+            let dst = result.iter_row_mut(y);
+            for (ch1, ch2, d) in izip!(it1, it2, dst) {
+                *d = 0.25 * (ch1.sum::<f32>() + ch2.sum::<f32>());
+            }
+        }
+        result
+    }
 }
 
 impl std::ops::SubAssign<&ImageLayerF32> for ImageLayerF32 {
@@ -826,6 +842,15 @@ impl Image {
         self.g.check_contains_inf_or_nan()?;
         self.b.check_contains_inf_or_nan()?;
         Ok(())
+    }
+
+    pub fn decrease_2x(&self) -> Image {
+        Image {
+            r: self.r.decrease_2x(),
+            g: self.g.decrease_2x(),
+            b: self.b.decrease_2x(),
+            l: self.l.decrease_2x(),
+        }
     }
 }
 
