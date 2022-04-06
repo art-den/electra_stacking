@@ -1,8 +1,5 @@
-use std::{path::*, io::*, fs::*, sync::*};
-use anyhow::bail;
+use std::{path::*, sync::*};
 use itertools::Itertools;
-use byteorder::*;
-use crate::{image::*, calc::*, progress::*, image_raw::*};
 
 pub fn file_mask_to_regex_str(text: &str) -> String {
     let mut result = String::new();
@@ -110,90 +107,6 @@ pub fn path_to_str(path: &PathBuf) -> &str {
     path
         .to_str()
         .unwrap_or("")
-}
-
-pub fn create_master_file(
-    path:              &PathBuf,
-    exts:              &String,
-    calc_opts:         &CalcOpts,
-    result_file:       &PathBuf,
-    load_raw_flags:    RawLoadFlags,
-    get_file_name_fun: fn (path: &PathBuf) -> PathBuf,
-    after_load_fun:    fn (image: &mut RawImage) -> bool,
-    before_save_fun:   fn (image: &mut ImageLayerF32),
-    progress:          ProgressTs,
-) -> anyhow::Result<()> {
-    let file_names_list = get_files_list(path, &exts, true)?;
-
-    struct FileData {
-        file:       BufReader<File>,
-        image_info: RawImageInfo,
-    }
-
-    progress.lock().unwrap().set_total(file_names_list.len());
-    for file_path in file_names_list.iter() {
-        progress.lock().unwrap().progress(true, extract_file_name(file_path));
-        let mut raw = RawImage::load_camera_raw_file(&file_path, load_raw_flags, None)?;
-        let is_ok = after_load_fun(&mut raw);
-        if !is_ok { continue; }
-        let temp_fn = get_file_name_fun(&file_path);
-        raw.save_to_internal_format_file(&temp_fn)?;
-    }
-
-    let mut opened_files = Vec::new();
-    let mut temp_file_list = FilesToDeleteLater::new();
-    let mut first_image_info: Option<RawImageInfo> = None;
-    for file_path in file_names_list.iter() {
-        let temp_fn = get_file_name_fun(file_path);
-        if !Path::new(&temp_fn).is_file() { continue; }
-
-        let mut file = BufReader::new(File::open(&temp_fn)?);
-        let image_info = RawImageInfo::read_from(&mut file)?;
-        if let Some(fii) = &first_image_info {
-            if !fii.check_is_compatible(&image_info) { anyhow::bail!(
-                "Dimesions of file {:?} is not same compared first one",
-                file_path
-            ); }
-        } else {
-            first_image_info = Some(image_info.clone());
-        }
-        opened_files.push(FileData{ file, image_info });
-        temp_file_list.add(&temp_fn);
-    }
-
-    progress.lock().unwrap().next_step();
-
-    if opened_files.is_empty() { bail!("Nothing to merge") }
-
-    let image_info = first_image_info.unwrap();
-    let mut image = RawImage::new_from_info(image_info);
-    let mut data_to_calc = Vec::<CalcValue>::new();
-
-    let mut prev_y = -1;
-    let img_height = image.data.height() as usize;
-    for (_, y, v) in image.data.iter_crd_mut() {
-        if y != prev_y {
-            progress.lock().unwrap().percent(y as usize + 1, img_height, "Stacking values...");
-            prev_y = y;
-        }
-
-        data_to_calc.clear();
-        for f in opened_files.iter_mut() {
-            let value = f.file.read_f32::<BigEndian>()?;
-            data_to_calc.push(CalcValue::new(value as f64));
-        }
-        *v = calc(&mut data_to_calc, calc_opts)
-            .and_then(|v| Some(v.result))
-            .unwrap_or(NO_VALUE_F32 as f64) as f32;
-    }
-
-    progress.lock().unwrap().percent(100, 100, "Done");
-    progress.lock().unwrap().next_step();
-
-    before_save_fun(&mut image.data);
-    image.save_to_internal_format_file(result_file)?;
-
-    Ok(())
 }
 
 pub struct FilesToDeleteLater {

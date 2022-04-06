@@ -126,8 +126,7 @@ pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
 
     let thread_pool = rayon::ThreadPoolBuilder::new()
         .num_threads(options.num_tasks)
-        .build()
-        .unwrap();
+        .build()?;
 
     for item in dir_data.iter() {
         let ref_data = Arc::clone(&ref_data);

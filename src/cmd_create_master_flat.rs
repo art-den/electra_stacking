@@ -1,6 +1,13 @@
 use structopt::*;
 use std::{path::*};
-use crate::{calc::*, consts::*, fs_utils::*, image_raw::*, progress::*};
+use crate::{
+    stacking_utils::*,
+    calc::*,
+    consts::*,
+    fs_utils::*,
+    image_raw::*,
+    progress::*
+};
 
 #[derive(StructOpt, Debug)]
 pub struct CmdOptions {
@@ -18,6 +25,10 @@ pub struct CmdOptions {
     /// File name of result master flat file (with .raw extension)
     #[structopt(short, long, parse(from_os_str))]
     result_file: PathBuf,
+
+    /// Number of parallel tasks
+    #[structopt(long, default_value = "1")]
+    num_tasks: usize,
 }
 
 fn postprocess_single_flat_image_color(
@@ -119,6 +130,7 @@ pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
         |path| get_temp_flat_file_name(path),
         postprocess_single_flat_image,
         |_| (),
-        ProgressConsole::new_ts()
+        ProgressConsole::new_ts(),
+        options.num_tasks
     )
 }

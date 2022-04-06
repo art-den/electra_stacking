@@ -1,6 +1,13 @@
 use structopt::*;
 use std::{path::*};
-use crate::{fs_utils::*, calc::*, consts::*, progress::*, image_raw::* };
+use crate::{
+    fs_utils::*,
+    stacking_utils::*,
+    calc::*,
+    consts::*,
+    progress::*,
+    image_raw::*
+};
 
 #[derive(StructOpt, Debug)]
 pub struct CmdOptions {
@@ -18,6 +25,10 @@ pub struct CmdOptions {
     /// File name of result master dark file (with .raw extension)
     #[structopt(short, long, parse(from_os_str))]
     result_file: PathBuf,
+
+    /// Number of parallel tasks
+    #[structopt(long, default_value = "1")]
+    num_tasks: usize,
 }
 
 pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
@@ -31,5 +42,6 @@ pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
         |_| true,
         |_| (),
         ProgressConsole::new_ts(),
+        options.num_tasks
     )
 }

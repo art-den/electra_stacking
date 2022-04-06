@@ -1,6 +1,6 @@
 [package]
 name = "astro_utils"
-version = "0.0.3"
+version = "0.0.4"
 edition = "2021"
 description = "Utility for stacking astronimical images"
 repository = "https://github.com/art-den/astro_utils"

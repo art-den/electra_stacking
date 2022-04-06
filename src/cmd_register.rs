@@ -41,8 +41,7 @@ pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
     let disk_access_mutex = Arc::new(Mutex::new(()));
     let thread_pool = rayon::ThreadPoolBuilder::new()
         .num_threads(options.num_tasks)
-        .build()
-        .unwrap();
+        .build()?;
 
     let all_tasks_finished_waiter = WaitGroup::new();
 

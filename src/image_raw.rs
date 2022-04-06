@@ -160,9 +160,11 @@ impl RawImage {
         disk_mutex: Option<&std::sync::Mutex<()>>
     ) -> anyhow::Result<RawImage> {
         let raw = if let Some(mutex) = disk_mutex {
-            let _lock = mutex.lock();
+            let lock = mutex.lock();
             let mut file = BufReader::new(File::open(file_name)?);
-            rawloader::decode(&mut file)?
+            let result = rawloader::decode(&mut file)?;
+            drop(lock);
+            result
         } else {
             let mut file = BufReader::new(File::open(file_name)?);
             rawloader::decode(&mut file)?

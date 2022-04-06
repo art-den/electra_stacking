@@ -13,6 +13,7 @@ mod stars;
 mod tests;
 mod progress;
 mod compression;
+mod stacking_utils;
 mod cmd_merge_lrgb;
 mod cmd_create_master_dark;
 mod cmd_create_master_flat;
@@ -22,7 +23,6 @@ mod cmd_cleanup;
 mod cmd_convert;
 
 use std::path::*;
-use log::info;
 use structopt::StructOpt;
 use flexi_logger::*;
 
@@ -65,7 +65,7 @@ fn main() -> anyhow::Result<()> {
 
     if let Some(log_path) = &opt.log_path {
         start_logger(log_path)?;
-        info!("Program started. Options = {:#?}", opt.cmd);
+        log::info!("Program started. Options = {:#?}", opt.cmd);
     }
 
     let result = match opt.cmd {
