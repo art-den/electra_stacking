@@ -104,7 +104,7 @@ impl RawImageInfo {
     }
 
     pub fn read_from<R: Read>(src: &mut R) -> anyhow::Result<RawImageInfo> {
-        let mut sig = [0u8; 10]; // = b"raw-file-1";
+        let mut sig = [0u8; RAW_FILE_SIG.len()];
         src.read_exact(&mut sig)?;
         if &sig != RAW_FILE_SIG { anyhow::bail!("File is not raw one"); }
         let version = leb128::read::unsigned(src)?;

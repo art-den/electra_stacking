@@ -1,3 +1,4 @@
+use std::collections::{VecDeque,HashSet};
 use serde::{Serialize, Deserialize};
 use crate::calc::*;
 
@@ -370,78 +371,58 @@ impl ImageLayer<f32> {
     pub fn fill_inf_areas(&mut self) {
         if self.is_empty() { return; }
 
-        let mut inf_mask = ImageLayer::new(self.width, self.height);
-        for (m, i) in inf_mask.iter_mut().zip(self.data.iter()) {
-            if i.is_infinite() { *m = true; }
-        }
+        let mut flood_filler = FloodFiller::new();
+        let mut inf_area_points: HashSet<(Crd, Crd)> = HashSet::new();
+        let mut around_area_points: HashSet<(Crd, Crd)> = HashSet::new();
+        let mut cur_pos: usize = 0;
+        while let Some(pos) = self.data[cur_pos..].iter().position(|v| v.is_infinite()) {
+            cur_pos += pos;
+            let x = cur_pos as Crd % self.width;
+            let y = cur_pos as Crd / self.width;
+            debug_assert!(self.get(x, y).unwrap_or(0.0).is_infinite());
 
-        let remove_for_col_or_row = |v: &mut [f32], m: &[bool]| -> bool {
-            assert!(v.len() == m.len());
-
-            let mut changed = false;
-            let mut start_index: usize = 0;
-            while start_index < m.len() {
-                let start = m[start_index..]
-                    .iter()
-                    .position(|v| *v)
-                    .unwrap_or(m.len()-start_index) + start_index;
-
-                if start >= m.len() { break; }
-
-                let end = m[start..]
-                    .iter()
-                    .position(|v| !*v)
-                    .unwrap_or(m.len()-start) + start - 1;
-
-                let (mut start_val, mut end_val) =
-                    if start == 0 && end != m.len()-1 {
-                        (v[end+1], v[end+1])
-                    } else if start != 0 && end == m.len()-1 {
-                        (v[start-1], v[start-1])
-                    } else if start != 0 && end != m.len()-1 {
-                        (v[start-1], v[end+1])
-                    } else {
-                        (NO_VALUE_F32, NO_VALUE_F32)
-                    };
-
-                if start_val == NO_VALUE_F32 {
-                    start_val = end_val;
-                } else if end_val == NO_VALUE_F32 {
-                    end_val = start_val;
-                }
-
-                if start_val != NO_VALUE_F32 && end_val != NO_VALUE_F32 {
-                    for i in start..=end {
-                        let value = linear_interpol(
-                            i as f64,
-                            (start as i32 - 1) as f64,
-                            (end as i32 + 1) as f64,
-                            start_val as f64,
-                            end_val as f64
-                        ) as f32;
-                        if v[i].is_infinite() { v[i] = value; }
-                        else { v[i] = (v[i] + value) / 2.0; }
+            inf_area_points.clear();
+            flood_filler.fill(
+                x, y,
+                |x, y| {
+                    if inf_area_points.contains(&(x, y)) { return false; }
+                    if let Some(v) = self.get(x, y) { if !v.is_infinite() {
+                        return false;
+                    }} else {
+                        return false;
                     }
-                    changed = true;
+                    inf_area_points.insert((x, y));
+                    true
                 }
+            );
+            debug_assert!(!inf_area_points.is_empty());
 
-                start_index = end + 1;
+            around_area_points.clear();
+            for &(x, y) in inf_area_points.iter() {
+                let mut try_outer_pt = |x, y| {
+                    if x < 0 || x >= self.width { return; }
+                    if y < 0 || y >= self.height { return; }
+                    if inf_area_points.contains(&(x, y)) { return; }
+                    around_area_points.insert((x, y));
+                };
+                try_outer_pt(x+1, y);
+                try_outer_pt(x-1, y);
+                try_outer_pt(x, y+1);
+                try_outer_pt(x, y-1);
             }
-            changed
-        };
 
-        let mut mask = Vec::new();
-        self.foreach_row_and_col_mut(IterType::Both, |values, crd, iter_type| {
-            mask.clear();
-            match iter_type {
-                IterType::Cols =>
-                    for m in inf_mask.iter_col(crd) { mask.push(*m); },
-                IterType::Rows =>
-                    for m in inf_mask.iter_row(crd) { mask.push(*m); },
-                _ => (),
-            };
-            remove_for_col_or_row(values, &mask)
-        })
+            for &(dst_x, dst_y) in inf_area_points.iter() {
+                let mut sum = 0_f64;
+                let mut sum_w = 0_f64;
+                for &(x, y) in around_area_points.iter() {
+                    let dist = f64::sqrt(((x - dst_x) * (x - dst_x) + (y - dst_y) * (y - dst_y)) as f64);
+                    let w = 1.0 / dist;
+                    sum += w * self.get(x, y).unwrap_or(0.0) as f64;
+                    sum_w += w;
+                }
+                self.set(dst_x, dst_y, (sum / sum_w) as f32);
+            }
+        }
     }
 
     pub fn check_contains_inf_or_nan(&self) -> anyhow::Result<()> {
@@ -590,7 +571,6 @@ impl<'a, T: Copy + Clone> Iterator for ImageLayerMutIter3<'a, T> {
         }
     }
 }
-
 
 pub struct RectIterCrd<'a, T: Copy + Clone + ImgLayerDefValue<Type = T>> {
     img: &'a ImageLayer<T>,
@@ -932,6 +912,41 @@ impl Iterator for RectAreaIterator {
             Some(result)
         } else {
             None
+        }
+    }
+}
+
+pub struct FloodFiller {
+    visited: VecDeque<(Crd, Crd)>,
+}
+
+impl FloodFiller {
+    pub fn new() -> FloodFiller {
+        FloodFiller {
+            visited: VecDeque::new(),
+        }
+    }
+
+    pub fn fill<SetFilled: FnMut(Crd, Crd) -> bool>(
+        &mut self,
+        x: Crd,
+        y: Crd,
+        mut try_set_filled: SetFilled
+    ) {
+        if !try_set_filled(x, y) { return; }
+
+        self.visited.clear();
+        self.visited.push_back((x, y));
+
+        while let Some((pt_x, pt_y)) = self.visited.pop_front() {
+            let mut check_neibour = |x, y| {
+                if !try_set_filled(x, y) { return; }
+                self.visited.push_back((x, y));
+            };
+            check_neibour(pt_x-1, pt_y);
+            check_neibour(pt_x+1, pt_y);
+            check_neibour(pt_x, pt_y-1);
+            check_neibour(pt_x, pt_y+1);
         }
     }
 }

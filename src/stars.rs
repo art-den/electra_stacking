@@ -1,4 +1,4 @@
-use std::{collections::{HashSet, VecDeque} };
+use std::collections::HashSet;
 use delaunator::*;
 use itertools::*;
 use serde::{Serialize, Deserialize};
@@ -75,8 +75,10 @@ pub fn find_stars_on_image(img: &ImageLayerF32) -> Stars {
 
     type TmpPt = (Crd, Crd);
     let mut all_stars_points: HashSet<TmpPt> = HashSet::new();
-    let mut points_to_visit: VecDeque<TmpPt> = VecDeque::new();
+//    let mut points_to_visit: VecDeque<TmpPt> = VecDeque::new();
     let mut star_bg_values = Vec::new();
+    let mut flood_filler = FloodFiller::new();
+
     for &(x, y, _) in possible_stars.iter() {
 
         if all_stars_points.contains(&(x, y)) { continue };
@@ -96,26 +98,22 @@ pub fn find_stars_on_image(img: &ImageLayerF32) -> Stars {
 
         // Find all points of star. Border is as 1/2 of brightness of star center
         let border_value = (star_max_value - star_bg) / 2.0;
-        points_to_visit.clear();
-        points_to_visit.push_back((x, y));
         let mut star_points = HashSet::new();
-        while let Some((pt_x, pt_y)) = points_to_visit.pop_front() {
-            star_points.insert((pt_x, pt_y));
-            if star_points.len() as i64 > MSD*MSD { break; }
 
-            let mut check_neibour = |x, y| {
-                if star_points.contains(&(x, y)) { return; }
-                if all_stars_points.contains(&(x, y)) { return; }
-                if let Some(v) = img.get(x, y) { if (v as f64 - star_bg) > border_value {
-                    points_to_visit.push_back((x, y));
-                    star_points.insert((x, y));
-                }}
-            };
-            check_neibour(pt_x-1, pt_y);
-            check_neibour(pt_x+1, pt_y);
-            check_neibour(pt_x, pt_y-1);
-            check_neibour(pt_x, pt_y+1);
-        }
+        flood_filler.fill(
+            x, y,
+            |x, y| {
+                if all_stars_points.contains(&(x, y)) { return false; }
+                if star_points.contains(&(x, y)) { return false; }
+                if let Some(v) = img.get(x, y) { if (v as f64 - star_bg) < border_value {
+                    return false;
+                }} else {
+                    return false;
+                }
+                star_points.insert((x, y));
+                true
+            }
+        );
 
         // test that found object is star
 
@@ -199,6 +197,7 @@ pub fn find_stars_on_image(img: &ImageLayerF32) -> Stars {
 
     stars
 }
+
 
 #[derive(Debug)]
 pub struct ImageOffset {

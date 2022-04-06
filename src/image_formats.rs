@@ -2,7 +2,7 @@ use std::{path::*, io::*, fs::*};
 use tiff::encoder::*;
 use fitrs::*;
 use itertools::*;
-use bitstream_io::{BigEndian, BitWriter, BitReader};
+use bitstream_io::{BigEndian, BitWriter, BitWrite, BitReader};
 use crate::{image::*, fs_utils::*, compression::*};
 
 pub fn load_image_from_file(file_name: &PathBuf) -> anyhow::Result<SrcImageData> {
@@ -412,24 +412,26 @@ pub fn save_image_into_internal_format(
     let mut writer = BitWriter::endian(&mut file, BigEndian);
 
     if image.is_rgb() {
-        let mut r_writer = F32Compressor::new();
-        let mut g_writer = F32Compressor::new();
-        let mut b_writer = F32Compressor::new();
+        let mut r_writer = ValuesCompressor::new();
+        let mut g_writer = ValuesCompressor::new();
+        let mut b_writer = ValuesCompressor::new();
 
         for (_, _, r, g, b) in image.iter_rgb_crd() {
-            r_writer.write(r, &mut writer)?;
-            g_writer.write(g, &mut writer)?;
-            b_writer.write(b, &mut writer)?;
+            r_writer.write_f32(r, &mut writer)?;
+            g_writer.write_f32(g, &mut writer)?;
+            b_writer.write_f32(b, &mut writer)?;
         }
 
         r_writer.flush(&mut writer)?;
         g_writer.flush(&mut writer)?;
         b_writer.flush(&mut writer)?;
 
+        writer.write(32, 0)?;
+        writer.flush()?;
     } else {
-        let mut l_writer = F32Compressor::new();
+        let mut l_writer = ValuesCompressor::new();
         for l in image.l.iter() {
-            l_writer.write(*l, &mut writer)?;
+            l_writer.write_f32(*l, &mut writer)?;
         }
         l_writer.flush(&mut writer)?;
     }
@@ -439,10 +441,10 @@ pub fn save_image_into_internal_format(
 
 pub struct InternalFormatReader {
     reader: BitReader<BufReader<File>, BigEndian>,
-    r: F32Decompressor,
-    g: F32Decompressor,
-    b: F32Decompressor,
-    l: F32Decompressor
+    r: ValuesDecompressor,
+    g: ValuesDecompressor,
+    b: ValuesDecompressor,
+    l: ValuesDecompressor
 }
 
 impl InternalFormatReader {
@@ -451,22 +453,22 @@ impl InternalFormatReader {
         let reader = BitReader::endian(file, BigEndian);
         Ok(InternalFormatReader {
             reader,
-            r: F32Decompressor::new(),
-            g: F32Decompressor::new(),
-            b: F32Decompressor::new(),
-            l: F32Decompressor::new(),
+            r: ValuesDecompressor::new(),
+            g: ValuesDecompressor::new(),
+            b: ValuesDecompressor::new(),
+            l: ValuesDecompressor::new(),
         })
     }
 
     pub fn get_rgb(&mut self) -> anyhow::Result<(f32, f32, f32)> {
         Ok((
-            self.r.get(&mut self.reader)?,
-            self.g.get(&mut self.reader)?,
-            self.b.get(&mut self.reader)?,
+            self.r.read_f32(&mut self.reader)?,
+            self.g.read_f32(&mut self.reader)?,
+            self.b.read_f32(&mut self.reader)?,
         ))
     }
 
     pub fn get_l(&mut self) -> anyhow::Result<f32> {
-        Ok(self.l.get(&mut self.reader)?)
+        Ok(self.l.read_f32(&mut self.reader)?)
     }
 }
