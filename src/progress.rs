@@ -5,6 +5,7 @@ pub trait Progress {
     fn progress(&mut self, step: bool, text: &str);
     fn percent(&mut self, value: usize, total: usize, text: &str);
     fn next_step(&mut self);
+    fn terminated(&mut self) -> bool;
 }
 
 pub type ProgressTs = Arc<Mutex<dyn Progress + Send>>;
@@ -27,12 +28,9 @@ impl ProgressConsole {
     }
 
     pub fn new_ts() -> ProgressTs {
-        Arc::new(Mutex::new(ProgressConsole {
-            pos: 0,
-            total: 1,
-            prev_percent: usize::MAX,
-            prev_text: String::new()
-        }))
+        Arc::new(Mutex::new(
+            ProgressConsole::new()
+        ))
     }
 
     fn show_progress(&mut self, text: &str) {
@@ -73,4 +71,9 @@ impl Progress for ProgressConsole {
     fn next_step(&mut self) {
         println!("");
     }
+
+    fn terminated(&mut self) -> bool {
+        false
+    }
+
 }

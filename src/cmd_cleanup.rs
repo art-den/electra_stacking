@@ -100,6 +100,7 @@ pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
         }
     }
 
+    let mut moved_cnt = 0_usize;
     for item in data.iter() {
         if !item.to_delete { continue; }
 
@@ -119,6 +120,14 @@ pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
         existing_name.set_extension("light_info");
         new_file_name.set_extension("light_info");
         std::fs::rename(&existing_name, &new_file_name)?;
+
+        moved_cnt += 1;
+    }
+
+    if moved_cnt != 0 {
+        println!("Moved {} files", moved_cnt)
+    } else {
+        println!("No files moved")
     }
 
     Ok(())

@@ -68,14 +68,11 @@ struct DirData {
 }
 
 pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
-    let progress = ProgressConsole::new_ts();
-    let temp_file_names = Arc::new(Mutex::new(Vec::<TempFileData>::new()));
-    let files_to_del_later = Arc::new(Mutex::new(FilesToDeleteLater::new()));
-    let mut dir_data = Vec::new();
-
     if options.path.is_empty() {
         bail!("You must define at least one --path");
     }
+
+    let mut dir_data = Vec::new();
 
     if options.path.len() == 1 {
         if options.master_dark.len() > 1 {
@@ -111,6 +108,8 @@ pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
         }
     }
 
+    let progress = ProgressConsole::new_ts();
+
     progress.lock().unwrap().percent(0, 100, "Loading reference file...");
 
     let ref_cal = CalibrationData::load(
@@ -118,7 +117,7 @@ pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
         &dir_data[0].master_dark
     )?;
 
-    let ref_data = Arc::new(RefData::new(
+    let ref_data = Arc::new(RefBgData::new(
         &options.ref_file,
         &ref_cal,
         options.bin.unwrap_or(1)
@@ -128,21 +127,31 @@ pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
         .num_threads(options.num_tasks)
         .build()?;
 
+    let temp_file_names = Arc::new(Mutex::new(Vec::<TempFileData>::new()));
+    let files_to_del_later = Arc::new(Mutex::new(FilesToDeleteLater::new()));
+
     for item in dir_data.iter() {
-        let ref_data = Arc::clone(&ref_data);
+        progress.lock().unwrap().percent(0, 100, "Searching files...");
+        log::info!("Searching files in {} ...", path_to_str(&item.path));
+        let file_names_list = get_files_list(&item.path, &options.exts, true)?;
 
         create_temp_files(
-            Arc::clone(&progress),
-            &item.path,
+            &progress,
+            file_names_list,
             &item.master_flat,
             &item.master_dark,
-            ref_data,
+            &ref_data,
             options.bin.unwrap_or(1),
-            &options.exts,
-            Arc::clone(&temp_file_names),
-            Arc::clone(&files_to_del_later),
+            &temp_file_names,
+            &files_to_del_later,
             &thread_pool
         )?;
+
+        progress.lock().unwrap().percent(
+            100, 100,
+            format!("{} done", path_to_str(&item.path)).as_str()
+        );
+        progress.lock().unwrap().next_step();
     }
 
     if temp_file_names.lock().unwrap().is_empty() {
@@ -150,7 +159,7 @@ pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
     }
 
     merge_temp_files(
-        Arc::clone(&progress),
+        &progress,
         &temp_file_names.lock().unwrap(),
         &options.calc_opts,
         ref_data.image.image.is_rgb(),
@@ -161,6 +170,10 @@ pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
 
     drop(files_to_del_later);
 
+    Ok(())
+}
+
+pub fn stack_light_files() -> anyhow::Result<()> {
     Ok(())
 }
 
@@ -175,31 +188,25 @@ struct TempFileData {
 
 
 fn create_temp_files(
-    progress:           ProgressTs,
-    path:               &PathBuf,
+    progress:           &ProgressTs,
+    files_list:         Vec<PathBuf>,
     master_flat:        &Option<PathBuf>,
     master_dark:        &Option<PathBuf>,
-    ref_data:           Arc<RefData>,
+    ref_data:           &Arc<RefBgData>,
     bin:                usize,
-    exts:               &String,
-    result_list:        Arc<Mutex<Vec<TempFileData>>>,
-    files_to_del_later: FilesToDeleteLaterTs,
+    result_list:        &Arc<Mutex<Vec<TempFileData>>>,
+    files_to_del_later: &Arc<Mutex<FilesToDeleteLater>>,
     thread_pool:        &rayon::ThreadPool
 ) -> anyhow::Result<()> {
-    progress.lock().unwrap().percent(0, 100, "Searching files...");
-
-    log::info!("Searching files in {} ...", path_to_str(path));
-    let file_names_list = get_files_list(path, exts, true)?;
-
     progress.lock().unwrap().percent(0, 100, "Loading calibration images...");
     let cal_data = Arc::new(CalibrationData::load(master_flat, master_dark)?);
 
-    progress.lock().unwrap().set_total(file_names_list.len());
+    progress.lock().unwrap().set_total(files_list.len());
 
     let disk_access_mutex = Arc::new(Mutex::new(()));
 
     let all_tasks_finished_waiter = WaitGroup::new();
-    for file in file_names_list.iter() {
+    for file in files_list.iter() {
         let cal_data = Arc::clone(&cal_data);
         let ref_data = Arc::clone(&ref_data);
         let files_to_del_later = Arc::clone(&files_to_del_later);
@@ -212,7 +219,7 @@ fn create_temp_files(
         thread_pool.spawn(move || {
             progress.lock().unwrap().progress(true, extract_file_name(&file));
             create_temp_file_from_light_file(
-                file,
+                &file,
                 cal_data,
                 ref_data,
                 bin,
@@ -226,18 +233,15 @@ fn create_temp_files(
 
     all_tasks_finished_waiter.wait();
 
-    progress.lock().unwrap().percent(100, 100, format!("{} done", path_to_str(path)).as_str());
-    progress.lock().unwrap().next_step();
-
     Ok(())
 }
 
 fn create_temp_file_from_light_file(
-    file:               PathBuf,
+    file:               &PathBuf,
     cal_data:           Arc<CalibrationData>,
-    ref_data:           Arc<RefData>,
+    ref_data:           Arc<RefBgData>,
     bin:                usize,
-    files_to_del_later: FilesToDeleteLaterTs,
+    files_to_del_later: Arc<Mutex<FilesToDeleteLater>>,
     disk_access_mutex:  Arc<Mutex<()>>,
     result_list:        Arc<Mutex<Vec<TempFileData>>>
 ) -> Result<(), anyhow::Error> {
@@ -245,7 +249,7 @@ fn create_temp_file_from_light_file(
 
     let load_log = TimeLogger::start();
     let mut light_file = LightFile::load(
-        &file,
+        file,
         &cal_data,
         Some(&disk_access_mutex),
           LoadLightFlags::STARS
@@ -297,14 +301,6 @@ fn create_temp_file_from_light_file(
         save_log.log("saving temp file");
         drop(save_lock);
 
-/*
-        aligned_image.l.fill_inf_areas();
-        aligned_image.r.fill_inf_areas();
-        aligned_image.g.fill_inf_areas();
-        aligned_image.b.fill_inf_areas();
-        aligned_image.save_to_tiff_file(&get_temp_light_tif_file_name(&file))?;
-*/
-
         files_to_del_later.lock().unwrap().add(&temp_file_name);
         result_list.lock().unwrap().push(TempFileData{
             orig_file:    file.clone(),
@@ -332,7 +328,7 @@ fn seconds_to_total_time_str(seconds: f64) -> String {
 }
 
 fn merge_temp_files(
-    progress:        ProgressTs,
+    progress:        &ProgressTs,
     temp_file_names: &Vec<TempFileData>,
     calc_opts:       &CalcOpts,
     is_rgb_image:    bool,

@@ -14,6 +14,7 @@ mod tests;
 mod progress;
 mod compression;
 mod stacking_utils;
+mod project;
 mod cmd_merge_lrgb;
 mod cmd_create_master_dark;
 mod cmd_create_master_flat;

@@ -5,8 +5,7 @@ use crossbeam::sync::WaitGroup;
 use crate::{image::*, calc::*, progress::*, image_raw::*, fs_utils::*};
 
 pub fn create_master_file(
-    path:              &PathBuf,
-    exts:              &String,
+    files_list:        Vec<PathBuf>,
     calc_opts:         &CalcOpts,
     result_file:       &PathBuf,
     load_raw_flags:    RawLoadFlags,
@@ -17,7 +16,6 @@ pub fn create_master_file(
     num_tasks:         usize,
 ) -> anyhow::Result<()> {
     let disk_access_mutex = Arc::new(Mutex::new(()));
-    let file_names_list = get_files_list(path, &exts, true)?;
 
     struct FileData {
         file:       BufReader<File>,
@@ -30,9 +28,9 @@ pub fn create_master_file(
 
     let all_tasks_finished_waiter = WaitGroup::new();
 
-    progress.lock().unwrap().set_total(file_names_list.len());
+    progress.lock().unwrap().set_total(files_list.len());
     let files_to_process = Arc::new(Mutex::new(Vec::new()));
-    for file_path in file_names_list.iter() {
+    for file_path in files_list.iter() {
         let progress = Arc::clone(&progress);
         let disk_access_mutex = Arc::clone(&disk_access_mutex);
         let files_to_process = Arc::clone(&files_to_process);
@@ -69,7 +67,7 @@ pub fn create_master_file(
         let mut file = BufReader::new(File::open(&file_path)?);
         let image_info = RawImageInfo::read_from(&mut file)?;
         if let Some(fii) = &first_image_info {
-            if !fii.check_is_compatible(&image_info) { anyhow::bail!(
+            if !fii.check_is_compatible(&image_info) { bail!(
                 "Dimesions of file {:?} is not same compared first one",
                 file_path
             ); }

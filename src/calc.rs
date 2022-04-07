@@ -1,8 +1,9 @@
 use structopt::*;
 use clap::arg_enum;
+use serde::{Serialize, Deserialize};
 
 arg_enum! {
-    #[derive(Debug)]
+    #[derive(Debug, Serialize, Deserialize)]
     pub enum CalcMode {
         Mean,
         Median,
@@ -10,7 +11,7 @@ arg_enum! {
     }
 }
 
-#[derive(StructOpt, Debug)]
+#[derive(StructOpt, Debug, Serialize, Deserialize)]
 pub struct CalcOpts {
     /// Calculation mode
     #[structopt(
@@ -28,6 +29,16 @@ pub struct CalcOpts {
     /// repeats count for cappa-sigma mode
     #[structopt(long, default_value = "5")]
     repeats: u32
+}
+
+impl Default for CalcOpts {
+    fn default() -> Self {
+        Self {
+            mode: CalcMode::CappaSigma,
+            kappa: 2.5,
+            repeats: 5,
+        }
+    }
 }
 
 #[inline]

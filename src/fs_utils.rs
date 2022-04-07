@@ -1,4 +1,4 @@
-use std::{path::*, sync::*};
+use std::{path::*};
 use itertools::Itertools;
 
 pub fn file_mask_to_regex_str(text: &str) -> String {
@@ -7,15 +7,18 @@ pub fn file_mask_to_regex_str(text: &str) -> String {
         match sym {
             '.' | '\\' | '[' | ']' | '(' | ')' |
             '{' | '}' | '^' | '$' | '|' | '+' => {
-                result.push('\\');
+                    result.push('\\');
+                    result.push(sym)
+                },
+
+            '?' =>
+                result.push('.'),
+
+            '*' =>
+                result.push_str(".+"),
+
+            _ =>
                 result.push(sym)
-            },
-
-            '?' =>  result.push('.'),
-
-            '*' => result.push_str(".+"),
-
-            _ => result.push(sym)
         }
     }
     result
@@ -112,8 +115,6 @@ pub fn path_to_str(path: &PathBuf) -> &str {
 pub struct FilesToDeleteLater {
     files: Vec<PathBuf>,
 }
-
-pub type FilesToDeleteLaterTs = Arc<Mutex<FilesToDeleteLater>>;
 
 impl FilesToDeleteLater {
     pub fn new() -> FilesToDeleteLater {

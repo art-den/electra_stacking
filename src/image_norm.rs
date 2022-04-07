@@ -23,7 +23,7 @@ fn mask_stars(mask: &mut ImageMask, width: Crd, height: Crd, stars: &Stars) {
     }
 
 pub fn normalize(
-    ref_data:   &RefData,
+    ref_data:   &RefBgData,
     light_file: &mut LightFile
 ) -> anyhow::Result<NormResult> {
     let mut grey_image = light_file.grey.clone();
@@ -284,18 +284,18 @@ impl ImageBg {
     }
 }
 
-pub struct RefData {
+pub struct RefBgData {
     pub image: LightFile,
     pub grey:  ImageLayerF32, // greyscale image minus background
     pub bg:    ImageBg,
 }
 
-impl RefData {
+impl RefBgData {
     pub fn new(
         ref_file_name: &PathBuf,
         cal_data:      &CalibrationData,
         bin:           usize
-    ) -> anyhow::Result<RefData> {
+    ) -> anyhow::Result<RefBgData> {
         let image = LightFile::load(
             &ref_file_name,
             &cal_data,
@@ -313,6 +313,6 @@ impl RefData {
 
         let bg = calc_image_bg(&image.image, &mask)?;
 
-        Ok(RefData { image, grey, bg })
+        Ok(RefBgData { image, grey, bg })
     }
 }

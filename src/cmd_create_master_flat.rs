@@ -121,9 +121,9 @@ fn postprocess_single_flat_image(raw_image: &mut RawImage) -> bool {
 }
 
 pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
+    let files_list = get_files_list(&options.path, &options.exts, true)?;
     create_master_file(
-        &options.path,
-        &options.exts,
+        files_list,
         &options.calc_opts,
         &options.result_file,
         RawLoadFlags::empty(),
