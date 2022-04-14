@@ -1,31 +1,17 @@
 #![allow(dead_code)]
 
-mod image;
-mod image_norm;
-mod image_raw;
-mod image_formats;
-mod light_file;
-mod fs_utils;
-mod log_utils;
-mod calc;
-mod consts;
-mod stars;
-mod tests;
-mod progress;
-mod compression;
-mod stacking_utils;
-mod project;
-mod cmd_merge_lrgb;
-mod cmd_create_master_dark;
-mod cmd_create_master_flat;
-mod cmd_stack_lights;
-mod cmd_register;
-mod cmd_cleanup;
-mod cmd_convert;
-
 use std::path::*;
 use structopt::StructOpt;
 use flexi_logger::*;
+use astro_utils::*;
+
+mod cmd_cleanup;
+mod cmd_convert;
+mod cmd_create_master_dark;
+mod cmd_create_master_flat;
+mod cmd_merge_lrgb;
+mod cmd_register;
+mod cmd_stack_lights;
 
 #[derive(StructOpt, Debug)]
 enum SubCommands {

@@ -1,6 +1,6 @@
 use std::path::*;
 use structopt::*;
-use crate::image_formats::*;
+use astro_utils::image_formats::*;
 
 #[derive(StructOpt, Debug)]
 pub struct CmdOptions {
