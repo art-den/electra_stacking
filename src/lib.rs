@@ -8,10 +8,9 @@ pub mod light_file;
 pub mod fs_utils;
 pub mod log_utils;
 pub mod calc;
-pub mod consts;
 pub mod stars;
 pub mod tests;
 pub mod progress;
 pub mod compression;
 pub mod stacking_utils;
-pub mod project;
+

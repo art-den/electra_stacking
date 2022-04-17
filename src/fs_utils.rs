@@ -1,5 +1,6 @@
 use std::{path::*};
 use itertools::Itertools;
+use chrono::prelude::*;
 
 pub fn file_mask_to_regex_str(text: &str) -> String {
     let mut result = String::new();
@@ -41,7 +42,7 @@ pub fn create_regex_for_masks(masks: &str) -> anyhow::Result<regex::Regex> {
 }
 
 pub fn get_files_list(
-    path:                  &PathBuf,
+    path:                  &Path,
     exts:                  &str,
     err_if_no_files_found: bool
 ) -> anyhow::Result<Vec<PathBuf>> {
@@ -63,50 +64,40 @@ pub fn get_files_list(
     Ok(result)
 }
 
-pub fn get_temp_dark_file_name(dark_file_name: &PathBuf) -> PathBuf {
-    let mut result = dark_file_name.clone();
-    result.set_extension("temp_dark");
-    return result;
+pub fn get_temp_dark_file_name(file_name: &Path) -> PathBuf {
+    file_name.with_extension("temp_dark")
 }
 
-pub fn get_temp_flat_file_name(dark_file_name: &PathBuf) -> PathBuf {
-    let mut result = dark_file_name.clone();
-    result.set_extension("temp_flat");
-    return result;
+pub fn get_temp_flat_file_name(file_name: &Path) -> PathBuf {
+    file_name.with_extension("temp_flat")
 }
 
-pub fn get_temp_light_file_name(dark_file_name: &PathBuf) -> PathBuf {
-    let mut result = dark_file_name.clone();
-    result.set_extension("temp_light");
-    return result;
+pub fn get_temp_light_file_name(file_name: &Path) -> PathBuf {
+    file_name.with_extension("temp_light")
 }
 
-pub fn get_light_info_file_name(dark_file_name: &PathBuf) -> PathBuf {
-    let mut result = dark_file_name.clone();
-    result.set_extension("light_info");
-    return result;
+pub fn get_light_info_file_name(file_name: &Path) -> PathBuf {
+    file_name.with_extension("light_info")
 }
 
-pub fn get_temp_light_tif_file_name(dark_file_name: &PathBuf) -> PathBuf {
-    let mut result = dark_file_name.clone();
-    result.set_extension("tif");
-    return result;
+pub fn get_temp_light_tif_file_name(file_name: &PathBuf) -> PathBuf {
+    file_name.with_extension("tif")
 }
 
-pub fn extract_file_name(path: &PathBuf) -> &str {
+pub fn extract_file_name(path: &Path) -> &str {
     path
         .file_name()
         .and_then(|s| s.to_str())
         .unwrap_or("")
 }
 
-pub fn extract_extension(path: &PathBuf) -> &str {
+pub fn extract_extension(path: &Path) -> &str {
     path.extension()
         .and_then(|s| s.to_str())
         .unwrap_or("")
 }
 
-pub fn path_to_str(path: &PathBuf) -> &str {
+pub fn path_to_str(path: &Path) -> &str {
     path
         .to_str()
         .unwrap_or("")
@@ -132,4 +123,9 @@ impl Drop for FilesToDeleteLater {
             let _ = std::fs::remove_file(file);
         }
     }
+}
+
+pub fn get_file_time(file_name: &Path) -> anyhow::Result<DateTime<Local>> {
+    let metadata = std::fs::metadata(file_name)?;
+    Ok(metadata.created()?.into())
 }

@@ -231,7 +231,13 @@ impl RawImage {
             }
         }
 
-        let inf_overexposures = flags.contains(RawLoadFlags::INF_OVEREXPOSURES);
+        let mut inf_overexposures = flags.contains(RawLoadFlags::INF_OVEREXPOSURES);
+        for i in 0..raw.whitelevels.len() {
+            if raw.whitelevels[i] < raw.blacklevels[i] {
+                inf_overexposures = false;
+            }
+        }
+
         let apply_black_and_wb = flags.contains(RawLoadFlags::APPLY_BLACK_AND_WB);
         if inf_overexposures || apply_black_and_wb {
             let mut correct_values = |color, black_level, wb_coeff, max| {
@@ -263,7 +269,7 @@ impl RawImage {
                 raw.whitelevels.iter(),
                 raw.blacklevels.iter())
             {
-                *d = (*w - *b) as f32;
+                *d = *w as f32 - *b as f32;
             }
         } else {
             for (d, s) in izip!(
@@ -284,14 +290,14 @@ impl RawImage {
         Ok(RawImage{ info, data })
     }
 
-    pub fn save_to_internal_format_file(&self, file_name: &PathBuf) -> anyhow::Result<()> {
+    pub fn save_to_internal_format_file(&self, file_name: &Path) -> anyhow::Result<()> {
         let mut file = BufWriter::new(File::create(file_name)?);
         self.info.write_to(&mut file)?;
         for v in self.data.iter() { file.write_f32::<BigEndian>(*v)?; }
         Ok(())
     }
 
-    pub fn new_from_internal_format_file(file_name: &PathBuf) -> anyhow::Result<RawImage> {
+    pub fn new_from_internal_format_file(file_name: &Path) -> anyhow::Result<RawImage> {
         let mut file = std::io::BufReader::new(std::fs::File::open(file_name)?);
         let info = RawImageInfo::read_from(&mut file)?;
         let mut image = ImageLayerF32::new(info.width, info.height);

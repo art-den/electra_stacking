@@ -1,9 +1,14 @@
-use std::{path::*, io::*, fs::*};
-use tiff::encoder::*;
+use std::{path::*, io::*, fs::*, sync::atomic::*, sync::Arc};
+use tiff::{*, decoder::*, encoder::*};
 use fitrs::*;
 use itertools::*;
 use bitstream_io::{BigEndian, BitWriter, BitWrite, BitReader};
-use crate::{image::*, fs_utils::*, compression::*};
+use chrono::prelude::*;
+use crate::{image::*, fs_utils::*, compression::*, progress::ProgressTs};
+
+pub const FIT_EXTS: &[&str] = &["fit", "fits", "fts"];
+pub const TIF_EXTS: &[&str] = &["tiff", "tif"];
+pub const RAW_EXTS: &[&str] = &["dng", "cr2", "nef", "arw"];
 
 pub fn load_image_from_file(file_name: &PathBuf) -> anyhow::Result<SrcImageData> {
     let ext = extract_extension(file_name);
@@ -27,15 +32,22 @@ pub fn save_image_to_file(image: &Image, exif: &Exif, file_name: &PathBuf) -> an
     }
 }
 
+pub fn is_raw_ext(ext: &str) -> bool {
+    RAW_EXTS.iter()
+        .position(|e| ext.eq_ignore_ascii_case(e))
+        .is_some()
+}
+
 pub fn is_tiff_ext(ext: &str) -> bool {
-    ext.eq_ignore_ascii_case("tiff") |
-    ext.eq_ignore_ascii_case("tif")
+    TIF_EXTS.iter()
+        .position(|e| ext.eq_ignore_ascii_case(e))
+        .is_some()
 }
 
 pub fn is_fits_ext(ext: &str) -> bool {
-    ext.eq_ignore_ascii_case("fit") |
-    ext.eq_ignore_ascii_case("fits") |
-    ext.eq_ignore_ascii_case("fts")
+    FIT_EXTS.iter()
+        .position(|e| ext.eq_ignore_ascii_case(e))
+        .is_some()
 }
 
 pub fn is_image_file_name(file_name: &PathBuf) -> bool {
@@ -53,13 +65,124 @@ fn err_format_not_supported<R>(ext: &str) -> anyhow::Result<R> {
     Err(anyhow::anyhow!("Image format `{}` is not supported", ext))
 }
 
+pub struct SrcFileInfo {
+    pub file_name: PathBuf,
+    pub file_time: Option<DateTime<Local>>,
+    pub width:     usize,
+    pub height:    usize,
+    pub iso:       Option<u32>,
+    pub exp:       Option<f32>,
+}
+
+pub fn load_src_file_info(file_name: &PathBuf) -> anyhow::Result<SrcFileInfo> {
+    let ext = extract_extension(file_name);
+    if is_raw_ext(ext) {
+        load_src_file_info_raw(file_name)
+    } else if is_tiff_ext(ext) {
+        load_src_file_info_tiff(file_name)
+    } else if is_fits_ext(ext) {
+        load_src_file_info_fits(file_name)
+    } else {
+        err_format_not_supported(ext)
+    }
+}
+
+pub fn load_src_file_info_for_files(
+    file_names:  &Vec<PathBuf>,
+    cancel_flag: &Arc<AtomicBool>,
+    progress:    &ProgressTs,
+) -> anyhow::Result<Vec<SrcFileInfo>> {
+    let mut result = Vec::new();
+    progress.lock().unwrap().stage("Loading short file information...");
+    progress.lock().unwrap().set_total(file_names.len());
+    for file_name in file_names {
+        if cancel_flag.load(Ordering::Relaxed) { break; }
+        let item = load_src_file_info(&file_name)?;
+        progress.lock().unwrap().progress(true, &file_name.to_str().unwrap_or(""));
+        result.push(item);
+    }
+    Ok(result)
+}
+
+/*****************************************************************************/
+
+// RAW format
+
+pub fn load_src_file_info_raw(file_name: &PathBuf) -> anyhow::Result<SrcFileInfo> {
+    let mut file = std::fs::File::open(&file_name)?;
+    let raw_data = rawloader::decode_exif_only(&mut file)?;
+    let mut iso = None;
+    let mut exp = None;
+    let mut file_time = None;
+    if let Some(exif) = raw_data.exif {
+        iso = exif.get_uint(rawloader::Tag::ISOSpeed);
+        exp = exif.get_rational(rawloader::Tag::ExposureTime);
+        if let Some(time_str) = exif.get_str(rawloader::Tag::DateTimeOriginal) {
+            file_time = Local.datetime_from_str(time_str, "%Y:%m:%d %H:%M:%S").ok();
+        }
+    }
+
+    // time from fs
+    if file_time.is_none() {
+        file_time = file.metadata()
+            .ok()
+            .and_then(|t| t.created().ok())
+            .map(|st| st.into());
+    }
+
+    Ok(SrcFileInfo {
+        file_name: file_name.clone(),
+        file_time,
+        width: raw_data.width,
+        height: raw_data.height,
+        iso,
+        exp,
+    })
+}
+
+
 /*****************************************************************************/
 
 // TIFF format
 
-pub fn load_image_from_tiff_file(file_name: &PathBuf) -> anyhow::Result<SrcImageData> {
-    use tiff::{*, decoder::*};
+pub fn load_src_file_info_tiff(file_name: &PathBuf) -> anyhow::Result<SrcFileInfo> {
+    let mut reader = BufReader::new(File::open(file_name)?);
+    let mut decoder = Decoder::new(&mut reader)?;
 
+    let gray_or_rgb = matches!(decoder.colortype()?, ColorType::Gray(_)|ColorType::RGB(_));
+    if !gray_or_rgb {
+        anyhow::bail!("Color type is not supported")
+    }
+
+    let (width, height) = decoder.dimensions()?;
+
+    let mut file_time = None;
+
+    // 0x9003 = DateTimeOriginal
+    let time_str = decoder.get_tag_ascii_string(tags::Tag::Unknown(0x9003));
+    if let Ok(time_str) = time_str {
+        file_time = Local.datetime_from_str(&time_str, "%Y:%m:%d %H:%M:%S").ok();
+    }
+
+    if file_time.is_none() {
+        let file = reader.into_inner();
+        file_time = file.metadata()
+            .ok()
+            .and_then(|t| t.created().ok())
+            .map(|st| st.into());
+    }
+
+    Ok(SrcFileInfo {
+        file_name: file_name.clone(),
+        file_time,
+        width: width as usize,
+        height: height as usize,
+        iso: None,
+        exp: None,
+    })
+}
+
+pub fn load_image_from_tiff_file(file_name: &PathBuf) -> anyhow::Result<SrcImageData> {
     fn assign_img_data<S: Copy>(
         src:    &Vec<S>,
         img:    &mut Image,
@@ -207,6 +330,36 @@ fn write_exif_into_tiff<W: Write + Seek, K: TiffKind>(
 /*****************************************************************************/
 
 // FITS format
+
+pub fn load_src_file_info_fits(file_name: &PathBuf) -> anyhow::Result<SrcFileInfo> {
+    let fits = Fits::open(file_name)?;
+
+    for h in fits.iter() {
+        let width = h.value("NAXIS1");
+        let height = h.value("NAXIS2");
+        let depth = h.value("NAXIS3").unwrap_or(&HeaderValue::IntegerNumber(1));
+
+        if let (Some(&HeaderValue::IntegerNumber(width)),
+                Some(&HeaderValue::IntegerNumber(height)),
+                &HeaderValue::IntegerNumber(depth))
+            = (width, height, depth)
+        {
+            if depth == 1 || depth == 3 {
+                drop(fits);
+                return Ok(SrcFileInfo {
+                    file_name: file_name.clone(),
+                    file_time: get_file_time(&file_name).ok(),
+                    width: width as usize,
+                    height: height as usize,
+                    iso: None,
+                    exp: None,
+                });
+            }
+        }
+    }
+
+    anyhow::bail!("This FITS file is not supported")
+}
 
 pub fn load_image_from_fits_file(file_name: &PathBuf) -> anyhow::Result<SrcImageData> {
     let fits = Fits::open(file_name)?;

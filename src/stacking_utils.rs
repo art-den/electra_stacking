@@ -1,7 +1,8 @@
-use std::{path::*, io::*, fs::*, sync::*};
+use std::{path::*, io::*, fs::*, sync::{*, atomic::{AtomicBool, Ordering}}};
 use anyhow::bail;
 use byteorder::*;
 use crossbeam::sync::WaitGroup;
+use serde::{Serialize, Deserialize};
 use crate::{
     image::*,
     calc::*,
@@ -15,18 +16,160 @@ use crate::{
     log_utils::*,
 };
 
+///////////////////////////////////////////////////////////////////////////////
+
 /* Stacking bias, darks and flat files */
 
-pub fn create_master_file(
-    files_list:        Vec<PathBuf>,
+pub fn create_master_dark_or_bias_file(
+    files_list:        &[PathBuf],
     calc_opts:         &CalcOpts,
-    result_file:       &PathBuf,
+    result_file:       &Path,
+    progress:          &ProgressTs,
+    thread_pool:       &rayon::ThreadPool,
+    cancel_flag:       &Arc<AtomicBool>,
+) -> anyhow::Result<()> {
+    create_master_file(
+        files_list,
+        calc_opts,
+        result_file,
+        RawLoadFlags::APPLY_BLACK_AND_WB,
+        |path| get_temp_dark_file_name(path),
+        |_| true,
+        |_| (),
+        progress,
+        thread_pool,
+        cancel_flag
+    )
+}
+
+fn postprocess_single_flat_image_color(
+    raw_image:   &mut RawImage,
+    cc:          CfaColor,
+    black_level: f32,
+    white_level: f32) -> bool
+{
+    let center_x = raw_image.info.width / 2;
+    let center_y = raw_image.info.height / 2;
+    let center_size = (raw_image.info.width + raw_image.info.height) / 40; // have to be odd
+
+    let mut data = Vec::new();
+
+    for (x, y, v) in raw_image.data.iter_rect_crd(
+        center_x-center_size,
+        center_y-center_size+1,
+        center_x+center_size,
+        center_y+center_size+1)
+    {
+        if raw_image.info.cfa.get_pixel_color(x, y) != cc { continue; }
+        data.push(v);
+    }
+
+    if data.is_empty() { return true; }
+
+    let high_index = 95 * data.len() / 100;
+    let center_max = *data.select_nth_unstable_by(high_index, cmp_f32).1;
+    let center_level_percent = 100.0 * (center_max - black_level) / (white_level - black_level);
+
+    log::info!("{:?} -> {:.2}% at center", cc, center_level_percent);
+
+    if center_level_percent > 90.0 {
+        log::info!("Dropped due to overexposure");
+        return false;
+    }
+
+    data.clear();
+    for (x, y, v) in raw_image.data.iter_crd() {
+        if raw_image.info.cfa.get_pixel_color(x, y) != cc { continue; }
+        data.push(v);
+    }
+
+    if data.is_empty() { return true; }
+
+    let high_index = 99 * data.len() / 100;
+    let norm_value = *data.select_nth_unstable_by(high_index, cmp_f32).1 - black_level;
+
+    for (x, y, v) in raw_image.data.iter_crd_mut() {
+        if raw_image.info.cfa.get_pixel_color(x, y) != cc { continue; }
+        *v = (*v - black_level) / norm_value;
+    }
+
+    true
+}
+
+fn postprocess_single_flat_image(raw_image: &mut RawImage) -> bool {
+    let mono_ok = postprocess_single_flat_image_color(
+        raw_image,
+        CfaColor::Mono,
+        raw_image.info.black_values[0],
+        raw_image.info.max_values[0],
+    );
+
+    let r_ok = postprocess_single_flat_image_color(
+        raw_image,
+        CfaColor::R,
+        raw_image.info.black_values[0],
+        raw_image.info.max_values[0]
+    );
+
+    let g_ok = postprocess_single_flat_image_color(
+        raw_image,
+        CfaColor::G,
+        raw_image.info.black_values[1],
+        raw_image.info.max_values[1]
+    );
+
+    let b_ok = postprocess_single_flat_image_color(
+        raw_image,
+        CfaColor::B,
+        raw_image.info.black_values[2],
+        raw_image.info.max_values[2]
+    );
+
+    raw_image.info.max_values.fill(1.0);
+    raw_image.info.black_values.fill(0.0);
+
+    mono_ok && r_ok && g_ok && b_ok
+}
+
+pub fn create_master_flat_file(
+    files_list:        &[PathBuf],
+    calc_opts:         &CalcOpts,
+    result_file:       &Path,
+    progress:          &ProgressTs,
+    thread_pool:       &rayon::ThreadPool,
+    cancel_flag:       &Arc<AtomicBool>,
+) -> anyhow::Result<()> {
+    create_master_file(
+        files_list,
+        calc_opts,
+        result_file,
+        RawLoadFlags::empty(),
+        |path| get_temp_flat_file_name(path),
+        postprocess_single_flat_image,
+        |_| (),
+        progress,
+        thread_pool,
+        cancel_flag
+    )
+}
+
+#[derive(Serialize, Deserialize, PartialEq)]
+struct MasterFileInfo {
+    files:     Vec<PathBuf>,
+    calc_opts: CalcOpts,
+}
+
+fn create_master_file(
+    files_list:        &[PathBuf],
+    calc_opts:         &CalcOpts,
+    result_file:       &Path,
     load_raw_flags:    RawLoadFlags,
-    get_file_name_fun: fn (path: &PathBuf) -> PathBuf,
+    get_file_name_fun: fn (path: &Path) -> PathBuf,
     after_load_fun:    fn (image: &mut RawImage) -> bool,
     before_save_fun:   fn (image: &mut ImageLayerF32),
-    progress:          ProgressTs,
-    num_tasks:         usize,
+    progress:          &ProgressTs,
+    thread_pool:       &rayon::ThreadPool,
+    cancel_flag:       &Arc<AtomicBool>,
 ) -> anyhow::Result<()> {
     let disk_access_mutex = Arc::new(Mutex::new(()));
 
@@ -35,9 +178,22 @@ pub fn create_master_file(
         image_info: RawImageInfo,
     }
 
-    let thread_pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(num_tasks)
-        .build()?;
+    let this_info = MasterFileInfo {
+        files: files_list.iter().cloned().collect(),
+        calc_opts: calc_opts.clone(),
+    };
+
+    let info_file_name = result_file.with_extension("info");
+    let from_disk_info = if info_file_name.exists() {
+        let file_str = std::fs::read_to_string(&info_file_name)?;
+        serde_json::from_str::<MasterFileInfo>(&file_str)?
+    } else {
+        MasterFileInfo { files: Vec::new(), calc_opts: CalcOpts::default(), }
+    };
+
+    if from_disk_info == this_info {
+        return Ok(());
+    }
 
     let all_tasks_finished_waiter = WaitGroup::new();
 
@@ -47,11 +203,12 @@ pub fn create_master_file(
         let progress = Arc::clone(&progress);
         let disk_access_mutex = Arc::clone(&disk_access_mutex);
         let files_to_process = Arc::clone(&files_to_process);
+        let cancel_flag = Arc::clone(&cancel_flag);
         let file_path = file_path.clone();
         let waiter = all_tasks_finished_waiter.clone();
 
         thread_pool.spawn(move || {
-            progress.lock().unwrap().progress(true, extract_file_name(&file_path));
+            if cancel_flag.load(Ordering::Relaxed) { return; }
             let mut raw = RawImage::load_camera_raw_file(
                 &file_path,
                 load_raw_flags,
@@ -65,13 +222,16 @@ pub fn create_master_file(
             raw.save_to_internal_format_file(&temp_fn).unwrap();
             drop(locker);
 
+            progress.lock().unwrap().progress(true, extract_file_name(&file_path));
+
             files_to_process.lock().unwrap().push(temp_fn);
             drop(waiter);
         });
     }
 
     all_tasks_finished_waiter.wait();
-    drop(thread_pool);
+
+    if cancel_flag.load(Ordering::Relaxed) { return Ok(()); }
 
     let mut opened_files = Vec::new();
     let mut temp_file_list = FilesToDeleteLater::new();
@@ -91,8 +251,6 @@ pub fn create_master_file(
         temp_file_list.add(&file_path);
     }
 
-    progress.lock().unwrap().next_step();
-
     if opened_files.is_empty() { bail!("Nothing to merge") }
 
     let image_info = first_image_info.unwrap();
@@ -103,6 +261,7 @@ pub fn create_master_file(
     let img_height = image.data.height() as usize;
     for (_, y, v) in image.data.iter_crd_mut() {
         if y != prev_y {
+            if cancel_flag.load(Ordering::Relaxed) { return Ok(()); }
             progress.lock().unwrap().percent(y as usize + 1, img_height, "Stacking values...");
             prev_y = y;
         }
@@ -118,10 +277,12 @@ pub fn create_master_file(
     }
 
     progress.lock().unwrap().percent(100, 100, "Done");
-    progress.lock().unwrap().next_step();
 
     before_save_fun(&mut image.data);
     image.save_to_internal_format_file(result_file)?;
+
+    let this_info_str = serde_json::to_string_pretty(&this_info)?;
+    std::fs::write(&info_file_name, &this_info_str)?;
 
     Ok(())
 }
@@ -133,12 +294,11 @@ pub fn create_master_file(
 pub struct TempFileData {
     orig_file:    PathBuf,
     file_name:    PathBuf,
-    range_factor: f64,
-    noise:        f64,
+    range_factor: f32,
+    noise:        f32,
     exif:         Exif,
     img_offset:   ImageOffset,
 }
-
 
 pub fn create_temp_light_files(
     progress:           &ProgressTs,
@@ -149,7 +309,8 @@ pub fn create_temp_light_files(
     bin:                usize,
     result_list:        &Arc<Mutex<Vec<TempFileData>>>,
     files_to_del_later: &Arc<Mutex<FilesToDeleteLater>>,
-    thread_pool:        &rayon::ThreadPool
+    thread_pool:        &rayon::ThreadPool,
+    cancel_flag:        &Arc<AtomicBool>,
 ) -> anyhow::Result<()> {
     progress.lock().unwrap().percent(0, 100, "Loading calibration images...");
     let cal_data = Arc::new(CalibrationData::load(master_flat, master_dark)?);
@@ -168,9 +329,10 @@ pub fn create_temp_light_files(
         let file = file.clone();
         let wait = all_tasks_finished_waiter.clone();
         let disk_access_mutex = Arc::clone(&disk_access_mutex);
+        let cancel_flag = Arc::clone(&cancel_flag);
 
         thread_pool.spawn(move || {
-            progress.lock().unwrap().progress(true, extract_file_name(&file));
+            if cancel_flag.load(Ordering::Relaxed) { return; }
             create_temp_file_from_light_file(
                 &file,
                 cal_data,
@@ -180,6 +342,7 @@ pub fn create_temp_light_files(
                 disk_access_mutex,
                 result_list
             ).unwrap();
+            progress.lock().unwrap().progress(true, extract_file_name(&file));
             drop(wait)
         });
     }
@@ -270,14 +433,16 @@ fn create_temp_file_from_light_file(
     Ok(())
 }
 
-fn seconds_to_total_time_str(seconds: f64) -> String {
+pub fn seconds_to_total_time_str(seconds: f64) -> String {
     let secs_total = seconds as u64;
     let minutes_total = secs_total / 60;
-    format!(
-        "{} hours {:02} minutes",
-        minutes_total / 60,
-        minutes_total % 60
-    )
+    let hours = minutes_total / 60;
+
+    if hours != 0 {
+        format!("{} h. {} min.", hours, minutes_total % 60)
+    } else {
+        format!("{} min.", minutes_total % 60)
+    }
 }
 
 pub fn merge_temp_light_files(
@@ -288,8 +453,9 @@ pub fn merge_temp_light_files(
     ref_width:       Crd,
     ref_height:      Crd,
     result_file:     &PathBuf,
+    cancel_flag:     &Arc<AtomicBool>,
 ) -> anyhow::Result<()> {
-    let min_noise = temp_file_names.iter().map(|v| v.noise).min_by(cmp_f64).unwrap();
+    let min_noise = temp_file_names.iter().map(|v| v.noise).min_by(cmp_f32).unwrap();
 
     progress.lock().unwrap().percent(0, 100, "Opening temp files...");
     let mut stack_items = Vec::new();
@@ -308,7 +474,7 @@ pub fn merge_temp_light_files(
     for temp_file in temp_file_names.iter() {
         let weight = min_noise.powf(2.0) / temp_file.noise.powf(2.0);
         total_time += temp_file.exif.exp_time.unwrap_or(0.0) as f64;
-        weighted_time += weight * temp_file.exif.exp_time.unwrap_or(0.0) as f64;
+        weighted_time += (weight * temp_file.exif.exp_time.unwrap_or(0.0)) as f64;
 
         log::info!(
             "| {:7.1} | {:7.1} | {:6.2} | {:6.3} | {:6.3} | {:9.7} | {:6} | {:8.1} | {:7.1} | {:7} | {}",
@@ -327,7 +493,7 @@ pub fn merge_temp_light_files(
 
         stack_items.push(StackItem {
             reader: InternalFormatReader::new(&temp_file.file_name)?,
-            weight,
+            weight: weight as f64,
         });
     }
 
@@ -344,6 +510,7 @@ pub fn merge_temp_light_files(
         let mut prev_y = -1;
         for (_, y, r, g, b) in result_image.iter_rgb_crd_mut() {
             if y != prev_y {
+                if cancel_flag.load(Ordering::Relaxed) { return Ok(()); }
                 progress.lock().unwrap().percent(
                     y as usize + 1,
                     ref_height as usize,

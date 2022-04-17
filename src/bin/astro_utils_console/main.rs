@@ -2,7 +2,6 @@
 
 use std::path::*;
 use structopt::StructOpt;
-use flexi_logger::*;
 use astro_utils::*;
 
 mod cmd_cleanup;
@@ -12,6 +11,7 @@ mod cmd_create_master_flat;
 mod cmd_merge_lrgb;
 mod cmd_register;
 mod cmd_stack_lights;
+mod consts;
 
 #[derive(StructOpt, Debug)]
 enum SubCommands {
@@ -51,7 +51,7 @@ fn main() -> anyhow::Result<()> {
     let opt = Opt::from_args();
 
     if let Some(log_path) = &opt.log_path {
-        start_logger(log_path)?;
+        log_utils::start_logger(log_path)?;
         log::info!("Program started. Options = {:#?}", opt.cmd);
     }
 
@@ -79,31 +79,4 @@ fn main() -> anyhow::Result<()> {
     };
 
     result
-}
-
-fn start_logger(log_path: &PathBuf) -> anyhow::Result<()> {
-    let custom_format_fun = |
-        w:      &mut dyn std::io::Write,
-        now:    &mut DeferredNow,
-        record: &Record
-    | -> Result<(), std::io::Error> {
-        write!(
-            w, "[{}] {} {}",
-            now.format(TS_DASHES_BLANK_COLONS_DOT_BLANK),
-            record.level(),
-            record.args()
-        )
-    };
-
-    Logger::try_with_str("info")?
-        .log_to_file(
-            FileSpec::default()
-                .directory(log_path)
-                .basename("astro-utils")
-        )
-        .format(custom_format_fun)
-        .print_message()
-        .start()?;
-
-    Ok(())
 }

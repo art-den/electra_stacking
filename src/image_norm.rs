@@ -2,7 +2,7 @@ use std::{collections::HashMap, path::PathBuf};
 use crate::{image::*, calc::*, light_file::*, stars::*, log_utils::*};
 
 pub struct NormResult {
-    pub range_factor: f64,
+    pub range_factor: f32,
 }
 
 pub struct ImageNormalizer {
@@ -62,7 +62,7 @@ pub fn normalize(
     ref_data.bg.apply_to_image(&mut light_file.image, false)?; // apply ref. image bg
     appl_log.log("apply bg to image");
 
-    Ok(NormResult { range_factor: range })
+    Ok(NormResult { range_factor: range as f32 })
 }
 
 fn calc_range(ref_img: &ImageLayerF32, image: &ImageLayerF32, mask: &ImageMask) -> f64 {

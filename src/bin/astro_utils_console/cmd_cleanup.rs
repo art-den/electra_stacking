@@ -68,13 +68,13 @@ pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
 
         let value = match options.mode {
             CleanupMode::Noise      => reg_data.noise,
-            CleanupMode::Background => reg_data.background as f64,
+            CleanupMode::Background => reg_data.background,
             CleanupMode::StarsR     => reg_data.stars_r,
             CleanupMode::StarsRDev  => reg_data.stars_r_dev,
         };
 
         data.push(FileData {
-            value,
+            value: value as f64,
             file_name: reg_data.file_name,
             to_delete: false,
         });

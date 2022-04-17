@@ -1,4 +1,4 @@
-use std::{path::*, sync::*};
+use std::{path::*, sync::{*, atomic::AtomicBool}};
 use anyhow::bail;
 use structopt::*;
 use crate::{
@@ -98,6 +98,7 @@ pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
     }
 
     let progress = ProgressConsole::new_ts();
+    let cancel_flag = Arc::new(AtomicBool::new(false));
 
     progress.lock().unwrap().percent(0, 100, "Loading reference file...");
 
@@ -133,14 +134,14 @@ pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
             options.bin.unwrap_or(1),
             &temp_file_names,
             &files_to_del_later,
-            &thread_pool
+            &thread_pool,
+            &cancel_flag
         )?;
 
         progress.lock().unwrap().percent(
             100, 100,
             format!("{} done", path_to_str(&item.path)).as_str()
         );
-        progress.lock().unwrap().next_step();
     }
 
     if temp_file_names.lock().unwrap().is_empty() {
@@ -154,7 +155,8 @@ pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
         ref_data.image.image.is_rgb(),
         ref_data.image.image.width(),
         ref_data.image.image.height(),
-        &options.result_file
+        &options.result_file,
+        &cancel_flag
     )?;
 
     drop(files_to_del_later);

@@ -266,6 +266,12 @@ where T: Copy + Clone + ImgLayerDefValue<Type = T> {
     pub fn iter_area_crd(&self, area: &RectArea) -> RectIterCrd<T> {
         RectIterCrd::new(self, area.x1, area.y1, area.x2, area.y2)
     }
+
+    pub fn clear(&mut self) {
+        self.data.clear();
+        self.height = 0;
+        self.width = 0;
+    }
 }
 
 impl ImageLayer<f32> {
@@ -797,11 +803,16 @@ impl Image {
     }
 
     pub fn normalize_if_greater_1(&mut self) {
-        let max_l = self.l.iter().copied().max_by(cmp_f32).unwrap_or(0.0);
-        let max_r = self.r.iter().copied().max_by(cmp_f32).unwrap_or(0.0);
-        let max_g = self.g.iter().copied().max_by(cmp_f32).unwrap_or(0.0);
-        let max_b = self.b.iter().copied().max_by(cmp_f32).unwrap_or(0.0);
-        let max = [max_l, max_r, max_g, max_b].iter().copied().max_by(cmp_f32).unwrap_or(0.0);
+        let max = self.l
+            .iter()
+            .chain(self.r.iter())
+            .chain(self.g.iter())
+            .chain(self.b.iter())
+            .copied()
+            .filter(|v| !v.is_infinite())
+            .max_by(cmp_f32)
+            .unwrap_or(0.0);
+
         if max < 1.0 { return; }
 
         let do_norm = |k, img: &mut ImageLayerF32| {
@@ -832,6 +843,20 @@ impl Image {
             b: self.b.decrease_2x(),
             l: self.l.decrease_2x(),
         }
+    }
+
+    pub fn fill_inf_areas(&mut self) {
+        self.l.fill_inf_areas();
+        self.r.fill_inf_areas();
+        self.g.fill_inf_areas();
+        self.b.fill_inf_areas();
+    }
+
+    pub fn clear(&mut self) {
+        self.l.clear();
+        self.r.clear();
+        self.g.clear();
+        self.b.clear();
     }
 }
 

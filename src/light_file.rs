@@ -8,6 +8,7 @@ bitflags! { pub struct LoadLightFlags: u32 {
     const STARS = 1;
     const NOISE = 2;
     const BACKGROUND = 4;
+    const FREQ = 8;
 }}
 
 pub struct LightFile {
@@ -15,8 +16,9 @@ pub struct LightFile {
     pub exif:       Exif,
     pub grey:       ImageLayerF32,
     pub stars:      Stars,
-    pub noise:      f64,
+    pub noise:      f32,
     pub background: f32,
+    pub sharpness:  f32,
 }
 
 impl LightFile {
@@ -51,23 +53,15 @@ impl LightFile {
             ImageLayerF32::new_empty()
         };
 
-        let stars = if flags.contains(LoadLightFlags::STARS) {
-            let stars_log = TimeLogger::start();
-            let result = find_stars_on_image(&grey_image);
-            stars_log.log("looking for stars on image");
-            log::info!("stars count = {}", result.len());
-            result
-        } else {
-            Stars::new()
-        };
-
         let mut temp_values = Vec::new();
 
-        let noise = if flags.contains(LoadLightFlags::NOISE) {
+        let noise = if flags.contains(LoadLightFlags::NOISE)
+                    || flags.contains(LoadLightFlags::STARS)
+        {
             let noise_log = TimeLogger::start();
             let result = calc_noise(&mut temp_values, &grey_image);
             noise_log.log("noise calculation");
-            result
+            result as f32
         } else {
             0.0
         };
@@ -81,6 +75,30 @@ impl LightFile {
             0.0
         };
 
+        let stars = if flags.contains(LoadLightFlags::STARS) {
+            let stars_log = TimeLogger::start();
+            let result = find_stars_on_image(&grey_image, &src_data.image, Some(noise));
+            stars_log.log("looking for stars on image");
+            log::info!("stars count = {}", result.len());
+            result
+        } else {
+            Stars::new()
+        };
+
+        let freq = if flags.contains(LoadLightFlags::FREQ) {
+            let f_log = TimeLogger::start();
+            let img = if src_data.image.is_greyscale() {
+                &src_data.image.l
+            } else {
+                &src_data.image.g
+            };
+            let result = calc_sharpness(&img);
+            f_log.log("freq calculation");
+            result
+        } else {
+            0.0
+        };
+
         Ok(LightFile{
             exif: src_data.exif,
             image: src_data.image,
@@ -88,6 +106,7 @@ impl LightFile {
             stars,
             background,
             noise,
+            sharpness: freq,
         })
     }
 }
@@ -182,13 +201,14 @@ fn calc_noise(temp_values: &mut Vec<f32>, grey_image: &ImageLayerF32) -> f64 {
         temp_values.push(diff*diff);
     }
 
-    // use lower 10% of noise_values to calc noise
-    let pos = temp_values.len() / 10;
+    // use lower 25% of noise_values to calc noise
+    const PART: usize = 4;
+    let pos = temp_values.len() / PART;
     temp_values.select_nth_unstable_by(pos, cmp_f32);
     let sum = temp_values[0..pos]
         .iter()
         .fold(0_f64, |acc, v| acc + *v as f64);
-    f64::sqrt(sum / pos as f64)
+    f64::sqrt(sum / pos as f64) * PART as f64
 }
 
 fn calc_background(temp_values: &mut Vec<f32>, grey_image: &ImageLayerF32) -> f32 {
@@ -199,13 +219,76 @@ fn calc_background(temp_values: &mut Vec<f32>, grey_image: &ImageLayerF32) -> f3
     *temp_values.select_nth_unstable_by(pos, cmp_f32).1
 }
 
+fn calc_sharpness(grey_image: &ImageLayerF32) -> f32 {
+    let mut high_freq = Vec::new();
+    let mut mid_freq = Vec::new();
+    let mut calc_values = Vec::new();
+
+    let mut calc_by_dir = |dir| {
+        high_freq.clear();
+        mid_freq.clear();
+        grey_image.foreach_row_and_col(
+            dir,
+            |values, _, _| {
+                for (v1, v2, v3, v4, v5, v6, v7, v8, v9, v10) in values.iter().tuple_windows() {
+                    let high = (v4+v5-v6-v7).abs() / 2.0;
+                    let mid = (v1+v2+v3+v4+v5-v6-v7-v8-v9-v10).abs() / 5.0;
+                    if high.is_infinite() || mid.is_infinite() || high.is_nan() || mid.is_nan() {
+                        continue;
+                    }
+                    high_freq.push(high);
+                    mid_freq.push(mid);
+                }
+            }
+        );
+
+        let top_pos = high_freq.len() - high_freq.len() / 1000;
+        let low_pos = high_freq.len() / 10;
+
+        high_freq.select_nth_unstable_by(top_pos, cmp_f32);
+        calc_values.clear();
+        for v in &high_freq[top_pos..] {
+            calc_values.push(*v as f64);
+        }
+        let top_high = mean_f64(&calc_values);
+
+        high_freq.select_nth_unstable_by(low_pos, cmp_f32);
+        calc_values.clear();
+        for v in &high_freq[..low_pos] {
+            calc_values.push(*v as f64);
+        }
+        let low_high = mean_f64(&calc_values);
+
+        mid_freq.select_nth_unstable_by(top_pos, cmp_f32);
+        calc_values.clear();
+        for v in &mid_freq[top_pos..] {
+            calc_values.push(*v as f64);
+        }
+        let top_mid = mean_f64(&calc_values);
+
+        mid_freq.select_nth_unstable_by(low_pos, cmp_f32);
+        calc_values.clear();
+        for v in &mid_freq[..low_pos] {
+            calc_values.push(*v as f64);
+        }
+        let low_mid = mean_f64(&calc_values);
+
+        (top_high - low_high) / (top_mid - low_mid)
+    };
+
+    let by_cols_value = calc_by_dir(IterType::Cols);
+    let by_rows_value = calc_by_dir(IterType::Rows);
+
+    by_cols_value.min(by_rows_value) as f32
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct LightFileRegInfo {
     pub file_name: String,
-    pub noise: f64,
+    pub noise: f32,
     pub background: f32,
-    pub stars_r: f64,
-    pub stars_r_dev: f64,
+    pub stars_r: f32,
+    pub stars_r_dev: f32,
 }
 
 pub struct CalibrationData {
@@ -215,6 +298,14 @@ pub struct CalibrationData {
 }
 
 impl CalibrationData {
+    pub fn new_empty() -> CalibrationData {
+        CalibrationData {
+            dark_image: None,
+            flat_image: None,
+            hot_pixels: Vec::new(),
+        }
+    }
+
     pub fn load(
         master_flat: &Option<PathBuf>,
         master_dark: &Option<PathBuf>

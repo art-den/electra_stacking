@@ -75,7 +75,7 @@ impl ValuesDecompressor {
         if self.values_ptr == F32_COMPR_BUF_SIZE {
             self.values_ptr = 0;
             let len = reader.read::<u32>(5)? + 1;
-            for v in self.values.iter_mut() {
+            for v in &mut self.values {
                 self.prev_value ^= reader.read::<u32>(len)?;
                 *v = self.prev_value;
             }

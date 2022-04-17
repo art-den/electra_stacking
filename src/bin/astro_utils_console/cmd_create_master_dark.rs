@@ -1,12 +1,11 @@
 use structopt::*;
-use std::{path::*};
+use std::{path::*, sync::Arc, sync::atomic::AtomicBool};
 use crate::{
     fs_utils::*,
     stacking_utils::*,
     calc::*,
     consts::*,
     progress::*,
-    image_raw::*
 };
 
 #[derive(StructOpt, Debug)]
@@ -33,15 +32,19 @@ pub struct CmdOptions {
 
 pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
     let files_list = get_files_list(&options.path, &options.exts, true)?;
-    create_master_file(
-        files_list,
+    let cancel_flag = Arc::new(AtomicBool::new(false));
+    let progress = ProgressConsole::new_ts();
+
+    let thread_pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(options.num_tasks)
+        .build()?;
+
+    create_master_dark_or_bias_file(
+        &files_list,
         &options.calc_opts,
         &options.result_file,
-        RawLoadFlags::APPLY_BLACK_AND_WB,
-        |path| get_temp_dark_file_name(path),
-        |_| true,
-        |_| (),
-        ProgressConsole::new_ts(),
-        options.num_tasks
+        &progress,
+        &thread_pool,
+        &cancel_flag
     )
 }

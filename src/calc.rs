@@ -3,15 +3,15 @@ use clap::arg_enum;
 use serde::{Serialize, Deserialize};
 
 arg_enum! {
-    #[derive(Debug, Serialize, Deserialize)]
+    #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
     pub enum CalcMode {
-        Mean,
-        Median,
         CappaSigma,
+        Median,
+        Mean,
     }
 }
 
-#[derive(StructOpt, Debug, Serialize, Deserialize)]
+#[derive(StructOpt, Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct CalcOpts {
     /// Calculation mode
     #[structopt(
@@ -20,15 +20,15 @@ pub struct CalcOpts {
         possible_values = &CalcMode::variants(),
         case_insensitive = true
     )]
-    mode: CalcMode,
+    pub mode: CalcMode,
 
     /// Kappa for cappa-sigma mode
     #[structopt(long, default_value = "2.5")]
-    kappa: f64,
+    pub kappa: f32,
 
     /// repeats count for cappa-sigma mode
     #[structopt(long, default_value = "5")]
-    repeats: u32
+    pub repeats: u32
 }
 
 impl Default for CalcOpts {
@@ -125,13 +125,14 @@ pub fn median(values: &mut [CalcValue]) -> Option<CalcResult> {
 
 pub fn cappa_sigma_weighted(
     values:  &mut [CalcValue],
-    kappa:   f64,
+    kappa:   f32,
     repeats: u32,
     low:     bool,
     high:    bool
 ) -> Option<CalcResult> {
     if values.is_empty() { return None; }
     if values.len() == 1 { return Some(CalcResult { result: values[0].value, discarded: 0, }); }
+    let kappa = kappa as f64;
 
     for v in values.iter_mut() { v.used = true; }
 
@@ -375,4 +376,68 @@ pub fn cubic_ls(x_values: &[f64], y_values: &[f64]) -> Option<Cubic> {
 
 pub fn linear_interpol(x: f64, x1: f64, x2: f64, y1: f64, y2: f64) -> f64 {
     (x - x1) * (y2 - y1) / (x2 - x1) + y1
+}
+
+struct InterpolTableItem {
+    x: f32,
+    a: f32,
+    b: f32,
+}
+
+impl InterpolTableItem {
+    fn get(&self, x: f32) -> f32 {
+        self.a * x + self.b
+    }
+}
+
+pub struct InterpolTable {
+    data: Vec<(f32, f32)>,
+    items: Vec<InterpolTableItem>,
+    min_x: f32,
+}
+
+impl InterpolTable {
+    pub fn new() -> InterpolTable {
+        InterpolTable {
+            data: Vec::new(),
+            items: Vec::new(),
+            min_x: 0.0,
+        }
+    }
+
+    pub fn add(&mut self, x: f32, y: f32) {
+        self.data.push((x, y));
+    }
+
+    pub fn prepare(&mut self) {
+        self.data.sort_by(|i1, i2| cmp_f32(&i1.0, &i2.0));
+
+        self.items.clear();
+        for i in 0..self.data.len()-1 {
+            let i1 = &self.data[i];
+            let i2 = &self.data[i+1];
+
+            let a = (i2.1 - i1.1) / (i2.0 - i1.0);
+            let b = i1.1 - a * i1.0;
+
+            self.items.push(InterpolTableItem {
+                a, b, x: i2.0
+            });
+        }
+
+        self.min_x = self.items[0].x;
+    }
+
+    #[inline(always)]
+    pub fn get(&self, x: f32) -> f32 {
+        if x < self.min_x {
+            return self.items[0].get(x);
+        }
+        for item in self.items.iter() {
+            if x <= item.x {
+                return item.get(x);
+            }
+        }
+        return self.items[self.items.len()-1].get(x);
+    }
 }

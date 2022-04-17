@@ -1,7 +1,7 @@
 use std::{path::*, sync::*};
 use structopt::*;
 use crossbeam::sync::WaitGroup;
-use crate::{consts::*, progress::*, fs_utils::*, light_file::*, stars::*, calc::*};
+use crate::{consts::*, progress::*, fs_utils::*, light_file::*, stars::*};
 
 #[derive(StructOpt, Debug)]
 pub struct CmdOptions {
@@ -65,7 +65,11 @@ pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
                 1
             ).expect("Can't load light file");
 
-            let stars_stat = calc_stars_stat(&light_file.stars);
+            let stars_stat = calc_stars_stat(
+                &light_file.stars,
+                light_file.image.width(),
+                light_file.image.height()
+            );
 
             let file_data = LightFileRegInfo {
                 file_name:   extract_file_name(&file_name).to_string(),
@@ -86,31 +90,7 @@ pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
     all_tasks_finished_waiter.wait();
 
     progress.lock().unwrap().percent(0, 100, "Done!");
-    progress.lock().unwrap().next_step();
 
     Ok(())
 }
 
-struct StarsStat {
-    aver_r: f64,
-    aver_r_dev: f64,
-}
-
-fn calc_stars_stat(stars: &Stars) -> StarsStat {
-    let mut r_values = Vec::new();
-    let mut r_dev_values = Vec::new();
-    for star in stars.iter() {
-        r_values.push(CalcValue::new(star.radius));
-        if !star.overexposured {
-            r_dev_values.push(CalcValue::new(star.radius_std_dev));
-        }
-    }
-
-    let aver_r_opt = cappa_sigma_weighted(&mut r_values, 3.0, 5, true, true);
-    let aver_r = if let Some(res) = aver_r_opt { res.result } else { 0.0 };
-
-    let aver_r_dev_opt = cappa_sigma_weighted(&mut r_dev_values, 3.0, 5, true, true);
-    let aver_r_dev = if let Some(res) = aver_r_dev_opt { res.result } else { 0.0 };
-
-    StarsStat { aver_r, aver_r_dev }
-}

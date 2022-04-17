@@ -4,6 +4,7 @@ use itertools::*;
 use serde::{Serialize, Deserialize};
 use crate::{image::*, calc::*};
 
+use std::f64::consts::PI as Pi;
 pub const MAX_STAR_DIAMETER: Crd = 25; // in pixels
 pub const STAR_BG_BORDER: f32 = 0.01;
 
@@ -20,6 +21,7 @@ pub struct Star {
     pub x:              f64,
     pub y:              f64,
     pub brightness:     f64,
+    pub aver_br:        f64,
     pub radius:         f64,
     pub radius_std_dev: f64,
     pub overexposured:  bool,
@@ -36,12 +38,28 @@ impl Star {
 
 pub type Stars = Vec<Star>;
 
-pub fn find_stars_on_image(img: &ImageLayerF32) -> Stars {
+pub fn find_stars_on_image(
+    img: &ImageLayerF32,
+    orig_image: &Image,
+    noise: Option<f32>
+) -> Stars {
+    let border = match noise {
+        Some(noise)
+        if noise != 0.0 =>
+            (noise * 20.0).max(STAR_BG_BORDER),
+        _ =>
+            STAR_BG_BORDER,
+    };
+
     let mut stars = Stars::new();
 
     // Find possible stars centers
+
     let mut filtered: Vec<f32> = Vec::new();
     let mut possible_stars = Vec::new();
+    let mut heavy_filter = IirFilter::new_gauss(42.0);
+    let mut heavy_filtered: Vec<f32> = Vec::new();
+    heavy_filtered.resize(img.width() as usize, 0.0);
     img.foreach_row_and_col(IterType::Rows, |values, y, _| {
         filtered.clear();
         filtered.push(values[0]);
@@ -49,20 +67,14 @@ pub fn find_stars_on_image(img: &ImageLayerF32) -> Stars {
             filtered.push(0.333333 * (i1 + i2 + i3));
         }
         filtered.push(values[values.len()-1]);
-
-        let min_filtered = filtered
-            .iter()
-            .copied()
-            .min_by(cmp_f32)
-            .unwrap_or(0.0);
-
+        iir_filter(&mut heavy_filter, values, &mut heavy_filtered);
         for (i, (&prev, &cur, &next)) in filtered.iter().tuple_windows().enumerate() {
-            if prev < cur && cur > next && cur > min_filtered+STAR_BG_BORDER {
-                let index = (i+1) as i32;
-                let i1 = i32::max(0, index-MAX_STAR_DIAMETER as i32/2) as usize;
-                let i2 = i32::min(index+MAX_STAR_DIAMETER as i32/2, img.width() as i32) as usize;
+            let index = i + 1;
+            if prev < cur && cur > next && cur > heavy_filtered[index]+border {
+                let i1 = i32::max(0, index as i32 - MAX_STAR_DIAMETER as i32/2) as usize;
+                let i2 = i32::min(index as i32 + MAX_STAR_DIAMETER as i32/2, img.width() as i32) as usize;
                 let min = filtered[i1..i2].iter().copied().min_by(cmp_f32);
-                if let Some(min) = min { if cur > min + STAR_BG_BORDER {
+                if let Some(min) = min { if cur > min + border {
                     possible_stars.push((i as Crd + 1, y, cur as f64));
                 }}
             }
@@ -75,7 +87,6 @@ pub fn find_stars_on_image(img: &ImageLayerF32) -> Stars {
 
     type TmpPt = (Crd, Crd);
     let mut all_stars_points: HashSet<TmpPt> = HashSet::new();
-//    let mut points_to_visit: VecDeque<TmpPt> = VecDeque::new();
     let mut star_bg_values = Vec::new();
     let mut flood_filler = FloodFiller::new();
 
@@ -88,24 +99,25 @@ pub fn find_stars_on_image(img: &ImageLayerF32) -> Stars {
         use MAX_STAR_DIAMETER as MSD;
         star_bg_values.clear();
         for (_, _, v) in img.iter_rect_crd(x-MSD/2, y-MSD/2, x+MSD/2, y+MSD/2) {
-            star_bg_values.push(v as f64);
+            star_bg_values.push(v);
         }
         let star_bg_index = star_bg_values.len() / 16;
-        let star_bg = *star_bg_values.select_nth_unstable_by(star_bg_index, cmp_f64).1;
+        let star_bg = *star_bg_values.select_nth_unstable_by(star_bg_index, cmp_f32).1;
 
-        let star_max_value = img.get(x, y).unwrap() as f64;
-        if (star_max_value - star_bg) < STAR_BG_BORDER as f64 { continue };
+        let star_max_value = img.get(x, y).unwrap();
+        if (star_max_value - star_bg) < border { continue };
 
         // Find all points of star. Border is as 1/2 of brightness of star center
-        let border_value = (star_max_value - star_bg) / 2.0;
+        let border_value = ((star_max_value + star_bg) / 2.0) as f32;
         let mut star_points = HashSet::new();
 
         flood_filler.fill(
             x, y,
             |x, y| {
+                if star_points.len() as i64 > MSD*MSD { return false; }
                 if all_stars_points.contains(&(x, y)) { return false; }
                 if star_points.contains(&(x, y)) { return false; }
-                if let Some(v) = img.get(x, y) { if (v as f64 - star_bg) < border_value {
+                if let Some(v) = img.get(x, y) { if v < border_value {
                     return false;
                 }} else {
                     return false;
@@ -124,12 +136,8 @@ pub fn find_stars_on_image(img: &ImageLayerF32) -> Stars {
         let (x_sum, y_sum, br) = star_points.iter().fold(
             (0_f64, 0_f64, 0_f64),
             |(x_sum, y_sum, br), &(x, y)| {
-                if let Some(v) = img.get(x, y) {
-                    let v = v as f64;
-                    (x_sum + v * x as f64, y_sum + v * y as f64, br + v)
-                } else {
-                    (x_sum, y_sum, br)
-                }
+                let v = (img.get(x, y).unwrap_or(0.0) - star_bg) as f64;
+                (x_sum + v * x as f64, y_sum + v * y as f64, br + v)
             }
         );
 
@@ -169,7 +177,24 @@ pub fn find_stars_on_image(img: &ImageLayerF32) -> Stars {
 
         let radius_dev = (radius_summ / bord_pt_cnt as f64).sqrt();
 
-        if radius_dev > 1.0 { continue; }
+        if radius_dev > 3.0 { continue; }
+
+        let mut star_is_overexposured = false;
+        for &(sx, sy) in &star_points {
+            if let Some(v) = orig_image.l.get(sx, sy) { if v.is_infinite() {
+                star_is_overexposured = true;
+            }}
+            if let Some(v) = orig_image.r.get(sx, sy) { if v.is_infinite() {
+                star_is_overexposured = true;
+            }}
+            if let Some(v) = orig_image.g.get(sx, sy) { if v.is_infinite() {
+                star_is_overexposured = true;
+            }}
+            if let Some(v) = orig_image.b.get(sx, sy) { if v.is_infinite() {
+                star_is_overexposured = true;
+            }}
+            if star_is_overexposured { break; }
+        }
 
         // add star into result list
 
@@ -184,16 +209,32 @@ pub fn find_stars_on_image(img: &ImageLayerF32) -> Stars {
             x:              center_x,
             y:              center_y,
             brightness:     br,
+            aver_br:        br / star_points.len() as f64,
             radius:         radius,
             radius_std_dev: radius_dev,
-            overexposured:  false,
+            overexposured:  star_is_overexposured,
             points,
         });
     }
 
+    // remove strange stars
+    let mut star_r_devs = Vec::new();
+    for _ in 0..10 {
+        star_r_devs.clear();
+        for star in &stars {
+            star_r_devs.push(CalcValue::new(star.radius_std_dev));
+        }
+        if let Some((mean, dev)) = mean_and_std_dev(&star_r_devs) {
+            let max = mean + dev*3.0;
+            stars.retain(|s| s.radius_std_dev < max);
+        } else {
+            break; // TODO: need idea how to process it
+        }
+    }
+
     stars.sort_by(|s1, s2| cmp_f64(&s1.brightness, &s2.brightness).reverse());
 
-    while stars.len() > 2000 { stars.pop(); }
+    while stars.len() > 1000 { stars.pop(); }
 
     stars
 }
@@ -291,10 +332,7 @@ struct StarsTriangle<'a> {
     len:   f64,
 }
 
-fn correct_angle(angle: f64) -> f64
-{
-    use std::f64::consts::PI as Pi;
-
+fn correct_angle(angle: f64) -> f64 {
     if      angle < -Pi { angle + 2.0 * Pi }
     else if angle > Pi  { angle - 2.0 * Pi }
     else                { angle }
@@ -422,5 +460,40 @@ fn find_same_triangle<'a>(
         })
     } else {
         None
+    }
+}
+
+
+pub struct StarsStat {
+    pub aver_r: f32,
+    pub aver_r_dev: f32,
+}
+
+pub fn calc_stars_stat(stars: &Stars, img_width: Crd, img_height: Crd) -> StarsStat {
+    let mut r_values = Vec::new();
+    let mut r_dev_values = Vec::new();
+    let center_x = img_width as f64 / 2.0;
+    let center_y = img_height as f64 / 2.0;
+    let max_size = img_width.min(img_height) as f64 / 2.0;
+
+    for star in stars.iter() {
+        let r_to_center =
+            ((star.x - center_x) * (star.x - center_x) +
+            (star.y - center_y) * (star.y - center_y)).sqrt();
+
+        let k = max_size - r_to_center;
+
+        r_values.push(CalcValue::new(star.radius));
+
+        if star.radius > 2.0 && k > 0.0 {
+            r_dev_values.push(CalcValue::new_weighted(star.radius_std_dev, k*k));
+        }
+    }
+    let aver_r_opt = cappa_sigma_weighted(&mut r_values, 3.0, 5, true, true);
+    let aver_r_dev_opt = cappa_sigma_weighted(&mut r_dev_values, 3.0, 5, true, true);
+
+    StarsStat {
+        aver_r:     if let Some(res) = aver_r_opt { res.result as f32 } else { 0.0 },
+        aver_r_dev: if let Some(res) = aver_r_dev_opt { res.result as f32 } else { 0.0 },
     }
 }
