@@ -20,6 +20,8 @@ pub enum CfaColor {
 pub enum CfaType {
     GBRG,
     RGGB,
+    BGGR,
+    GRBG,
 }
 
 type CfaArr = [[CfaColor; 2]; 2];
@@ -61,6 +63,18 @@ impl Cfa {
                 start_top,
                 pattern_type: CfaType::RGGB,
                 arr: [[R, G], [G, B]]
+            }),
+            "BGGR" => Cfa::Pattern(CfaPattern {
+                start_left,
+                start_top,
+                pattern_type: CfaType::BGGR,
+                arr: [[B, G], [G, R]]
+            }),
+            "GRBG" => Cfa::Pattern(CfaPattern {
+                start_left,
+                start_top,
+                pattern_type: CfaType::GRBG,
+                arr: [[G, R], [B, G]]
             }),
             _  => Cfa::Mono
         }
