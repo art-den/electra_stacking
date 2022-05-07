@@ -502,8 +502,24 @@ pub fn merge_temp_light_files(
 
     let time_log = TimeLogger::start();
 
+    let calc_for_values = |values: &mut Vec<CalcValue>| -> f32 {
+        if values.is_empty() { return 0.0; }
+        let contains_inf = values.iter().position(|v| v.value.is_infinite()).is_some();
+        let contains_values = values.iter().position(|v| !v.value.is_infinite()).is_some();
+        if contains_inf && !contains_values {
+            return f32::INFINITY;
+        } else if contains_inf && contains_values {
+            values.retain(|v| !v.value.is_infinite());
+        }
+        calc(values, calc_opts)
+            .and_then(|v| Some(v.result as f32))
+            .unwrap_or(NO_VALUE_F32)
+    };
+
+    let mut result_image = Image::new();
+
     if is_rgb_image {
-        let mut result_image = Image::new_color(ref_width, ref_height);
+        result_image.make_color(ref_width, ref_height);
         let mut r_values = Vec::new();
         let mut g_values = Vec::new();
         let mut b_values = Vec::new();
@@ -535,44 +551,49 @@ pub fn merge_temp_light_files(
                 }
             }
 
-            let calc_for_values = |values: &mut Vec<CalcValue>| -> f32 {
-                if values.is_empty() { return 0.0; }
-
-                let contains_inf = values.iter().position(|v| v.value.is_infinite()).is_some();
-                let contains_values = values.iter().position(|v| !v.value.is_infinite()).is_some();
-
-                if contains_inf && !contains_values {
-                    return f32::INFINITY;
-                } else if contains_inf && contains_values {
-                    values.retain(|v| !v.value.is_infinite());
-                }
-
-                calc(values, calc_opts)
-                    .and_then(|v| Some(v.result as f32))
-                    .unwrap_or(NO_VALUE_F32)
-            };
-
             *r = calc_for_values(&mut r_values);
             *g = calc_for_values(&mut g_values);
             *b = calc_for_values(&mut b_values);
         }
+    } else {
+        result_image.make_grey(ref_width, ref_height);
+        let mut l_values = Vec::new();
+        let mut prev_y = -1;
+        for (_, y, l) in result_image.l.iter_crd_mut() {
+            if y != prev_y {
+                if cancel_flag.load(Ordering::Relaxed) { return Ok(()); }
+                progress.lock().unwrap().percent(
+                    y as usize + 1,
+                    ref_height as usize,
+                    "Merging values..."
+                );
+                prev_y = y;
+            }
 
-        progress.lock().unwrap().percent(100, 100, "Saving result...");
+            l_values.clear();
+            for stack_item in stack_items.iter_mut() {
+                let fl = stack_item.reader.get_l()?;
+                if fl != NO_VALUE_F32 {
+                    l_values.push(CalcValue::new_weighted(fl as f64, stack_item.weight));
+                }
+            }
 
-        result_image.l.fill_inf_areas();
-        result_image.r.fill_inf_areas();
-        result_image.g.fill_inf_areas();
-        result_image.b.fill_inf_areas();
-
-        result_image.check_contains_inf_or_nan()?;
-        result_image.normalize_if_greater_1();
-
-        let mut dst_exif = Exif::new_empty();
-        dst_exif.exp_time = Some(weighted_time as f32);
-        save_image_to_file(&result_image, &dst_exif, result_file)?;
+            *l = calc_for_values(&mut l_values);
+        }
     }
 
     time_log.log("merging files");
+
+    progress.lock().unwrap().percent(100, 100, "Saving result...");
+
+    result_image.fill_inf_areas();
+    result_image.check_contains_inf_or_nan()?;
+    result_image.normalize_if_greater_1();
+
+    let mut dst_exif = Exif::new_empty();
+    dst_exif.exp_time = Some(weighted_time as f32);
+    save_image_to_file(&result_image, &dst_exif, result_file)?;
+
     progress.lock().unwrap().percent(100, 100, "Done!");
 
     Ok(())

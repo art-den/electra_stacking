@@ -1451,8 +1451,6 @@ fn preview_selected_file(objects: &MainWindowObjectsPtr, reason: PreviewImageRea
         return;
     }
 
-    *objects.last_preview_file.borrow_mut() = file_name.clone();
-
     preview_image_file(objects, &file_name);
 }
 
@@ -1487,7 +1485,7 @@ fn preview_image_file(objects: &MainWindowObjectsPtr, file_name: &PathBuf) {
                     );
 
                     objects.preview_file_name.set_label(file_name.to_str().unwrap_or(""));
-
+                    *objects.last_preview_file.borrow_mut() = file_name.clone();
                     *objects.prev_preview_img.borrow_mut() = image;
                     objects.preview_ctrls_box.set_sensitive(true);
                 },
@@ -1532,12 +1530,16 @@ fn preview_image_file(objects: &MainWindowObjectsPtr, file_name: &PathBuf) {
                 light_file.image.normalize_if_greater_1();
 
                 // fill stars with green for debug purposes
-                if cfg!(debug_assertions) && light_file.image.is_rgb() {
+                if cfg!(debug_assertions) {
                     for star in &light_file.stars {
                         for pt in &star.points {
-                            light_file.image.r.set(pt.x, pt.y, 0.0);
-                            light_file.image.g.set(pt.x, pt.y, 1.0);
-                            light_file.image.b.set(pt.x, pt.y, 0.0);
+                            if light_file.image.is_rgb() {
+                                light_file.image.r.set(pt.x, pt.y, 0.0);
+                                light_file.image.g.set(pt.x, pt.y, 1.0);
+                                light_file.image.b.set(pt.x, pt.y, 0.0);
+                            } else if light_file.image.is_greyscale() {
+                                light_file.image.l.set(pt.x, pt.y, 0.5);
+                            }
                         }
                     }
                 }
@@ -1597,6 +1599,15 @@ fn convert_image_to_bytes(image: &image::Image, gamma: f32, auto_minimum: bool) 
         bytes.push(r as u8);
         bytes.push(g as u8);
         bytes.push(b as u8);
+    }
+
+    for l in image.l.iter() {
+        let mut l = (tt.get((l-min)*range) * 255.0) as i32;
+        if l < 0 { l = 0; }
+        if l > 255 { l = 255; }
+        bytes.push(l as u8);
+        bytes.push(l as u8);
+        bytes.push(l as u8);
     }
 
     bytes
@@ -1862,7 +1873,6 @@ fn group_options_dialog<F: Fn(GroupOptions) + 'static>(
     }
 
     rb_custom_name.connect_clicked(clone!(@strong e_name => move |rb| {
-        dbg!(rb.is_active());
         e_name.set_sensitive(rb.is_active());
     }));
 

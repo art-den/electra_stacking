@@ -6,7 +6,7 @@ use crate::{image::*, calc::*};
 
 use std::f64::consts::PI as Pi;
 pub const MAX_STAR_DIAMETER: Crd = 25; // in pixels
-pub const STAR_BG_BORDER: f32 = 0.01;
+pub const STAR_BG_BORDER: f32 = 0.001;
 
 #[derive(Serialize, Deserialize)]
 pub struct StarPoint {
