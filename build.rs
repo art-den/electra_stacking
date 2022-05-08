@@ -1,5 +1,5 @@
 fn main() -> std::io::Result<()> {
-    if cfg!(target_os = "windows") && !cfg!(debug_assertions) {
+    #[cfg(all(target_os = "windows", not(debug_assertions)))] {
         embed_resource::compile("win_resources/resource.rc");
     }
     Ok(())
