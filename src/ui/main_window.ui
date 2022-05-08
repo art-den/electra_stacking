@@ -67,7 +67,7 @@
         <property name="visible">True</property>
         <property name="can-focus">False</property>
         <property name="action-name">win.delete_item</property>
-        <property name="label" translatable="yes">Delete item...</property>
+        <property name="label" translatable="yes">Delete item(s)...</property>
         <property name="use-underline">True</property>
       </object>
     </child>
@@ -380,11 +380,13 @@
                   <object class="GtkTreeView" id="project_tree">
                     <property name="visible">True</property>
                     <property name="can-focus">True</property>
+                    <property name="rubber-banding">True</property>
                     <property name="enable-grid-lines">both</property>
                     <property name="enable-tree-lines">True</property>
-                    <property name="activate-on-single-click">True</property>
                     <child internal-child="selection">
-                      <object class="GtkTreeSelection"/>
+                      <object class="GtkTreeSelection">
+                        <property name="mode">multiple</property>
+                      </object>
                     </child>
                   </object>
                 </child>

@@ -170,6 +170,7 @@ fn build_ui(application: &gtk::Application) {
         window: window.clone(),
         menu_bar,
         prj_tree: project_tree.clone(),
+        prj_tree_changed_flag: RefCell::new(false),
         prj_tree_menu: prj_tree_menu.clone(),
         prj_img_paned,
         dark_theme_menu: dark_theme_menu.clone(),
@@ -216,14 +217,18 @@ fn build_ui(application: &gtk::Application) {
 
     project_tree.connect_button_press_event(move |project_tree, evt| {
         if (evt.button() == gtk::gdk::ffi::GDK_BUTTON_SECONDARY as u32)
-        && prj_tree_menu.is_sensitive() {
+        && prj_tree_menu.is_sensitive()
+        && project_tree.model().is_some() {
             prj_tree_menu.set_attach_widget(Some(project_tree));
             prj_tree_menu.popup_easy(evt.button(), evt.time());
+            if project_tree.selection().count_selected_rows() > 1 {
+                return glib::signal::Inhibit(true);
+            }
         }
         glib::signal::Inhibit(false)
     });
 
-    objects.prj_tree.connect_cursor_changed(clone!{ @weak objects => move |_| {
+    objects.prj_tree.selection().connect_changed(clone!{ @weak objects => move |_| {
         handler_project_tree_selection_changed(&objects);
     }});
 
@@ -434,6 +439,7 @@ struct MainWindowObjects {
     menu_bar: gtk::MenuBar,
 
     prj_tree: gtk::TreeView,
+    prj_tree_changed_flag: RefCell<bool>,
     prj_tree_menu: gtk::Menu,
     prj_img_paned: gtk::Paned,
 
@@ -538,7 +544,7 @@ fn apply_config(objects: &MainWindowObjectsPtr) {
     objects.preview_img_gamma.set_value(config.preview_gamma as f64);
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone)]
 enum SelItemType {
     None,
     Project,
@@ -547,6 +553,7 @@ enum SelItemType {
     File
 }
 
+#[derive(Clone)]
 struct SelectedItem {
     item_type: SelItemType,
     group_idx: Option<usize>,
@@ -599,13 +606,51 @@ fn get_selection_for_path(path: &gtk::TreePath) -> SelectedItem {
 }
 
 fn get_current_selection(objects: &MainWindowObjectsPtr) -> SelectedItem {
-    if let Some((model, sorted_iter)) = objects.prj_tree.selection().selected() {
-        let sorted_model = model.downcast::<gtk::TreeModelSort>().unwrap();
-        let tree_store = sorted_model.model().downcast::<gtk::TreeStore>().unwrap();
-        let iter = sorted_model.convert_iter_to_child_iter(&sorted_iter);
-        let path = tree_store.path(&iter).unwrap();
-        return get_selection_for_path(&path);
+    let model = match objects.prj_tree.model() {
+        Some(model) =>
+            model.downcast::<gtk::TreeModelSort>().unwrap(),
+        None =>
+            return SelectedItem::new_empty(),
+    };
+
+    let items = objects.prj_tree
+        .selection()
+        .selected_rows().0
+        .iter()
+        .filter_map(|path| model.convert_path_to_child_path(path))
+        .map(|path| get_selection_for_path(&path))
+        .collect::<Vec<_>>();
+
+    if items.len() == 1 {
+        return items[0].clone();
+    } else if items.len() > 1 {
+        let not_file_selection = items
+            .iter()
+            .find(|sel| sel.item_type != SelItemType::File || sel.files.len() != 1);
+
+        if not_file_selection.is_some() {
+            return SelectedItem::new_empty();
+        }
+
+        let group = items[0].group_idx;
+        let file_type = items[0].file_type;
+
+        let not_same_group_or_filetype = items
+            .iter()
+            .find(|sel| sel.group_idx != group || sel.file_type != file_type);
+
+        if not_same_group_or_filetype.is_some() {
+            return SelectedItem::new_empty();
+        }
+
+        let mut result = items[0].clone();
+        for item in items.iter().skip(1) {
+            result.files.push(item.files[0]);
+        }
+
+        return result;
     }
+
     SelectedItem::new_empty()
 }
 
@@ -1125,6 +1170,8 @@ impl TreeViewFillHelper {
     }
 
     fn apply_changes(&self, objects: &MainWindowObjectsPtr, update_files: bool) {
+        *objects.prj_tree_changed_flag.borrow_mut() = true;
+
         let mut ids_to_delete = Vec::new();
         let dummy_group = PrjTreeFillHelperGroup::new();
         let project = objects.project.borrow();
@@ -1317,7 +1364,7 @@ impl TreeViewFillHelper {
                             ids_to_delete.push(*idx);
                         }
                     }
-                    ids_to_delete.sort_by(|idx1, idx2| idx2.partial_cmp(idx1).unwrap());
+                    ids_to_delete.sort_by(|idx1, idx2| idx1.partial_cmp(idx2).unwrap().reverse());
                     for idx in ids_to_delete.iter() {
                         let iter = tree_store.iter_nth_child(Some(&files_iter), *idx as i32).unwrap();
                         tree_store.remove(&iter);
@@ -1365,10 +1412,16 @@ impl TreeViewFillHelper {
 
         let project_path = tree_store.path(&project_iter).unwrap();
         objects.prj_tree.expand_to_path(&project_path);
+
+        *objects.prj_tree_changed_flag.borrow_mut() = false;
     }
 }
 
 fn handler_project_tree_selection_changed(objects: &MainWindowObjectsPtr) {
+    if *objects.prj_tree_changed_flag.borrow() {
+        return;
+    }
+
     preview_selected_file(objects, PreviewImageReason::SelectionChanged);
 
     let selection = get_current_selection(objects);
@@ -1733,12 +1786,12 @@ fn action_delete_item(objects: &MainWindowObjectsPtr) {
             let group = &objects.project.borrow().groups[group_idx];
             let dialog = confirm_dialog(
                 objects,
-                format!("Delete group '{}' ?", group.name(group_idx)),
+                format!("Remove group '{}' from project?", group.name(group_idx)),
                 clone!(@strong objects => move || {
                     let helper = TreeViewFillHelper::new(&objects.project.borrow());
                     let group = objects.project.borrow_mut().remove_group(group_idx);
                     helper.apply_changes(&objects, true);
-                    log::info!("Group '{}' deleted", group.name(group_idx));
+                    log::info!("Group '{}' removed from project", group.name(group_idx));
                 })
             );
             dialog.show()
@@ -1753,19 +1806,19 @@ fn action_delete_item(objects: &MainWindowObjectsPtr) {
         } => {
             files.sort();
             let project = objects.project.borrow();
-
             let dialog_text = if files.len() == 1 {
                 let group = &project.groups[group_idx];
                 let folder = &group.get_file_list_by_type(file_type);
                 let file = &folder.list[files[0]];
-                format!("Delete file '{}' ?", file.file_name.to_str().unwrap_or(""))
+                format!("Remove file '{}' from project?", file.file_name.to_str().unwrap_or(""))
             } else {
-                format!("Delete {} files?", files.len())
+                format!("Remove {} files from project?", files.len())
             };
             let dialog = confirm_dialog(
                 objects,
                 dialog_text,
                 clone!(@strong objects => move || {
+                    objects.prj_tree.selection().unselect_all();
                     let helper = TreeViewFillHelper::new(&objects.project.borrow());
                     for file_idx in files.iter().rev() {
                         let file = objects.project.borrow_mut()
@@ -1773,7 +1826,7 @@ fn action_delete_item(objects: &MainWindowObjectsPtr) {
                             .get_file_list_by_type_mut(file_type)
                             .list
                             .remove(*file_idx);
-                        log::info!("File '{}' deleted", file.file_name.to_str().unwrap_or(""));
+                        log::info!("File '{}' removed from project", file.file_name.to_str().unwrap_or(""));
                     }
 
                     objects.project.borrow_mut().changed = true;
