@@ -86,27 +86,28 @@ fn build_ui(application: &gtk::Application) {
 
     let builder = gtk::Builder::from_string(include_str!(r"ui/main_window.ui"));
 
-    let window            = builder.object::<gtk::ApplicationWindow>("main_window").unwrap();
-    let menu_bar          = builder.object::<gtk::MenuBar>("menu_bar").unwrap();
-    let prj_tree_menu     = builder.object::<gtk::Menu>("prj_tree_menu").unwrap();
-    let project_tree      = builder.object::<gtk::TreeView>("project_tree").unwrap();
-    let progress_bar      = builder.object::<gtk::ProgressBar>("progress_bar").unwrap();
-    let progress_box      = builder.object::<gtk::Grid>("progress_box").unwrap();
-    let progress_text     = builder.object::<gtk::Label>("progress_text").unwrap();
-    let cancel_btn        = builder.object::<gtk::Button>("cancel_btn").unwrap();
-    let preview_img_scr   = builder.object::<gtk::ScrolledWindow>("preview_image_scrolled").unwrap();
-    let prj_img_paned     = builder.object::<gtk::Paned>("prj_img_paned").unwrap();
-    let preview_img_scale = builder.object::<gtk::ComboBoxText>("preview_img_scale").unwrap();
-    let preview_auto_min  = builder.object::<gtk::CheckButton>("preview_auto_min").unwrap();
-    let preview_img_gamma = builder.object::<gtk::Scale>("preview_img_gamma").unwrap();
-    let preview_file_name = builder.object::<gtk::Label>("preview_file_name").unwrap();
-    let preview_ctrls_box = builder.object::<gtk::Widget>("preview_ctrls_box").unwrap();
-    let recent_menu       = builder.object::<gtk::RecentChooserMenu>("recent_menu").unwrap();
+    let window              = builder.object::<gtk::ApplicationWindow>("main_window").unwrap();
+    let menu_bar            = builder.object::<gtk::MenuBar>("menu_bar").unwrap();
+    let prj_tree_menu       = builder.object::<gtk::Menu>("prj_tree_menu").unwrap();
+    let project_tree        = builder.object::<gtk::TreeView>("project_tree").unwrap();
+    let progress_bar        = builder.object::<gtk::ProgressBar>("progress_bar").unwrap();
+    let progress_box        = builder.object::<gtk::Grid>("progress_box").unwrap();
+    let progress_text       = builder.object::<gtk::Label>("progress_text").unwrap();
+    let cancel_btn          = builder.object::<gtk::Button>("cancel_btn").unwrap();
+    let preview_img_scr     = builder.object::<gtk::ScrolledWindow>("preview_image_scrolled").unwrap();
+    let prj_img_paned       = builder.object::<gtk::Paned>("prj_img_paned").unwrap();
+    let preview_img_scale   = builder.object::<gtk::ComboBoxText>("preview_img_scale").unwrap();
+    let preview_auto_min    = builder.object::<gtk::CheckButton>("preview_auto_min").unwrap();
+    let preview_img_gamma   = builder.object::<gtk::Scale>("preview_img_gamma").unwrap();
+    let preview_file_name   = builder.object::<gtk::Label>("preview_file_name").unwrap();
+    let preview_ctrls_box   = builder.object::<gtk::Widget>("preview_ctrls_box").unwrap();
+    let recent_menu         = builder.object::<gtk::RecentChooserMenu>("recent_menu").unwrap();
+    let mi_change_file_type = builder.object::<gtk::MenuItem>("mi_change_file_type").unwrap();
 
     preview_img_gamma.set_range(2.0, 10.0);
 
-    let dark_theme_menu = builder.object::<gtk::RadioMenuItem>("dark_theme_mi").unwrap();
-    let light_theme_menu = builder.object::<gtk::RadioMenuItem>("light_theme_mi").unwrap();
+    let mi_dark_theme = builder.object::<gtk::RadioMenuItem>("dark_theme_mi").unwrap();
+    let mi_light_theme = builder.object::<gtk::RadioMenuItem>("light_theme_mi").unwrap();
 
     let prj_tree_col_names = get_prj_tree_col_items();
 
@@ -173,8 +174,9 @@ fn build_ui(application: &gtk::Application) {
         prj_tree_changed_flag: RefCell::new(false),
         prj_tree_menu: prj_tree_menu.clone(),
         prj_img_paned,
-        dark_theme_menu: dark_theme_menu.clone(),
-        light_theme_menu: light_theme_menu.clone(),
+        mi_dark_theme: mi_dark_theme.clone(),
+        mi_light_theme: mi_light_theme.clone(),
+        mi_change_file_type,
         progress_bar,
         progress_cont: progress_box.upcast(),
         progress_text,
@@ -195,6 +197,7 @@ fn build_ui(application: &gtk::Application) {
         preview_ctrls_box,
         preview_scroll_pos: RefCell::new(None),
         last_selected_path: RefCell::new(PathBuf::new()),
+        move_to_group_last_uuid: RefCell::new(String::new()),
     });
 
     // Load and apply config
@@ -236,13 +239,13 @@ fn build_ui(application: &gtk::Application) {
         handler_project_tree_checked_changed(&objects, path);
     }));
 
-    dark_theme_menu.connect_activate(clone!(@strong objects => move |mi| {
+    mi_dark_theme.connect_activate(clone!(@strong objects => move |mi| {
         if mi.is_active() {
             action_dark_theme(&objects);
         }
     }));
 
-    light_theme_menu.connect_activate(clone!(@strong objects => move |mi| {
+    mi_light_theme.connect_activate(clone!(@strong objects => move |mi| {
         if mi.is_active() {
             action_light_theme(&objects);
         }
@@ -292,6 +295,11 @@ fn build_ui(application: &gtk::Application) {
     conn_action(&objects, "light_theme",          action_light_theme);
     conn_action(&objects, "dark_theme",           action_dark_theme);
     conn_action(&objects, "cleanup_light_files",  action_cleanup_light_files);
+    conn_action(&objects, "change_file_to_light", action_change_file_to_light);
+    conn_action(&objects, "change_file_to_dark",  action_change_file_to_dark);
+    conn_action(&objects, "change_file_to_flat",  action_change_file_to_flat);
+    conn_action(&objects, "change_file_to_bias",  action_change_file_to_bias);
+    conn_action(&objects, "move_file_to_group",   action_move_file_to_group);
 
     fill_project_tree(&objects);
     update_project_name_and_time_in_gui(&objects, true, true);
@@ -459,8 +467,9 @@ struct MainWindowObjects {
     preview_ctrls_box: gtk::Widget,
     preview_scroll_pos: RefCell<Option<((f64, f64), (f64, f64))>>,
 
-    dark_theme_menu: gtk::RadioMenuItem,
-    light_theme_menu: gtk::RadioMenuItem,
+    mi_dark_theme: gtk::RadioMenuItem,
+    mi_light_theme: gtk::RadioMenuItem,
+    mi_change_file_type: gtk::MenuItem,
 
     icon_folder: Option<gdk_pixbuf::Pixbuf>,
     icon_image: Option<gdk_pixbuf::Pixbuf>,
@@ -469,6 +478,7 @@ struct MainWindowObjects {
 
     cancel_flag: Arc<AtomicBool>,
     last_selected_path: RefCell<PathBuf>,
+    move_to_group_last_uuid: RefCell<String>,
 }
 
 type MainWindowObjectsPtr = Rc::<MainWindowObjects>;
@@ -477,9 +487,9 @@ fn assign_config(objects: &MainWindowObjectsPtr) {
     let mut config = objects.config.borrow_mut();
     config.prj_tree_width = objects.prj_img_paned.position();
 
-    if objects.dark_theme_menu.is_active() {
+    if objects.mi_dark_theme.is_active() {
         config.theme = Theme::Dark;
-    } else if objects.light_theme_menu.is_active() {
+    } else if objects.mi_light_theme.is_active() {
         config.theme = Theme::Light;
     }
 
@@ -504,11 +514,11 @@ fn apply_config(objects: &MainWindowObjectsPtr) {
     match config.theme {
         Theme::Dark     => {
             action_dark_theme(objects);
-            objects.dark_theme_menu.activate();
+            objects.mi_dark_theme.set_active(true);
         },
         Theme::Light    => {
             action_light_theme(objects);
-            objects.light_theme_menu.activate();
+            objects.mi_light_theme.set_active(true);
         },
         Theme::Other(_) => (),
     }
@@ -715,11 +725,8 @@ fn open_project(objects: &MainWindowObjectsPtr, path: &PathBuf) {
         log::error!("'{}' during opening project", err.to_string());
     } else {
         objects.project.borrow_mut().file_name = Some(path.clone());
-        objects.config.borrow_mut().add_recent_file(&path);
-
         fill_project_tree(&objects);
         update_project_name_and_time_in_gui(&objects, true, true);
-
         log::info!("Project {} opened", path.to_str().unwrap_or(""));
     }
 }
@@ -778,11 +785,10 @@ fn action_save_project_as(objects: &MainWindowObjectsPtr) {
             *objects.last_selected_path.borrow_mut() = cur_folder;
         }
 
+        objects.project.borrow_mut().config.name = Some(project_name);
+
         let ok = save_project(&objects, &path);
         if !ok { return; }
-
-        objects.project.borrow_mut().config.name = Some(project_name);
-        objects.config.borrow_mut().add_recent_file(&path);
 
         update_project_name_and_time_in_gui(&objects, true, true);
     }
@@ -1421,27 +1427,44 @@ fn handler_project_tree_selection_changed(objects: &MainWindowObjectsPtr) {
     if *objects.prj_tree_changed_flag.borrow() {
         return;
     }
-
     preview_selected_file(objects, PreviewImageReason::SelectionChanged);
-
     let selection = get_current_selection(objects);
-
+    let is_file = selection.item_type == SelItemType::File;
     let support_item_properties =
         selection.item_type == SelItemType::Project ||
         selection.item_type == SelItemType::Group;
-
     let support_delete =
         selection.item_type == SelItemType::Group ||
-        selection.item_type == SelItemType::File;
-
+        is_file;
     let support_use_as_ref_image =
-        selection.item_type == SelItemType::File &&
-        selection.file_type == Some(ProjectFileType::Light);
-
-
+        is_file &&
+        selection.file_type == Some(ProjectFileType::Light) &&
+        selection.files.len() == 1;
     enable_action(&objects.window, "item_properties", support_item_properties);
     enable_action(&objects.window, "delete_item", support_delete);
     enable_action(&objects.window, "use_as_ref_image", support_use_as_ref_image);
+    enable_action(&objects.window, "move_file_to_group", is_file);
+    objects.mi_change_file_type.set_sensitive(is_file);
+    enable_action(
+        &objects.window,
+        "change_file_to_light",
+        selection.file_type != Some(ProjectFileType::Light)
+    );
+    enable_action(
+        &objects.window,
+        "change_file_to_dark",
+        selection.file_type != Some(ProjectFileType::Dark)
+    );
+    enable_action(
+        &objects.window,
+        "change_file_to_flat",
+        selection.file_type != Some(ProjectFileType::Flat)
+    );
+    enable_action(
+        &objects.window,
+        "change_file_to_bias",
+        selection.file_type != Some(ProjectFileType::Bias)
+    );
 }
 
 #[derive(PartialEq)]
@@ -2377,4 +2400,175 @@ fn exec_and_show_progress<R, ExecFun, OkFun> (
             }
         }),
     );
+}
+
+fn action_change_file_to_light(objects: &MainWindowObjectsPtr) {
+    change_selected_files_type(objects, ProjectFileType::Light);
+}
+
+fn action_change_file_to_dark(objects: &MainWindowObjectsPtr) {
+    change_selected_files_type(objects, ProjectFileType::Dark);
+}
+
+fn action_change_file_to_flat(objects: &MainWindowObjectsPtr) {
+    change_selected_files_type(objects, ProjectFileType::Flat);
+}
+
+fn action_change_file_to_bias(objects: &MainWindowObjectsPtr) {
+    change_selected_files_type(objects, ProjectFileType::Bias);
+}
+
+fn change_selected_files_type(
+    objects:  &MainWindowObjectsPtr,
+    new_type: ProjectFileType
+) {
+    let selection = get_current_selection(objects);
+    if selection.item_type != SelItemType::File {
+        return;
+    }
+
+    let message = format!(
+        "Change type of {0:} file(s) into {1:?}?",
+        selection.files.len(),
+        new_type
+    );
+
+    let dialog = gtk::MessageDialog::builder()
+        .transient_for(&objects.window)
+        .title("Change file types")
+        .text(&message)
+        .modal(true)
+        .message_type(gtk::MessageType::Question)
+        .build();
+
+    if cfg!(target_os = "windows") {
+        dialog.add_buttons(&[
+            ("Yes", gtk::ResponseType::Yes),
+            ("No", gtk::ResponseType::No),
+        ]);
+    } else {
+        dialog.add_buttons(&[
+            ("No", gtk::ResponseType::No),
+            ("Yes", gtk::ResponseType::Yes),
+        ]);
+    }
+
+    dialog.connect_response(clone!(@strong objects => move |dlg, resp| {
+        if resp == gtk::ResponseType::Yes {
+            let helper = TreeViewFillHelper::new(&objects.project.borrow());
+            {
+                let mut project = objects.project.borrow_mut();
+                let group = &mut project.groups[selection.group_idx.unwrap()];
+                group.change_file_types(
+                    selection.file_type.unwrap(),
+                    new_type,
+                    selection.files.clone()
+                );
+                project.changed = true;
+            }
+            helper.apply_changes(&objects, true);
+            update_project_name_and_time_in_gui(&objects, true, false);
+        }
+        dlg.close();
+    }));
+
+    dialog.show();
+}
+
+fn action_move_file_to_group(objects: &MainWindowObjectsPtr) {
+    let selection = get_current_selection(objects);
+    if selection.item_type != SelItemType::File {
+        return;
+    }
+
+    let builder = gtk::Builder::from_string(include_str!("ui/move_files_to_group_dialog.ui"));
+    let dialog = builder.object::<gtk::Dialog>("dialog").unwrap();
+    let rbtn_existing_group = builder.object::<gtk::RadioButton>("rbtn_existing_group").unwrap();
+    let rbtn_new_group = builder.object::<gtk::RadioButton>("rbtn_new_group").unwrap();
+    let cbx_existing_groups = builder.object::<gtk::ComboBoxText>("cbx_existing_groups").unwrap();
+    let e_new_group = builder.object::<gtk::Entry>("e_new_group").unwrap();
+
+    dialog.set_transient_for(Some(&objects.window));
+    if cfg!(target_os = "windows") {
+        dialog.add_buttons(&[
+            ("_Ok", gtk::ResponseType::Ok),
+            ("_Cancel", gtk::ResponseType::Cancel),
+        ]);
+    } else {
+        dialog.add_buttons(&[
+            ("_Cancel", gtk::ResponseType::Cancel),
+            ("_Ok", gtk::ResponseType::Ok),
+        ]);
+    }
+
+    {
+        let project = objects.project.borrow();
+        for (idx, group) in project.groups.iter().enumerate() {
+            if Some(idx) != selection.group_idx {
+                cbx_existing_groups.append(Some(&group.uuid), &group.name(idx));
+            }
+        }
+        let move_to_group_last_uuid = objects.move_to_group_last_uuid.borrow();
+        if !move_to_group_last_uuid.is_empty() {
+            cbx_existing_groups.set_active_id(Some(&*move_to_group_last_uuid));
+        }
+
+        if project.groups.len() <= 1 {
+            rbtn_existing_group.set_sensitive(false);
+            rbtn_new_group.set_active(true);
+        } else {
+            rbtn_existing_group.set_active(true);
+        }
+    }
+
+    cbx_existing_groups.set_sensitive(rbtn_existing_group.is_active());
+    e_new_group.set_sensitive(rbtn_new_group.is_active());
+
+    rbtn_existing_group.connect_clicked(clone!(@strong cbx_existing_groups => move |rb| {
+        cbx_existing_groups.set_sensitive(rb.is_active());
+    }));
+
+    rbtn_new_group.connect_clicked(clone!(@strong e_new_group => move |rb| {
+        e_new_group.set_sensitive(rb.is_active());
+    }));
+
+    dialog.connect_response(clone!(@strong objects => move |dlg, resp| {
+        if resp == gtk::ResponseType::Ok {
+            let helper = TreeViewFillHelper::new(&objects.project.borrow());
+            {
+                let mut project = objects.project.borrow_mut();
+                let group_id = if rbtn_new_group.is_active() {
+                    let mut group_options = GroupOptions::new();
+                    let new_group_name = e_new_group.text().to_string().trim().to_string();
+                    if !new_group_name.is_empty() {
+                        group_options.name = Some(new_group_name.to_string());
+                    }
+                    project.add_new_group(group_options);
+                    project.groups.last().unwrap().uuid.clone()
+                } else {
+                    match cbx_existing_groups.active_id() {
+                        Some(s) => s.to_string(),
+                        _ => return,
+                    }
+                };
+
+                let from_group = &mut project.groups[selection.group_idx.unwrap()];
+                let from_folder = from_group.get_file_list_by_type_mut(selection.file_type.unwrap());
+                let files_to_move = from_folder.remove_files_by_idx(selection.files.clone());
+
+                let to_group = project.find_group_by_uuid_mut(&group_id).unwrap();
+                let to_folder = to_group.get_file_list_by_type_mut(selection.file_type.unwrap());
+                for file in files_to_move {
+                    to_folder.list.push(file);
+                }
+
+                project.changed = true;
+            }
+            helper.apply_changes(&objects, true);
+            update_project_name_and_time_in_gui(&objects, true, false);
+        }
+        dlg.close();
+    }));
+
+    dialog.show();
 }

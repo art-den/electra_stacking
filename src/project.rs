@@ -76,6 +76,12 @@ impl Project {
             .is_some()
     }
 
+    pub fn find_group_by_uuid_mut(&mut self, uuid: &str) -> Option<&mut ProjectGroup> {
+        self.groups
+            .iter_mut()
+            .find(|g| g.uuid == uuid)
+    }
+
     pub fn add_new_group(&mut self, options: GroupOptions) {
         self.groups.push(ProjectGroup::new(options));
         self.changed = true;
@@ -410,6 +416,20 @@ impl ProjectGroup {
             ProjectFileType::Dark => &mut self.dark_files,
             ProjectFileType::Flat => &mut self.flat_files,
             ProjectFileType::Bias => &mut self.bias_files,
+        }
+    }
+
+    pub fn change_file_types(
+        &mut self,
+        from_type:    ProjectFileType,
+        to_type:      ProjectFileType,
+        file_indices: Vec<usize>,
+    ) {
+        let from_files = self.get_file_list_by_type_mut(from_type);
+        let files_to_move = from_files.remove_files_by_idx(file_indices);
+        let to_files = self.get_file_list_by_type_mut(to_type);
+        for file in files_to_move {
+            to_files.list.push(file);
         }
     }
 
@@ -839,6 +859,15 @@ impl ProjectFiles {
             .iter()
             .filter(|f| f.used)
             .map(|f| f.file_name.clone())
+            .collect()
+    }
+
+    pub fn remove_files_by_idx(&mut self, mut indices: Vec<usize>) -> Vec<ProjectFile> {
+        indices.sort();
+        indices
+            .into_iter()
+            .rev()
+            .map(|idx| self.list.remove(idx))
             .collect()
     }
 }

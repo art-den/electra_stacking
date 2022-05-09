@@ -44,14 +44,12 @@ pub struct Config {
     pub preview_auto_min: bool,
     pub preview_gamma: f32,
     pub prj_tree_cols: Vec<PrjTreeCol>,
-    pub recent_projects: Vec<PathBuf>,
     pub cpu_load: CpuLoad,
 }
 
 impl Config {
     pub fn new() -> Self {
         Self {
-            recent_projects: Vec::new(),
             theme: Theme::Dark,
             prj_tree_width: -1,
             prj_tree_cols: Vec::new(),
@@ -85,14 +83,6 @@ impl Config {
         let mut conf_dir = get_app_conf_dir(create_dir)?;
         conf_dir.push("config.json");
         Ok(conf_dir)
-    }
-
-    pub fn add_recent_file(&mut self, file_name: &PathBuf) {
-        self.recent_projects.retain(|f|{ f !=  file_name} );
-        self.recent_projects.insert(0, file_name.clone());
-        while self.recent_projects.len() > 10 {
-            self.recent_projects.pop();
-        }
     }
 }
 
