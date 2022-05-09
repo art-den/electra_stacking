@@ -817,7 +817,7 @@ impl ProjectFiles {
         }
     }
 
-    pub fn remove_existing_files(&self, files: &mut Vec<PathBuf>) {
+    pub fn retain_files_if_they_are_not_here(&self, files: &mut Vec<PathBuf>) {
         let existing = self.list
             .iter()
             .map(|f| &f.file_name)

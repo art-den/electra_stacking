@@ -79,10 +79,11 @@ fn build_ui(application: &gtk::Application) {
     project.make_default();
 
     let icons = gtk::IconTheme::default().unwrap();
-    let icon_folder = icons.load_icon("folder", 16, gtk::IconLookupFlags::empty()).ok().unwrap_or(None);
-    let icon_image = icons.load_icon("image-x-generic", 16, gtk::IconLookupFlags::empty()).ok().unwrap_or(None);
-    let icon_photo = icons.load_icon("camera-photo-symbolic.symbolic", 16, gtk::IconLookupFlags::empty()).ok().unwrap_or(None);
-    let icon_ref_image = icons.load_icon("task-due-symbolic.symbolic", 16, gtk::IconLookupFlags::empty()).ok().unwrap_or(None);
+
+    let icon_folder = icons.load_icon("folder", 16, gtk::IconLookupFlags::empty()).ok().flatten();
+    let icon_image = icons.load_icon("image-x-generic", 16, gtk::IconLookupFlags::empty()).ok().flatten();
+    let icon_photo = icons.load_icon("camera-photo-symbolic.symbolic", 16, gtk::IconLookupFlags::empty()).ok().flatten();
+    let icon_ref_image = gdk_pixbuf::Pixbuf::from_read(include_bytes!(r"ui/key.png").as_slice()).ok();
 
     let builder = gtk::Builder::from_string(include_str!(r"ui/main_window.ui"));
 
@@ -885,7 +886,7 @@ fn select_and_add_files_into_project(
         {
             let group = &objects.project.borrow().groups[group_iter_index];
             let files = &group.get_file_list_by_type(file_type);
-            files.remove_existing_files(&mut file_names);
+            files.retain_files_if_they_are_not_here(&mut file_names);
         }
 
         exec_and_show_progress(
