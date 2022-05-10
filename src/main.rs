@@ -147,6 +147,7 @@ fn build_ui(application: &gtk::Application) {
             col.add_attribute(&cell_text, "text", idx as i32);
             col.add_attribute(&cell_img, "pixbuf", COLUMN_ICON as i32);
             col.add_attribute(&cell_check, "active", COLUMN_CHECKBOX as i32);
+            col.add_attribute(&cell_check, "visible", COLUMN_CHECKBOX_VIS as i32);
         }
 
         col.set_sort_column_id(idx as i32);
@@ -1086,35 +1087,38 @@ fn enable_progress_bar(objects: &MainWindowObjectsPtr, enable: bool) {
     }
 }
 
-const COLUMN_FILE_NAME:   u32 = 0;
-const COLUMN_FILE_PATH:   u32 = 1;
-const COLUMN_FILE_TIME:   u32 = 2;
-const COLUMN_ISO:         u32 = 3;
-const COLUMN_EXP:         u32 = 4;
-const COLUMN_DIM:         u32 = 5;
-const COLUMN_NOISE:       u32 = 6;
-const COLUMN_BACKGROUND:  u32 = 7;
-const COLUMN_STARS_FWHM:  u32 = 8;
-const COLUMN_STARS_R_DEV: u32 = 9;
-const COLUMN_SHARPNESS:   u32 = 10;
-const COLUMN_ICON:        u32 = 11;
-const COLUMN_CHECKBOX:    u32 = 12;
+const COLUMN_FILE_NAME:    u32 = 0;
+const COLUMN_FILE_PATH:    u32 = 1;
+const COLUMN_FILE_TIME:    u32 = 2;
+const COLUMN_ISO:          u32 = 3;
+const COLUMN_EXP:          u32 = 4;
+const COLUMN_DIM:          u32 = 5;
+const COLUMN_NOISE:        u32 = 6;
+const COLUMN_BACKGROUND:   u32 = 7;
+const COLUMN_STARS_FWHM:   u32 = 8;
+const COLUMN_STARS_R_DEV:  u32 = 9;
+const COLUMN_SHARPNESS:    u32 = 10;
 
-fn get_prj_tree_col_items() -> [(&'static str, u32, glib::Type); 13] {
+const COLUMN_ICON:         u32 = 11;
+const COLUMN_CHECKBOX:     u32 = 12;
+const COLUMN_CHECKBOX_VIS: u32 = 13;
+
+fn get_prj_tree_col_items() -> [(&'static str, u32, glib::Type); 14] {
     [
-        ("Project/File name", COLUMN_FILE_NAME,   String::static_type()),
-        ("File path",         COLUMN_FILE_PATH,   String::static_type()),
-        ("File time",         COLUMN_FILE_TIME,   String::static_type()),
-        ("ISO",               COLUMN_ISO,         String::static_type()),
-        ("Exposure",          COLUMN_EXP,         String::static_type()),
-        ("Dimensions",        COLUMN_DIM,         String::static_type()),
-        ("Noise",             COLUMN_NOISE,       String::static_type()),
-        ("Background",        COLUMN_BACKGROUND,  String::static_type()),
-        ("Stars FWHM",        COLUMN_STARS_FWHM,  String::static_type()),
-        ("Stars R dev",       COLUMN_STARS_R_DEV, String::static_type()),
-        ("Sharpness",         COLUMN_SHARPNESS,   String::static_type()),
-        ("",                  COLUMN_ICON,        gdk_pixbuf::Pixbuf::static_type()),
-        ("",                  COLUMN_CHECKBOX,    bool::static_type()),
+        ("Project/File name", COLUMN_FILE_NAME,    String::static_type()),
+        ("File path",         COLUMN_FILE_PATH,    String::static_type()),
+        ("File time",         COLUMN_FILE_TIME,    String::static_type()),
+        ("ISO",               COLUMN_ISO,          String::static_type()),
+        ("Exposure",          COLUMN_EXP,          String::static_type()),
+        ("Dimensions",        COLUMN_DIM,          String::static_type()),
+        ("Noise",             COLUMN_NOISE,        String::static_type()),
+        ("Background",        COLUMN_BACKGROUND,   String::static_type()),
+        ("Stars FWHM",        COLUMN_STARS_FWHM,   String::static_type()),
+        ("Stars R dev",       COLUMN_STARS_R_DEV,  String::static_type()),
+        ("Sharpness",         COLUMN_SHARPNESS,    String::static_type()),
+        ("",                  COLUMN_ICON,         gdk_pixbuf::Pixbuf::static_type()),
+        ("",                  COLUMN_CHECKBOX,     bool::static_type()),
+        ("",                  COLUMN_CHECKBOX_VIS, bool::static_type()),
     ]
 }
 
@@ -1202,8 +1206,8 @@ impl TreeViewFillHelper {
                 let result = gtk::TreeStore::new(&col_types);
                 result.insert_with_values(None, None, &[
                     (COLUMN_ICON, &objects.icon_photo),
-                    (COLUMN_CHECKBOX, &true),
                 ]);
+
                 let sorted_model = gtk::TreeModelSort::new(&result);
                 objects.prj_tree.set_model(Some(&sorted_model));
                 result
@@ -1230,7 +1234,8 @@ impl TreeViewFillHelper {
                 let iter = tree_store.insert_with_values(
                     Some(&project_iter),
                     None,
-                    &[(COLUMN_ICON, &objects.icon_folder)]);
+                    &[(COLUMN_ICON, &objects.icon_folder)]
+                );
                 (iter, true)
             } else {
                 (tree_store.iter_nth_child(Some(&project_iter), idx as i32).unwrap(), false)
@@ -1238,8 +1243,9 @@ impl TreeViewFillHelper {
 
             let group_name = project_group.name(idx);
             tree_store.set(&group_iter, &[
-                (COLUMN_FILE_NAME, &group_name),
-                (COLUMN_CHECKBOX, &project_group.used),
+                (COLUMN_FILE_NAME,    &group_name),
+                (COLUMN_CHECKBOX,     &project_group.used),
+                (COLUMN_CHECKBOX_VIS, &true),
             ]);
 
             let prev_group = if let Some(prev_group) = prev_group {
@@ -1348,19 +1354,20 @@ impl TreeViewFillHelper {
                         let icon = if is_ref_file { &objects.icon_ref_image } else { &objects.icon_image };
 
                         tree_store.set(&file_iter, &[
-                            (COLUMN_ICON,        icon),
-                            (COLUMN_CHECKBOX,    &project_file.used),
-                            (COLUMN_FILE_NAME,   &file_name),
-                            (COLUMN_FILE_PATH,   &path),
-                            (COLUMN_FILE_TIME,   &file_time_str),
-                            (COLUMN_ISO,         &iso_str),
-                            (COLUMN_EXP,         &exp_str),
-                            (COLUMN_DIM,         &dim_str),
-                            (COLUMN_NOISE,       &noise_str),
-                            (COLUMN_BACKGROUND,  &background_str),
-                            (COLUMN_STARS_FWHM,  &star_r_str),
-                            (COLUMN_STARS_R_DEV, &star_r_dev_str),
-                            (COLUMN_SHARPNESS,   &sharpness),
+                            (COLUMN_ICON,         icon),
+                            (COLUMN_CHECKBOX,     &project_file.used),
+                            (COLUMN_CHECKBOX_VIS, &true),
+                            (COLUMN_FILE_NAME,    &file_name),
+                            (COLUMN_FILE_PATH,    &path),
+                            (COLUMN_FILE_TIME,    &file_time_str),
+                            (COLUMN_ISO,          &iso_str),
+                            (COLUMN_EXP,          &exp_str),
+                            (COLUMN_DIM,          &dim_str),
+                            (COLUMN_NOISE,        &noise_str),
+                            (COLUMN_BACKGROUND,   &background_str),
+                            (COLUMN_STARS_FWHM,   &star_r_str),
+                            (COLUMN_STARS_R_DEV,  &star_r_dev_str),
+                            (COLUMN_SHARPNESS,    &sharpness),
                         ]);
                     }
 
