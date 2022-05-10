@@ -2,7 +2,7 @@ use std::{path::*};
 use bitflags::bitflags;
 use itertools::Itertools;
 use serde::{Serialize, Deserialize};
-use crate::{image::*, image_formats::*, image_raw::*, stars::*, log_utils::*, calc::*, fs_utils};
+use crate::{image::*, image_formats::*, image_raw::*, stars::*, log_utils::*, calc::*};
 
 bitflags! { pub struct LoadLightFlags: u32 {
     const STARS = 1;
@@ -162,31 +162,23 @@ fn load_raw_light_file(
     // extract master-bias image
     if let Some(bias) = &cal_data.bias_image {
         check_raw_data(&raw_image.info, &bias.info, "master bias", false)?;
-        let dark_log = TimeLogger::start();
         raw_image.data -= &bias.data;
-        dark_log.log("remove bias data");
     }
 
     // extract master-dark image
     if let Some(dark) = &cal_data.dark_image {
         check_raw_data(&raw_image.info, &dark.info, "master dark", true)?;
-        let dark_log = TimeLogger::start();
         raw_image.data -= &dark.data;
-        dark_log.log("remove dark data");
     }
 
     // flatten by master-flat
     if let Some(flat) = &cal_data.flat_image {
         check_raw_data(&raw_image.info, &flat.info, "master flat", false)?;
-        let flat_log = TimeLogger::start();
         raw_image.data *= &flat.data;
-        flat_log.log("flatten image");
     }
 
     // remove hot pixels from RAW image
-    let hp_log = TimeLogger::start();
     raw_image.remove_hot_pixels(&cal_data.hot_pixels);
-    hp_log.log("remowing hot pixels");
 
     // do demosaic
     let dem_log = TimeLogger::start();
@@ -299,80 +291,3 @@ pub struct LightFileRegInfo {
     pub stars_r_dev: f32,
 }
 
-pub struct CalibrationData {
-    pub dark_image: Option<RawImage>,
-    pub flat_image: Option<RawImage>,
-    pub bias_image: Option<RawImage>,
-    pub hot_pixels: Vec<HotPixel>,
-}
-
-impl CalibrationData {
-    pub fn new_empty() -> CalibrationData {
-        CalibrationData {
-            dark_image: None,
-            flat_image: None,
-            bias_image: None,
-            hot_pixels: Vec::new(),
-        }
-    }
-
-    pub fn load(
-        master_flat: &Option<PathBuf>,
-        master_dark: &Option<PathBuf>,
-        master_bias: &Option<PathBuf>,
-    ) -> anyhow::Result<CalibrationData> {
-        let bias_image = match master_bias {
-            Some(file_name) => {
-                log::info!(
-                    "loading master bias '{}'...",
-                    fs_utils::path_to_str(file_name)
-                );
-                Some(RawImage::new_from_internal_format_file(file_name)?)
-            },
-            None => None,
-        };
-
-        let (dark_image, hot_pixels) = match master_dark {
-            Some(file_name) => {
-                log::info!(
-                    "loading master dark '{}'...",
-                    fs_utils::path_to_str(file_name)
-                );
-                let mut image = RawImage::new_from_internal_format_file(file_name)?;
-                if let Some(bias_image) = &bias_image {
-                    image.data -= &bias_image.data;
-                }
-
-                let hot_pixels = image.find_hot_pixels();
-                log::info!("hot pixels count = {}", hot_pixels.len());
-
-                (Some(image), hot_pixels)
-            },
-            None => (None, Vec::new()),
-        };
-
-        let flat_image = match master_flat {
-            Some(file_name) => {
-                log::info!(
-                    "loading master flat '{}'...",
-                    fs_utils::path_to_str(file_name)
-                );
-                let mut image = RawImage::new_from_internal_format_file(file_name)?;
-                image.remove_hot_pixels(&hot_pixels);
-                let filter_log = TimeLogger::start();
-                let mut image = image.filter_flat_image();
-                filter_log.log("filtering flat image");
-                for v in image.data.iter_mut() { *v = 1.0 / *v; }
-                Some(image)
-            }
-            None => None,
-        };
-
-        Ok(CalibrationData {
-            dark_image,
-            flat_image,
-            bias_image,
-            hot_pixels
-        })
-    }
-}

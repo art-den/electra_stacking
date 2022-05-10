@@ -6,7 +6,7 @@ use crate::{
     calc::*,
     fs_utils::*,
     progress::*,
-    light_file::*,
+    image_raw::*,
     image_norm::*,
     stacking_utils::*,
 };

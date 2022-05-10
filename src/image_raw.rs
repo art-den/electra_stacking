@@ -2,7 +2,7 @@ use std::{path::*, io::*, fs::*, collections::HashSet, hash::Hash};
 use serde::{Serialize, Deserialize};
 use byteorder::*;
 use bitflags::bitflags;
-use crate::image::*;
+use crate::{image::*, fs_utils, log_utils::*};
 
 const RAW_FILE_SIG: &[u8] = b"raw-file-1";
 const RAW_VERS: u64 = 1;
@@ -450,5 +450,83 @@ impl RawImage {
             else { *v = self.data.get(x, y).unwrap(); }
         }
         result
+    }
+}
+
+pub struct CalibrationData {
+    pub dark_image: Option<RawImage>,
+    pub flat_image: Option<RawImage>,
+    pub bias_image: Option<RawImage>,
+    pub hot_pixels: Vec<HotPixel>,
+}
+
+impl CalibrationData {
+    pub fn new_empty() -> CalibrationData {
+        CalibrationData {
+            dark_image: None,
+            flat_image: None,
+            bias_image: None,
+            hot_pixels: Vec::new(),
+        }
+    }
+
+    pub fn load(
+        master_flat: &Option<PathBuf>,
+        master_dark: &Option<PathBuf>,
+        master_bias: &Option<PathBuf>,
+    ) -> anyhow::Result<CalibrationData> {
+        let bias_image = match master_bias {
+            Some(file_name) => {
+                log::info!(
+                    "loading master bias '{}'...",
+                    fs_utils::path_to_str(file_name)
+                );
+                Some(RawImage::new_from_internal_format_file(file_name)?)
+            },
+            None => None,
+        };
+
+        let (dark_image, hot_pixels) = match master_dark {
+            Some(file_name) => {
+                log::info!(
+                    "loading master dark '{}'...",
+                    fs_utils::path_to_str(file_name)
+                );
+                let mut image = RawImage::new_from_internal_format_file(file_name)?;
+                if let Some(bias_image) = &bias_image {
+                    image.data -= &bias_image.data;
+                }
+
+                let hot_pixels = image.find_hot_pixels();
+                log::info!("hot pixels count = {}", hot_pixels.len());
+
+                (Some(image), hot_pixels)
+            },
+            None => (None, Vec::new()),
+        };
+
+        let flat_image = match master_flat {
+            Some(file_name) => {
+                log::info!(
+                    "loading master flat '{}'...",
+                    fs_utils::path_to_str(file_name)
+                );
+                let mut image = RawImage::new_from_internal_format_file(file_name)?;
+                image.remove_hot_pixels(&hot_pixels);
+                let filter_log = TimeLogger::start();
+                let mut image = image.filter_flat_image();
+                filter_log.log("filtering flat image");
+                for v in image.data.iter_mut() { *v = 1.0 / *v; }
+                Some(image)
+            }
+            None => None,
+        };
+
+        Ok(CalibrationData {
+            dark_image,
+            flat_image,
+            bias_image,
+            hot_pixels
+        })
     }
 }

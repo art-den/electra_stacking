@@ -1,7 +1,7 @@
 use std::{path::*, sync::*};
 use structopt::*;
 use crossbeam::sync::WaitGroup;
-use crate::{consts::*, progress::*, fs_utils::*, light_file::*, stars::*};
+use crate::{consts::*, image_raw::*, progress::*, fs_utils::*, light_file::*, stars::*};
 
 #[derive(StructOpt, Debug)]
 pub struct CmdOptions {

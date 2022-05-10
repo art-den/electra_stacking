@@ -1,5 +1,5 @@
 use std::{collections::HashMap, path::PathBuf};
-use crate::{image::*, calc::*, light_file::*, stars::*, log_utils::*};
+use crate::{image::*, image_raw::*, calc::*, light_file::*, stars::*, log_utils::*};
 
 pub struct NormResult {
     pub range_factor: f32,

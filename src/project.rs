@@ -9,6 +9,7 @@ use astro_utils::{
     stacking_utils::*,
     light_file::*,
     stars::*,
+    image_raw::*,
     image_norm::*,
     image_formats::*,
     fs_utils::*

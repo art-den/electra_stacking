@@ -19,6 +19,7 @@ use gtk::{
 use itertools::*;
 use astro_utils::{
     image_formats::*,
+    image_raw::*,
     stacking_utils::*,
     light_file::*,
     calc::*,
