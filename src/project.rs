@@ -597,48 +597,60 @@ impl ProjectGroup {
         )?);
 
         let all_tasks_finished_waiter = WaitGroup::new();
+        let cur_result = Arc::new(Mutex::new(anyhow::Result::<()>::Ok(())));
 
         for file in &self.light_files.list {
             let wait = all_tasks_finished_waiter.clone();
-
             let progress = Arc::clone(progress);
             let result = Arc::clone(&result);
             let cal_data = Arc::clone(&cal_data);
             let file_name = file.file_name.clone();
             let cancel_flag = Arc::clone(&cancel_flag);
+            let cur_result = Arc::clone(&cur_result);
 
             thread_pool.spawn(move || {
-                if cancel_flag.load(Ordering::Relaxed) { return; }
+                if !cancel_flag.load(Ordering::Relaxed)
+                && !cur_result.lock().unwrap().is_err() {
+                    let load_light_file_res = LightFile::load(
+                        &file_name,
+                        &cal_data,
+                        None,
+                        LoadLightFlags::STARS
+                        | LoadLightFlags::NOISE
+                        | LoadLightFlags::BACKGROUND
+                        | LoadLightFlags::SHARPNESS,
+                        1
+                    );
 
-                let light_file = LightFile::load(
-                    &file_name,
-                    &cal_data,
-                    None,
-                    LoadLightFlags::STARS
-                    | LoadLightFlags::NOISE
-                    | LoadLightFlags::BACKGROUND
-                    | LoadLightFlags::SHARPNESS,
-                    1
-                ).unwrap();
+                    let light_file = match load_light_file_res {
+                        Ok(light_file) => light_file,
+                        Err(err) => {
+                            *cur_result.lock().unwrap() = Err(err);
+                            drop(result);
+                            return;
+                        },
+                    };
 
-                progress.lock().unwrap().progress(true, file_name.to_str().unwrap_or(""));
+                    progress.lock().unwrap().progress(true, file_name.to_str().unwrap_or(""));
 
-                let stars_stat = calc_stars_stat(
-                    &light_file.stars,
-                    light_file.image.width(),
-                    light_file.image.height(),
-                );
+                    let stars_stat = calc_stars_stat(
+                        &light_file.stars,
+                        light_file.image.width(),
+                        light_file.image.height(),
+                    );
 
-                result.lock().unwrap().insert(
-                    file_name.clone(),
-                    RegInfo {
-                        noise:       light_file.noise,
-                        background:  light_file.background,
-                        sharpness:   light_file.sharpness,
-                        stars_r:     stars_stat.aver_r,
-                        stars_r_dev: stars_stat.aver_r_dev,
-                    }
-                );
+                    result.lock().unwrap().insert(
+                        file_name.clone(),
+                        RegInfo {
+                            noise:       light_file.noise,
+                            background:  light_file.background,
+                            sharpness:   light_file.sharpness,
+                            stars_r:     stars_stat.aver_r,
+                            stars_r_dev: stars_stat.aver_r_dev,
+                        }
+                    );
+
+                }
 
                 drop(result);
                 drop(wait);
@@ -651,7 +663,8 @@ impl ProjectGroup {
             anyhow::bail!("Terminated");
         }
 
-        Ok(())
+        let extracted_res = Arc::try_unwrap(cur_result).expect("Extracting error");
+        extracted_res.into_inner()?
     }
 
     pub fn can_exec_cleanup(&self) -> bool {
@@ -909,6 +922,7 @@ pub struct ProjectFile {
     pub used: bool,
     pub file_name: PathBuf,
     pub file_time: Option<DateTime<Local>>,
+    pub cfa_type: Option<CfaType>,
     pub iso: Option<u32>,
     pub exp: Option<f32>,
     pub width: Option<usize>,
@@ -922,6 +936,7 @@ impl ProjectFile {
             used: true,
             file_name: info.file_name,
             file_time: info.file_time,
+            cfa_type: info.cfa_type,
             iso: info.iso,
             exp: info.exp,
             width: Some(info.width),

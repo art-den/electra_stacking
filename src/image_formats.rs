@@ -4,7 +4,7 @@ use fitrs::*;
 use itertools::*;
 use bitstream_io::{BigEndian, BitWriter, BitWrite, BitReader};
 use chrono::prelude::*;
-use crate::{image::*, fs_utils::*, compression::*, progress::ProgressTs};
+use crate::{image::*, image_raw::*, fs_utils::*, compression::*, progress::ProgressTs};
 
 pub const FIT_EXTS: &[&str] = &["fit", "fits", "fts"];
 pub const TIF_EXTS: &[&str] = &["tiff", "tif"];
@@ -70,6 +70,7 @@ pub struct SrcFileInfo {
     pub file_time: Option<DateTime<Local>>,
     pub width:     usize,
     pub height:    usize,
+    pub cfa_type:  Option<CfaType>,
     pub iso:       Option<u32>,
     pub exp:       Option<f32>,
 }
@@ -130,6 +131,17 @@ pub fn load_src_file_info_raw(file_name: &PathBuf) -> anyhow::Result<SrcFileInfo
             .map(|st| st.into());
     }
 
+    let cfa = Cfa::from_str(
+        &raw_data.cfa.name[..],
+        raw_data.crops[3] as Crd, // crop_left
+        raw_data.crops[0] as Crd  // crop_top
+    );
+
+    let cfa_type = match cfa {
+        Cfa::Pattern(p) => Some(p.pattern_type),
+        _ => None,
+    };
+
     Ok(SrcFileInfo {
         file_name: file_name.clone(),
         file_time,
@@ -137,6 +149,7 @@ pub fn load_src_file_info_raw(file_name: &PathBuf) -> anyhow::Result<SrcFileInfo
         height: raw_data.height,
         iso,
         exp,
+        cfa_type,
     })
 }
 
@@ -179,6 +192,7 @@ pub fn load_src_file_info_tiff(file_name: &PathBuf) -> anyhow::Result<SrcFileInf
         height: height as usize,
         iso: None,
         exp: None,
+        cfa_type: None,
     })
 }
 
@@ -353,6 +367,7 @@ pub fn load_src_file_info_fits(file_name: &PathBuf) -> anyhow::Result<SrcFileInf
                     height: height as usize,
                     iso: None,
                     exp: None,
+                    cfa_type: None,
                 });
             }
         }

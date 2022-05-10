@@ -27,9 +27,9 @@ type CfaArr = [[CfaColor; 2]; 2];
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug)]
 pub struct CfaPattern {
+    pub pattern_type: CfaType,
     start_left: Crd,
     start_top: Crd,
-    pattern_type: CfaType,
     arr: CfaArr,
 }
 
@@ -47,7 +47,7 @@ pub enum Cfa {
 }
 
 impl Cfa {
-    fn from_str(cfa_str: &str, start_left: Crd, start_top: Crd) -> Cfa {
+    pub fn from_str(cfa_str: &str, start_left: Crd, start_top: Crd) -> Cfa {
         use CfaColor::*;
 
         match cfa_str {

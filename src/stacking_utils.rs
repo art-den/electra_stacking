@@ -222,36 +222,35 @@ where
         let cur_result = Arc::clone(&cur_result);
 
         thread_pool.spawn(move || {
-            if cancel_flag.load(Ordering::Relaxed) { return; }
-            if cur_result.lock().unwrap().is_err() { return; }
-
-            let raw_res = RawImage::load_camera_raw_file(
-                &file_path,
-                load_raw_flags,
-                Some(&disk_access_mutex)
-            );
-
-            let mut raw = match raw_res {
-                Ok(raw) => raw,
-                Err(err) => { *cur_result.lock().unwrap() = Err(err); return; }
-            };
-
-            let is_ok = postprocess_fun(&mut raw);
-            if !is_ok { return; }
-            let temp_fn = file_path.with_extension("temp_raw");
-
-            let locker = disk_access_mutex.lock();
-            let save_res = raw.save_to_internal_format_file(&temp_fn);
-            drop(locker);
-
-            if let Err(save_res) = save_res {
-                *cur_result.lock().unwrap() = Err(save_res);
-                return;
+            if !cancel_flag.load(Ordering::Relaxed)
+            && !cur_result.lock().unwrap().is_err() {
+                let raw_res = RawImage::load_camera_raw_file(
+                    &file_path,
+                    load_raw_flags,
+                    Some(&disk_access_mutex)
+                );
+                let mut raw = match raw_res {
+                    Ok(raw) => raw,
+                    Err(err) => {
+                        *cur_result.lock().unwrap() = Err(err);
+                        drop(cur_result);
+                        return;
+                    }
+                };
+                let is_ok = postprocess_fun(&mut raw);
+                if !is_ok { return; }
+                let temp_fn = file_path.with_extension("temp_raw");
+                let locker = disk_access_mutex.lock();
+                let save_res = raw.save_to_internal_format_file(&temp_fn);
+                drop(locker);
+                if let Err(save_res) = save_res {
+                    *cur_result.lock().unwrap() = Err(save_res);
+                    return;
+                }
+                progress.lock().unwrap().progress(true, extract_file_name(&file_path));
+                files_to_process.lock().unwrap().push(temp_fn);
             }
 
-            progress.lock().unwrap().progress(true, extract_file_name(&file_path));
-
-            files_to_process.lock().unwrap().push(temp_fn);
             drop(cur_result);
             drop(waiter);
         });
@@ -370,24 +369,24 @@ pub fn create_temp_light_files(
         let cur_result = Arc::clone(&cur_result);
 
         thread_pool.spawn(move || {
-            if cancel_flag.load(Ordering::Relaxed) { return; }
-            if cur_result.lock().unwrap().is_err() { return; }
-
-            let res = create_temp_file_from_light_file(
-                &file,
-                cal_data,
-                ref_data,
-                bin,
-                files_to_del_later,
-                disk_access_mutex,
-                result_list
-            );
-            if res.is_err() {
-                log::error!("create_temp_file_from_light_file returns: {:?}", res);
-                *cur_result.lock().unwrap() = res;
+            if !cancel_flag.load(Ordering::Relaxed)
+            && !cur_result.lock().unwrap().is_err() {
+                let res = create_temp_file_from_light_file(
+                    &file,
+                    cal_data,
+                    ref_data,
+                    bin,
+                    files_to_del_later,
+                    disk_access_mutex,
+                    result_list
+                );
+                if res.is_err() {
+                    *cur_result.lock().unwrap() = res;
+                    drop(cur_result);
+                    return;
+                }
+                progress.lock().unwrap().progress(true, extract_file_name(&file));
             }
-
-            progress.lock().unwrap().progress(true, extract_file_name(&file));
             drop(cur_result);
             drop(wait)
         });

@@ -115,13 +115,14 @@ fn check_raw_data(
     raw_info:    &RawImageInfo,
     cal_info:    &RawImageInfo,
     mode:        &str,
+    file_name:   &Path,
     master_dark: bool
 ) -> anyhow::Result<()> {
     let compare = |item, raw: &dyn std::fmt::Display, cal: &dyn std::fmt::Display| -> anyhow::Result<()> {
         if raw.to_string() != cal.to_string() {
             anyhow::bail!(
-                "{} differs for {}: '{}' and '{}'",
-                item, mode, raw, cal
+                "{} differs for {}: ('{}' != '{}') for file {}",
+                item, mode, raw, cal, file_name.to_str().unwrap_or("")
             );
         }
         Ok(())
@@ -161,19 +162,19 @@ fn load_raw_light_file(
 
     // extract master-bias image
     if let Some(bias) = &cal_data.bias_image {
-        check_raw_data(&raw_image.info, &bias.info, "master bias", false)?;
+        check_raw_data(&raw_image.info, &bias.info, "master bias", file_name, false)?;
         raw_image.data -= &bias.data;
     }
 
     // extract master-dark image
     if let Some(dark) = &cal_data.dark_image {
-        check_raw_data(&raw_image.info, &dark.info, "master dark", true)?;
+        check_raw_data(&raw_image.info, &dark.info, "master dark", file_name, true)?;
         raw_image.data -= &dark.data;
     }
 
     // flatten by master-flat
     if let Some(flat) = &cal_data.flat_image {
-        check_raw_data(&raw_image.info, &flat.info, "master flat", false)?;
+        check_raw_data(&raw_image.info, &flat.info, "master flat", file_name, false)?;
         raw_image.data *= &flat.data;
     }
 
