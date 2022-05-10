@@ -43,9 +43,12 @@ pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
     create_master_flat_file(
         &files_list,
         &options.calc_opts,
+        None, // TODO: Add bias supprot for console version
         &options.result_file,
         &progress,
         &thread_pool,
-        &cancel_flag
-    )
+        &cancel_flag,
+        true
+    )?;
+    Ok(())
 }

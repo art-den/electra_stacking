@@ -1,5 +1,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+// TODO: Version for calibration files
+// TODO: Insert info of calibration file info file data
+
 mod config;
 mod project;
 
@@ -253,27 +256,22 @@ fn build_ui(application: &gtk::Application) {
     }));
 
     preview_img_scale.connect_changed(clone!(@strong objects => move |cb| {
-        match cb.active() {
-            Some(0) => {
-                objects.config.borrow_mut().preview_scale = ImgScale::Original;
-                preview_selected_file(&objects, PreviewImageReason::OptionsChanged);
-            },
-            Some(1) => {
-                objects.config.borrow_mut().preview_scale = ImgScale::FitWindow;
-                preview_selected_file(&objects, PreviewImageReason::OptionsChanged);
-            },
-            _ => (),
-        }
+        objects.config.borrow_mut().preview_scale = match cb.active() {
+            Some(0) => ImgScale::Original,
+            Some(1) => ImgScale::FitWindow,
+            _       => return,
+        };
+        preview_image_after_change_view_opts(&objects);
     }));
 
     preview_auto_min.connect_clicked(clone!(@strong objects => move |chb| {
         objects.config.borrow_mut().preview_auto_min = chb.is_active();
-        preview_selected_file(&objects, PreviewImageReason::OptionsChanged);
+        preview_image_after_change_view_opts(&objects);
     }));
 
     preview_img_gamma.connect_change_value(clone!(@strong objects => move |_, _, value| {
         objects.config.borrow_mut().preview_gamma = value as f32;
-        preview_selected_file(&objects, PreviewImageReason::OptionsChanged);
+        preview_image_after_change_view_opts(&objects);
         Inhibit(false)
     }));
 
@@ -332,6 +330,7 @@ fn build_ui(application: &gtk::Application) {
         if uri.starts_with(PREFIX) {
             uri = uri[PREFIX.len()..].to_string();
         }
+        uri = uri.replace("%20", " ");
         let path = PathBuf::from(uri);
         let can_open = ask_user_to_save_project(&objects);
         if can_open {
@@ -843,14 +842,14 @@ fn action_add_flat_files(objects: &MainWindowObjectsPtr) {
 fn action_add_bias_files(objects: &MainWindowObjectsPtr) {
     select_and_add_files_into_project(
         objects,
-        ProjectFileType::Flat,
+        ProjectFileType::Bias,
         "Select BIAS files",
         "Add bias files",
     );
 }
 
 fn select_and_add_files_into_project(
-    objects: &MainWindowObjectsPtr,
+    objects:          &MainWindowObjectsPtr,
     file_type:        ProjectFileType,
     files_dialog_cap: &'static str,
     select_group_cap: &'static str,
@@ -1000,7 +999,12 @@ fn action_dark_theme(_: &MainWindowObjectsPtr) {
     log::info!("Dark theme selected");
 }
 
-fn show_message(title: &str, text: &str, msg_type: gtk::MessageType, objects: &MainWindowObjects) {
+fn show_message(
+    objects:  &MainWindowObjects,
+    title:    &str,
+    text:     &str,
+    msg_type: gtk::MessageType,
+) {
     let dialog = gtk::MessageDialog::builder()
         .transient_for(&objects.window)
         .title(title)
@@ -1021,10 +1025,10 @@ fn show_message(title: &str, text: &str, msg_type: gtk::MessageType, objects: &M
 fn show_error_message(text: &str, objects: &MainWindowObjects) {
     log::error!("Show error message: {}", text);
     show_message(
+        objects,
         "Error",
         text,
         gtk::MessageType::Error,
-        objects
     );
 }
 
@@ -1428,7 +1432,7 @@ fn handler_project_tree_selection_changed(objects: &MainWindowObjectsPtr) {
     if *objects.prj_tree_changed_flag.borrow() {
         return;
     }
-    preview_selected_file(objects, PreviewImageReason::SelectionChanged);
+    preview_selected_file(objects);
     let selection = get_current_selection(objects);
     let is_file = selection.item_type == SelItemType::File;
     let support_item_properties =
@@ -1468,13 +1472,7 @@ fn handler_project_tree_selection_changed(objects: &MainWindowObjectsPtr) {
     );
 }
 
-#[derive(PartialEq)]
-enum PreviewImageReason {
-    SelectionChanged,
-    OptionsChanged
-}
-
-fn preview_selected_file(objects: &MainWindowObjectsPtr, reason: PreviewImageReason) {
+fn preview_selected_file(objects: &MainWindowObjectsPtr) {
     let file_name = {
         match get_current_selection(objects) {
             SelectedItem {
@@ -1505,30 +1503,29 @@ fn preview_selected_file(objects: &MainWindowObjectsPtr, reason: PreviewImageRea
         }
     };
 
-    if *objects.last_preview_file.borrow() == file_name
-    && reason == PreviewImageReason::SelectionChanged {
+    if *objects.last_preview_file.borrow() == file_name {
         return;
     }
+
+    preview_image_file(objects, &file_name);
+}
+
+fn preview_image_after_change_view_opts(objects: &MainWindowObjectsPtr) {
+    let image = objects.prev_preview_img.borrow();
+    if image.is_empty() { return; }
 
     let auto_min_flag = objects.config.borrow().preview_auto_min;
     let scale = objects.config.borrow().preview_scale;
     let gamma = objects.config.borrow().preview_gamma;
 
-    if reason == PreviewImageReason::OptionsChanged {
-        let image = objects.prev_preview_img.borrow();
-        if image.is_empty() { return; }
-        let bytes = convert_image_to_bytes(&image, gamma, auto_min_flag);
-        show_preview_image(
-            objects,
-            bytes,
-            image.width() as i32,
-            image.height() as i32,
-            scale
-        );
-        return;
-    }
-
-    preview_image_file(objects, &file_name);
+    let bytes = convert_image_to_bytes(&image, gamma, auto_min_flag);
+    show_preview_image(
+        objects,
+        bytes,
+        image.width() as i32,
+        image.height() as i32,
+        scale
+    );
 }
 
 fn preview_image_file(objects: &MainWindowObjectsPtr, file_name: &PathBuf) {
@@ -2255,10 +2252,10 @@ fn action_cleanup_light_files(objects: &MainWindowObjectsPtr) {
             match result {
                 Ok(cleaned_up_count) => {
                     show_message(
+                        &objects,
                         "Cleanup light files result",
                         &format!("Cleaned up {} files", cleaned_up_count),
                         gtk::MessageType::Info,
-                        &objects
                     );
                 },
                 Err(error) =>
@@ -2297,10 +2294,10 @@ fn action_stack(objects: &MainWindowObjectsPtr) {
         move |objects, result| {
             preview_image_file(&objects, &result.file_name);
             show_message(
+                objects,
                 "Finished",
                 &format!("Result file saved to {}", result.file_name.to_str().unwrap_or("")),
                 gtk::MessageType::Info,
-                objects
             )
         }
     );

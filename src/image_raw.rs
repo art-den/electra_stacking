@@ -1,6 +1,5 @@
 use std::{path::*, io::*, fs::*, collections::HashSet, hash::Hash};
 use serde::{Serialize, Deserialize};
-use itertools::*;
 use byteorder::*;
 use bitflags::bitflags;
 use crate::image::*;
@@ -36,7 +35,7 @@ pub struct CfaPattern {
 
 impl CfaPattern {
     #[inline(always)]
-    fn get_color(&self, x: Crd, y: Crd) -> CfaColor {
+    fn get_color_type(&self, x: Crd, y: Crd) -> CfaColor {
         self.arr[((y+self.start_top) & 1) as usize][((x+self.start_left) & 1) as usize]
     }
 }
@@ -84,7 +83,7 @@ impl Cfa {
     pub fn get_pixel_color(&self, x: Crd, y: Crd) -> CfaColor {
         match self {
             Cfa::Mono       => CfaColor::Mono,
-            Cfa::Pattern(p) => p.get_color(x, y),
+            Cfa::Pattern(p) => p.get_color_type(x, y),
         }
     }
 }
@@ -95,28 +94,18 @@ impl std::fmt::Display for Cfa {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct RawImageInfo {
     pub width: Crd,
     pub height: Crd,
     pub max_values: [f32; 4],
     pub black_values: [f32; 4],
+    pub wb: [f32; 4],
     pub cfa: Cfa,
     pub exif: Exif,
 }
 
 impl RawImageInfo {
-    pub fn new(width: Crd, height: Crd) -> RawImageInfo {
-        RawImageInfo {
-            width,
-            height,
-            max_values: [0.0; 4],
-            black_values: [0.0; 4],
-            cfa: Cfa::Mono,
-            exif: Exif::new_empty(),
-        }
-    }
-
     pub fn read_from<R: Read>(src: &mut R) -> anyhow::Result<RawImageInfo> {
         let mut sig = [0u8; RAW_FILE_SIG.len()];
         src.read_exact(&mut sig)?;
@@ -127,7 +116,8 @@ impl RawImageInfo {
         let mut buf = Vec::<u8>::new();
         buf.resize(header_len, 0);
         src.read_exact(&mut buf)?;
-        Ok(serde_json::from_str(std::str::from_utf8(buf.as_slice())?)?)
+        let info_str = std::str::from_utf8(buf.as_slice())?;
+        Ok(serde_json::from_str(info_str)?)
     }
 
     pub fn write_to<W: Write>(&self, dst: &mut W) -> anyhow::Result<()> {
@@ -157,7 +147,7 @@ pub struct HotPixel {
 }
 
 bitflags! { pub struct RawLoadFlags: u32 {
-    const APPLY_BLACK_AND_WB = 1;
+    const EXTRACT_BLACK = 1;
     const INF_OVEREXPOSURES  = 2;
 }}
 
@@ -169,8 +159,8 @@ impl RawImage {
     }
 
     pub fn load_camera_raw_file(
-        file_name: &PathBuf,
-        flags: RawLoadFlags,
+        file_name:  &PathBuf,
+        flags:      RawLoadFlags,
         disk_mutex: Option<&std::sync::Mutex<()>>
     ) -> anyhow::Result<RawImage> {
         let raw = if let Some(mutex) = disk_mutex {
@@ -202,27 +192,36 @@ impl RawImage {
             width, height,
             max_values:   [0.0; 4],
             black_values: [0.0; 4],
+            wb:           [0.0; 4],
             cfa:          Cfa::from_str(&raw.cfa.name[..], crop_left, crop_top),
             exif,
         };
 
         let mut data = ImageLayerF32::new(width, height);
 
-        let mut max_wb_coeffs = 0_f32;
-        for c in raw.wb_coeffs {
-            if c.is_nan() { continue; }
-            if c > max_wb_coeffs { max_wb_coeffs = c; }
-        }
-
-        let mut wb_coeffs = [0.0; 4];
-        for (s, d) in izip!(&raw.wb_coeffs, &mut wb_coeffs) {
-            if s.is_nan() { continue; }
-            *d = *s / max_wb_coeffs;
+        fn copy_raw_data<T: Into<f32> + Copy>(
+            dst: &mut [f32],
+            src: &[T],
+            raw_width: usize,
+            crop_left: usize,
+            crop_top: usize,
+            image_width: usize,
+            image_height: usize)
+        {
+            for y in 0..image_height {
+                let dst_start = y * image_width;
+                let dst = &mut dst[dst_start..dst_start+image_width];
+                let src_start = (y+crop_top)*raw_width + crop_left;
+                let src = &src[src_start..src_start+image_width];
+                for (s, d) in src.iter().zip(dst) {
+                    *d = (*s).into();
+                }
+            }
         }
 
         match raw.data {
             rawloader::RawImageData::Integer(raw_data) => {
-                RawImage::copy_raw_data(
+                copy_raw_data(
                     data.as_slice_mut(),
                     &raw_data,
                     raw.width,
@@ -233,7 +232,7 @@ impl RawImage {
                 );
             }
             rawloader::RawImageData::Float(raw_data) => {
-                RawImage::copy_raw_data(
+                copy_raw_data(
                     data.as_slice_mut(),
                     &raw_data,
                     raw.width,
@@ -252,16 +251,15 @@ impl RawImage {
             }
         }
 
-        let apply_black_and_wb = flags.contains(RawLoadFlags::APPLY_BLACK_AND_WB);
-        if inf_overexposures || apply_black_and_wb {
-            let mut correct_values = |color, black_level, wb_coeff, max| {
+        let extract_black = flags.contains(RawLoadFlags::EXTRACT_BLACK);
+        if inf_overexposures || extract_black {
+            let mut correct_values = |color, black_level, max| {
                 for (x, y, v) in data.iter_crd_mut() {
                     if info.cfa.get_pixel_color(x, y) != color { continue; }
                     if inf_overexposures && *v > max {
                         *v = f32::INFINITY;
-                    } else if apply_black_and_wb {
+                    } else if extract_black {
                         *v -= black_level;
-                        *v *= wb_coeff;
                     }
                 }
             };
@@ -269,36 +267,23 @@ impl RawImage {
             const MAX_K: f32 = 0.95;
 
             if let Cfa::Mono = &info.cfa {
-                correct_values(CfaColor::Mono, raw.blacklevels[0] as f32, 1.0, raw.whitelevels[0] as f32 * MAX_K);
+                correct_values(CfaColor::Mono, raw.blacklevels[0] as f32, raw.whitelevels[0] as f32 * MAX_K);
             } else {
-                correct_values(CfaColor::R, raw.blacklevels[0] as f32, wb_coeffs[0], raw.whitelevels[0] as f32 * MAX_K);
-                correct_values(CfaColor::G, raw.blacklevels[1] as f32, wb_coeffs[1], raw.whitelevels[1] as f32 * MAX_K);
-                correct_values(CfaColor::B, raw.blacklevels[2] as f32, wb_coeffs[2], raw.whitelevels[1] as f32 * MAX_K);
+                correct_values(CfaColor::R, raw.blacklevels[0] as f32, raw.whitelevels[0] as f32 * MAX_K);
+                correct_values(CfaColor::G, raw.blacklevels[1] as f32, raw.whitelevels[1] as f32 * MAX_K);
+                correct_values(CfaColor::B, raw.blacklevels[2] as f32, raw.whitelevels[2] as f32 * MAX_K);
             }
         }
 
-        if apply_black_and_wb {
-            for (d, w, b) in izip!(
-                info.max_values.iter_mut(),
-                raw.whitelevels.iter(),
-                raw.blacklevels.iter())
-            {
-                *d = *w as f32 - *b as f32;
+        for i in 0..4 {
+            if extract_black {
+                info.black_values[i] = 0.0;
+                info.max_values[i] = raw.whitelevels[i] as f32 - raw.blacklevels[i] as f32;
+            } else {
+                info.black_values[i] = raw.blacklevels[i] as f32;
+                info.max_values[i] = raw.whitelevels[i] as f32;
             }
-        } else {
-            for (d, s) in izip!(
-                info.black_values.iter_mut(),
-                raw.blacklevels.iter())
-            {
-                *d = *s as f32;
-            }
-
-            for (d, w) in izip!(
-                info.max_values.iter_mut(),
-                raw.whitelevels.iter())
-            {
-                *d = *w as f32;
-            }
+            info.wb[i] = if !raw.wb_coeffs[i].is_nan() { raw.wb_coeffs[i] } else { 0.0 };
         }
 
         Ok(RawImage{ info, data })
@@ -335,11 +320,17 @@ impl RawImage {
             }
             Cfa::Pattern(p) => {
                 result.make_color(self.info.width, self.info.height);
+                let max_wb = self.info.wb
+                    .iter()
+                    .fold(0_f32, |a, v| if !v.is_nan() { a.max(*v) } else { a } );
 
-                let mut ranges = [0_f32; 4];
-                for (rng, max)
-                in izip!(&mut ranges, &self.info.max_values) {
-                    *rng = if *max != 0.0 { 1.0 / *max } else { 0.0 }
+                let mut lin_coeffs = [0_f32; 4];
+                for i in 0..4 {
+                    lin_coeffs[i] = if self.info.max_values[i] != 0.0 {
+                        self.info.wb[i] * 1.0 / (self.info.max_values[i] * max_wb)
+                    } else {
+                        self.info.wb[i] / max_wb
+                    };
                 }
 
                 const LIN_SAME:       &[(Crd, Crd)] = &[(0, 0)];
@@ -349,7 +340,7 @@ impl RawImage {
                 const LIN_CROSS:      &[(Crd, Crd)] = &[(0, -1), (-1, 0), (1, 0), (0, 1)];
 
                 for ((x, y, r, g, b), s) in result.iter_rgb_crd_mut().zip(self.data.iter()) {
-                    let raw_ct = p.get_color(x, y);
+                    let raw_ct = p.get_color_type(x, y);
                     let get_color = |ct, a| {
                         if raw_ct == ct {
                             a * *s
@@ -361,11 +352,11 @@ impl RawImage {
                                     LIN_DIAG,
                                 (CfaColor::B, CfaColor::R) =>
                                     LIN_DIAG,
-                                (CfaColor::G, CfaColor::R) if p.get_color(x+1, y) == CfaColor::R =>
+                                (CfaColor::G, CfaColor::R) if p.get_color_type(x+1, y) == CfaColor::R =>
                                     LIN_LEFT_RIGHT,
                                 (CfaColor::G, CfaColor::R) =>
                                     LIN_UP_DOWN,
-                                (CfaColor::G, CfaColor::B) if p.get_color(x+1, y) == CfaColor::B =>
+                                (CfaColor::G, CfaColor::B) if p.get_color_type(x+1, y) == CfaColor::B =>
                                     LIN_LEFT_RIGHT,
                                 (CfaColor::G, CfaColor::B) =>
                                     LIN_UP_DOWN,
@@ -375,7 +366,7 @@ impl RawImage {
                             let mut sum = 0_f32;
                             let mut cnt = 0_u16;
                             for crd in pixels { if let Some(v) = self.data.get(x+crd.0, y+crd.1) {
-                                debug_assert!(p.get_color(x+crd.0, y+crd.1) == ct);
+                                debug_assert!(p.get_color_type(x+crd.0, y+crd.1) == ct);
                                 sum += v;
                                 cnt += 1;
                             }}
@@ -383,9 +374,9 @@ impl RawImage {
                         }
                     };
 
-                    *r = get_color(CfaColor::R, ranges[0]);
-                    *g = get_color(CfaColor::G, ranges[1]);
-                    *b = get_color(CfaColor::B, ranges[2]);
+                    *r = get_color(CfaColor::R, lin_coeffs[0]);
+                    *g = get_color(CfaColor::G, lin_coeffs[1]);
+                    *b = get_color(CfaColor::B, lin_coeffs[2]);
                 }
             }
         }
@@ -459,25 +450,5 @@ impl RawImage {
             else { *v = self.data.get(x, y).unwrap(); }
         }
         result
-    }
-
-    fn copy_raw_data<T: Into<f32> + Copy>(
-        dst: &mut [f32],
-        src: &[T],
-        raw_width: usize,
-        crop_left: usize,
-        crop_top: usize,
-        image_width: usize,
-        image_height: usize)
-    {
-        for y in 0..image_height {
-            let dst_start = y * image_width;
-            let dst = &mut dst[dst_start..dst_start+image_width];
-            let src_start = (y+crop_top)*raw_width + crop_left;
-            let src = &src[src_start..src_start+image_width];
-            for (s, d) in src.iter().zip(dst) {
-                *d = (*s).into();
-            }
-        }
     }
 }

@@ -104,7 +104,8 @@ pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
 
     let ref_cal = CalibrationData::load(
         &dir_data[0].master_flat,
-        &dir_data[0].master_dark
+        &dir_data[0].master_dark,
+        &None // TODO: Add bias support for console version
     )?;
 
     let ref_data = Arc::new(RefBgData::new(
@@ -130,6 +131,7 @@ pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
             file_names_list,
             &item.master_flat,
             &item.master_dark,
+            &None, // TODO: Add bias support for console version
             &ref_data,
             options.bin.unwrap_or(1),
             &temp_file_names,

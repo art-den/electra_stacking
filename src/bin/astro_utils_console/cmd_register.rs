@@ -36,6 +36,7 @@ pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
     let cal_data = Arc::new(CalibrationData::load(
         &options.master_flat,
         &options.master_dark,
+        &None, // TODO: Add bias support for console version
     )?);
 
     let disk_access_mutex = Arc::new(Mutex::new(()));

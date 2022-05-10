@@ -16,9 +16,9 @@ use astro_utils::{
 use chrono::prelude::*;
 use crate::config::*;
 
-const MASTER_DARK_FN: &str = "master-dark.raw";
-const MASTER_FLAT_FN: &str = "master-flat.raw";
-const MASTER_BIAS_FN: &str = "master-bias.raw";
+const MASTER_DARK_FN: &str = "master-dark.mraw";
+const MASTER_FLAT_FN: &str = "master-flat.mraw";
+const MASTER_BIAS_FN: &str = "master-bias.mraw";
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Project {
@@ -212,6 +212,7 @@ impl Project {
         let ref_cal = CalibrationData::load(
             &group_with_ref_file.flat_files.get_master_full_file_name(MASTER_FLAT_FN),
             &group_with_ref_file.dark_files.get_master_full_file_name(MASTER_DARK_FN),
+            &group_with_ref_file.bias_files.get_master_full_file_name(MASTER_BIAS_FN),
         )?;
 
         let ref_data = Arc::new(RefBgData::new(self.ref_image.as_ref().unwrap(), &ref_cal, bin)?);
@@ -226,11 +227,6 @@ impl Project {
 
             progress.lock().unwrap().stage("Loading reference image...");
 
-            let file_names = group.light_files.get_selected_file_names();
-            let master_dark_file_name = group.dark_files.get_master_full_file_name(MASTER_DARK_FN);
-            let master_flat_file_name = group.flat_files.get_master_full_file_name(MASTER_FLAT_FN);
-            let _master_bias_file_name = group.bias_files.get_master_full_file_name(MASTER_BIAS_FN);
-
             progress.lock().unwrap().stage(&format!(
                 "Processing group {}",
                 group.name(idx)
@@ -238,9 +234,10 @@ impl Project {
 
             create_temp_light_files(
                 &progress,
-                file_names,
-                &master_flat_file_name,
-                &master_dark_file_name,
+                group.light_files.get_selected_file_names(),
+                &group.flat_files.get_master_full_file_name(MASTER_FLAT_FN),
+                &group.dark_files.get_master_full_file_name(MASTER_DARK_FN),
+                &group.bias_files.get_master_full_file_name(MASTER_BIAS_FN),
                 &ref_data,
                 bin,
                 &temp_file_names,
@@ -441,9 +438,32 @@ impl ProjectGroup {
         config:      &ProjectConfig,
         thread_pool: &rayon::ThreadPool,
     ) -> anyhow::Result<()> {
-        self.create_master_dark(group_index, progress, cancel_flag, &config.dark_calc_opts, &thread_pool)?;
-        self.create_master_flat(group_index, progress, cancel_flag, &config.flat_calc_opts, &thread_pool)?;
-        self.create_master_bias(group_index, progress, cancel_flag, &config.bias_calc_opts, &thread_pool)?;
+        let bias_recreated = self.create_master_bias(
+            group_index,
+            progress,
+            cancel_flag,
+            &config.bias_calc_opts,
+            &thread_pool
+        )?;
+
+        self.create_master_dark(
+            group_index,
+            progress,
+            cancel_flag,
+            &config.dark_calc_opts,
+            &thread_pool
+        )?;
+
+        self.create_master_flat(
+            group_index,
+            progress,
+            cancel_flag,
+            &config.flat_calc_opts,
+            self.bias_files.get_master_full_file_name(MASTER_BIAS_FN),
+            &thread_pool,
+            bias_recreated
+        )?;
+
         Ok(())
     }
 
@@ -475,16 +495,19 @@ impl ProjectGroup {
                     cancel_flag
                 )
             }
-        )
+        )?;
+        Ok(())
     }
 
     fn create_master_flat(
         &self,
-        group_index: usize,
-        progress:    &ProgressTs,
-        cancel_flag: &Arc<AtomicBool>,
-        calc_opts:   &CalcOpts,
-        thread_pool: &rayon::ThreadPool,
+        group_index:         usize,
+        progress:            &ProgressTs,
+        cancel_flag:         &Arc<AtomicBool>,
+        calc_opts:           &CalcOpts,
+        master_bias_file:    Option<PathBuf>,
+        thread_pool:         &rayon::ThreadPool,
+        force_even_if_exist: bool,
     ) -> anyhow::Result<()> {
         progress.lock().unwrap().stage(&format!(
             "Creating master-flat for group {}",
@@ -499,13 +522,16 @@ impl ProjectGroup {
                 create_master_flat_file(
                     file_names,
                     calc_opts,
+                    master_bias_file,
                     file_name,
                     progress,
                     thread_pool,
-                    cancel_flag
+                    cancel_flag,
+                    force_even_if_exist
                 )
             }
-        )
+        )?;
+        Ok(())
     }
 
     fn create_master_bias(
@@ -515,7 +541,7 @@ impl ProjectGroup {
         cancel_flag: &Arc<AtomicBool>,
         calc_opts:   &CalcOpts,
         thread_pool: &rayon::ThreadPool,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<bool> {
         progress.lock().unwrap().stage(&format!(
             "Creating master-bias for group {}",
             self.name(group_index)
@@ -543,15 +569,14 @@ impl ProjectGroup {
         cancel_flag:  &Arc<AtomicBool>,
         file_name:    &str,
         create_fun:   F,
-    ) -> anyhow::Result<()>
-        where F: Fn(&[PathBuf], &PathBuf) -> anyhow::Result<()>
+    ) -> anyhow::Result<bool>
+        where F: FnOnce(&[PathBuf], &PathBuf) -> anyhow::Result<bool>
     {
-        if cancel_flag.load(Ordering::Relaxed) { return Ok(()); }
+        if cancel_flag.load(Ordering::Relaxed) { return Ok(false); }
         let file_names = calibr_files.get_selected_file_names();
-        if file_names.is_empty() { return Ok(()); }
+        if file_names.is_empty() { return Ok(false); }
         let file_name = calibr_files.get_master_full_file_name(file_name).unwrap();
-        create_fun(&file_names, &file_name)?;
-        Ok(())
+        create_fun(&file_names, &file_name)
     }
 
     fn register_light_files(
@@ -564,13 +589,10 @@ impl ProjectGroup {
         progress.lock().unwrap().set_total(self.light_files.list.len());
         progress.lock().unwrap().progress(false, "Loading calibtation master files...");
 
-        let master_dark_file_name = self.dark_files.get_master_full_file_name(MASTER_DARK_FN);
-        let master_flat_file_name = self.flat_files.get_master_full_file_name(MASTER_FLAT_FN);
-        let _master_bias_file_name = self.bias_files.get_master_full_file_name(MASTER_BIAS_FN);
-
         let cal_data = Arc::new(CalibrationData::load(
-            &master_flat_file_name,
-            &master_dark_file_name,
+            &self.flat_files.get_master_full_file_name(MASTER_FLAT_FN),
+            &self.dark_files.get_master_full_file_name(MASTER_DARK_FN),
+            &self.bias_files.get_master_full_file_name(MASTER_BIAS_FN),
         )?);
 
         let all_tasks_finished_waiter = WaitGroup::new();
@@ -594,7 +616,7 @@ impl ProjectGroup {
                     LoadLightFlags::STARS
                     | LoadLightFlags::NOISE
                     | LoadLightFlags::BACKGROUND
-                    | LoadLightFlags::FREQ,
+                    | LoadLightFlags::SHARPNESS,
                     1
                 ).unwrap();
 

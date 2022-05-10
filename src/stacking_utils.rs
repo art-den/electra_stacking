@@ -27,25 +27,23 @@ pub fn create_master_dark_or_bias_file(
     progress:          &ProgressTs,
     thread_pool:       &rayon::ThreadPool,
     cancel_flag:       &Arc<AtomicBool>,
-) -> anyhow::Result<()> {
-    create_master_file(
+) -> anyhow::Result<bool> {
+    create_master_calibr_file(
         files_list,
         calc_opts,
         result_file,
-        RawLoadFlags::APPLY_BLACK_AND_WB,
-        |path| get_temp_dark_file_name(path),
+        RawLoadFlags::EXTRACT_BLACK,
         |_| true,
-        |_| (),
         progress,
         thread_pool,
-        cancel_flag
+        cancel_flag,
+        false
     )
 }
 
 fn postprocess_single_flat_image_color(
     raw_image:   &mut RawImage,
     cc:          CfaColor,
-    black_level: f32,
     white_level: f32) -> bool
 {
     let center_x = raw_image.info.width / 2;
@@ -68,7 +66,7 @@ fn postprocess_single_flat_image_color(
 
     let high_index = 95 * data.len() / 100;
     let center_max = *data.select_nth_unstable_by(high_index, cmp_f32).1;
-    let center_level_percent = 100.0 * (center_max - black_level) / (white_level - black_level);
+    let center_level_percent = 100.0 * (center_max / white_level);
 
     log::info!("{:?} -> {:.2}% at center", cc, center_level_percent);
 
@@ -86,42 +84,42 @@ fn postprocess_single_flat_image_color(
     if data.is_empty() { return true; }
 
     let high_index = 99 * data.len() / 100;
-    let norm_value = *data.select_nth_unstable_by(high_index, cmp_f32).1 - black_level;
+    let norm_value = *data.select_nth_unstable_by(high_index, cmp_f32).1;
 
     for (x, y, v) in raw_image.data.iter_crd_mut() {
         if raw_image.info.cfa.get_pixel_color(x, y) != cc { continue; }
-        *v = (*v - black_level) / norm_value;
+        *v = *v / norm_value;
     }
 
     true
 }
 
-fn postprocess_single_flat_image(raw_image: &mut RawImage) -> bool {
+fn postprocess_single_flat_image(raw_image: &mut RawImage, bias_image: Option<&RawImage>) -> bool {
+    if let Some(bias_image) = bias_image {
+        raw_image.data -= &bias_image.data;
+    }
+
     let mono_ok = postprocess_single_flat_image_color(
         raw_image,
         CfaColor::Mono,
-        raw_image.info.black_values[0],
         raw_image.info.max_values[0],
     );
 
     let r_ok = postprocess_single_flat_image_color(
         raw_image,
         CfaColor::R,
-        raw_image.info.black_values[0],
         raw_image.info.max_values[0]
     );
 
     let g_ok = postprocess_single_flat_image_color(
         raw_image,
         CfaColor::G,
-        raw_image.info.black_values[1],
         raw_image.info.max_values[1]
     );
 
     let b_ok = postprocess_single_flat_image_color(
         raw_image,
         CfaColor::B,
-        raw_image.info.black_values[2],
         raw_image.info.max_values[2]
     );
 
@@ -132,24 +130,32 @@ fn postprocess_single_flat_image(raw_image: &mut RawImage) -> bool {
 }
 
 pub fn create_master_flat_file(
-    files_list:        &[PathBuf],
-    calc_opts:         &CalcOpts,
-    result_file:       &Path,
-    progress:          &ProgressTs,
-    thread_pool:       &rayon::ThreadPool,
-    cancel_flag:       &Arc<AtomicBool>,
-) -> anyhow::Result<()> {
-    create_master_file(
+    files_list:          &[PathBuf],
+    calc_opts:           &CalcOpts,
+    master_bias_file:    Option<PathBuf>,
+    result_file:         &Path,
+    progress:            &ProgressTs,
+    thread_pool:         &rayon::ThreadPool,
+    cancel_flag:         &Arc<AtomicBool>,
+    force_even_if_exist: bool,
+) -> anyhow::Result<bool> {
+    let bias_image = match master_bias_file {
+        Some(master_bias_file) =>
+            Some(RawImage::new_from_internal_format_file(&master_bias_file)?),
+        None =>
+            None,
+    };
+
+    create_master_calibr_file(
         files_list,
         calc_opts,
         result_file,
-        RawLoadFlags::empty(),
-        |path| get_temp_flat_file_name(path),
-        postprocess_single_flat_image,
-        |_| (),
+        RawLoadFlags::EXTRACT_BLACK,
+        move |img| postprocess_single_flat_image(img, bias_image.as_ref()),
         progress,
         thread_pool,
-        cancel_flag
+        cancel_flag,
+        force_even_if_exist
     )
 }
 
@@ -159,18 +165,19 @@ struct MasterFileInfo {
     calc_opts: CalcOpts,
 }
 
-fn create_master_file(
-    files_list:        &[PathBuf],
-    calc_opts:         &CalcOpts,
-    result_file:       &Path,
-    load_raw_flags:    RawLoadFlags,
-    get_file_name_fun: fn (path: &Path) -> PathBuf,
-    after_load_fun:    fn (image: &mut RawImage) -> bool,
-    before_save_fun:   fn (image: &mut ImageLayerF32),
-    progress:          &ProgressTs,
-    thread_pool:       &rayon::ThreadPool,
-    cancel_flag:       &Arc<AtomicBool>,
-) -> anyhow::Result<()> {
+fn create_master_calibr_file<PF>(
+    files_list:          &[PathBuf],
+    calc_opts:           &CalcOpts,
+    result_file:         &Path,
+    load_raw_flags:      RawLoadFlags,
+    postprocess_fun:     PF,
+    progress:            &ProgressTs,
+    thread_pool:         &rayon::ThreadPool,
+    cancel_flag:         &Arc<AtomicBool>,
+    force_even_if_exist: bool) -> anyhow::Result<bool>
+where
+    PF: Fn (&mut RawImage) -> bool + Send + Sync + 'static
+{
     let disk_access_mutex = Arc::new(Mutex::new(()));
 
     struct FileData {
@@ -184,18 +191,22 @@ fn create_master_file(
     };
 
     let info_file_name = result_file.with_extension("info");
-    let from_disk_info = if info_file_name.exists() {
-        let file_str = std::fs::read_to_string(&info_file_name)?;
-        serde_json::from_str::<MasterFileInfo>(&file_str)?
-    } else {
-        MasterFileInfo { files: Vec::new(), calc_opts: CalcOpts::default(), }
-    };
 
-    if from_disk_info == this_info {
-        return Ok(());
+    if !force_even_if_exist {
+        let from_disk_info = if info_file_name.exists() {
+            let file_str = std::fs::read_to_string(&info_file_name)?;
+            serde_json::from_str::<MasterFileInfo>(&file_str)?
+        } else {
+            MasterFileInfo { files: Vec::new(), calc_opts: CalcOpts::default(), }
+        };
+
+        if from_disk_info == this_info {
+            return Ok(false);
+        }
     }
 
     let all_tasks_finished_waiter = WaitGroup::new();
+    let postprocess_fun = Arc::new(postprocess_fun);
 
     progress.lock().unwrap().set_total(files_list.len());
     let files_to_process = Arc::new(Mutex::new(Vec::new()));
@@ -206,6 +217,7 @@ fn create_master_file(
         let cancel_flag = Arc::clone(&cancel_flag);
         let file_path = file_path.clone();
         let waiter = all_tasks_finished_waiter.clone();
+        let postprocess_fun = Arc::clone(&postprocess_fun);
 
         thread_pool.spawn(move || {
             if cancel_flag.load(Ordering::Relaxed) { return; }
@@ -214,9 +226,9 @@ fn create_master_file(
                 load_raw_flags,
                 Some(&disk_access_mutex)
             ).unwrap();
-            let is_ok = after_load_fun(&mut raw);
+            let is_ok = postprocess_fun(&mut raw);
             if !is_ok { return; }
-            let temp_fn = get_file_name_fun(&file_path);
+            let temp_fn = file_path.with_extension("temp_raw");
 
             let locker = disk_access_mutex.lock();
             raw.save_to_internal_format_file(&temp_fn).unwrap();
@@ -231,7 +243,7 @@ fn create_master_file(
 
     all_tasks_finished_waiter.wait();
 
-    if cancel_flag.load(Ordering::Relaxed) { return Ok(()); }
+    if cancel_flag.load(Ordering::Relaxed) { return Ok(false); }
 
     let mut opened_files = Vec::new();
     let mut temp_file_list = FilesToDeleteLater::new();
@@ -261,7 +273,7 @@ fn create_master_file(
     let img_height = image.data.height() as usize;
     for (_, y, v) in image.data.iter_crd_mut() {
         if y != prev_y {
-            if cancel_flag.load(Ordering::Relaxed) { return Ok(()); }
+            if cancel_flag.load(Ordering::Relaxed) { return Ok(false); }
             progress.lock().unwrap().percent(y as usize + 1, img_height, "Stacking values...");
             prev_y = y;
         }
@@ -278,13 +290,12 @@ fn create_master_file(
 
     progress.lock().unwrap().percent(100, 100, "Done");
 
-    before_save_fun(&mut image.data);
     image.save_to_internal_format_file(result_file)?;
 
     let this_info_str = serde_json::to_string_pretty(&this_info)?;
     std::fs::write(&info_file_name, &this_info_str)?;
 
-    Ok(())
+    Ok(true)
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -305,6 +316,7 @@ pub fn create_temp_light_files(
     files_list:         Vec<PathBuf>,
     master_flat:        &Option<PathBuf>,
     master_dark:        &Option<PathBuf>,
+    master_bias:        &Option<PathBuf>,
     ref_data:           &Arc<RefBgData>,
     bin:                usize,
     result_list:        &Arc<Mutex<Vec<TempFileData>>>,
@@ -313,7 +325,11 @@ pub fn create_temp_light_files(
     cancel_flag:        &Arc<AtomicBool>,
 ) -> anyhow::Result<()> {
     progress.lock().unwrap().percent(0, 100, "Loading calibration images...");
-    let cal_data = Arc::new(CalibrationData::load(master_flat, master_dark)?);
+    let cal_data = Arc::new(CalibrationData::load(
+        master_flat,
+        master_dark,
+        master_bias
+    )?);
 
     progress.lock().unwrap().set_total(files_list.len());
 
@@ -333,7 +349,7 @@ pub fn create_temp_light_files(
 
         thread_pool.spawn(move || {
             if cancel_flag.load(Ordering::Relaxed) { return; }
-            create_temp_file_from_light_file(
+            let res = create_temp_file_from_light_file(
                 &file,
                 cal_data,
                 ref_data,
@@ -341,7 +357,11 @@ pub fn create_temp_light_files(
                 files_to_del_later,
                 disk_access_mutex,
                 result_list
-            ).unwrap();
+            );
+            if res.is_err() {
+                log::error!("create_temp_file_from_light_file returns: {:?}", res);
+            }
+            res.unwrap();
             progress.lock().unwrap().progress(true, extract_file_name(&file));
             drop(wait)
         });
@@ -410,7 +430,7 @@ fn create_temp_file_from_light_file(
         let norm_res = normalize(&ref_data, &mut light_file)?;
         norm_log.log("bg normalization TOTAL");
 
-        let temp_file_name = get_temp_light_file_name(&file);
+        let temp_file_name = file.with_extension("temp_light_data");
         let save_lock = disk_access_mutex.lock();
         let save_log = TimeLogger::start();
         save_image_into_internal_format(&light_file.image, &temp_file_name)?;

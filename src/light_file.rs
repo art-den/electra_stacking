@@ -8,7 +8,7 @@ bitflags! { pub struct LoadLightFlags: u32 {
     const STARS = 1;
     const NOISE = 2;
     const BACKGROUND = 4;
-    const FREQ = 8;
+    const SHARPNESS = 8;
 }}
 
 pub struct LightFile {
@@ -85,7 +85,7 @@ impl LightFile {
             Stars::new()
         };
 
-        let freq = if flags.contains(LoadLightFlags::FREQ) {
+        let freq = if flags.contains(LoadLightFlags::SHARPNESS) {
             let f_log = TimeLogger::start();
             let img = if src_data.image.is_greyscale() {
                 &src_data.image.l
@@ -153,11 +153,19 @@ fn load_raw_light_file(
     let raw_log = TimeLogger::start();
     let mut raw_image = RawImage::load_camera_raw_file(
         file_name,
-          RawLoadFlags::APPLY_BLACK_AND_WB
+          RawLoadFlags::EXTRACT_BLACK
         | RawLoadFlags::INF_OVEREXPOSURES,
         disk_mutex
     )?;
     raw_log.log("loading raw image");
+
+    // extract master-bias image
+    if let Some(bias) = &cal_data.bias_image {
+        check_raw_data(&raw_image.info, &bias.info, "master bias", false)?;
+        let dark_log = TimeLogger::start();
+        raw_image.data -= &bias.data;
+        dark_log.log("remove bias data");
+    }
 
     // extract master-dark image
     if let Some(dark) = &cal_data.dark_image {
@@ -294,6 +302,7 @@ pub struct LightFileRegInfo {
 pub struct CalibrationData {
     pub dark_image: Option<RawImage>,
     pub flat_image: Option<RawImage>,
+    pub bias_image: Option<RawImage>,
     pub hot_pixels: Vec<HotPixel>,
 }
 
@@ -302,32 +311,44 @@ impl CalibrationData {
         CalibrationData {
             dark_image: None,
             flat_image: None,
+            bias_image: None,
             hot_pixels: Vec::new(),
         }
     }
 
     pub fn load(
         master_flat: &Option<PathBuf>,
-        master_dark: &Option<PathBuf>
+        master_dark: &Option<PathBuf>,
+        master_bias: &Option<PathBuf>,
     ) -> anyhow::Result<CalibrationData> {
-        let dark_image = match master_dark {
+        let bias_image = match master_bias {
+            Some(file_name) => {
+                log::info!(
+                    "loading master bias '{}'...",
+                    fs_utils::path_to_str(file_name)
+                );
+                Some(RawImage::new_from_internal_format_file(file_name)?)
+            },
+            None => None,
+        };
+
+        let (dark_image, hot_pixels) = match master_dark {
             Some(file_name) => {
                 log::info!(
                     "loading master dark '{}'...",
                     fs_utils::path_to_str(file_name)
                 );
-                Some(RawImage::new_from_internal_format_file(file_name)?)
-            }
-            None => None,
-        };
+                let mut image = RawImage::new_from_internal_format_file(file_name)?;
+                if let Some(bias_image) = &bias_image {
+                    image.data -= &bias_image.data;
+                }
 
-        let hot_pixels = match &dark_image {
-            Some(image) => {
-                let result = image.find_hot_pixels();
-                log::info!("hot pixels count = {}", result.len());
-                result
-            }
-            None => Vec::new(),
+                let hot_pixels = image.find_hot_pixels();
+                log::info!("hot pixels count = {}", hot_pixels.len());
+
+                (Some(image), hot_pixels)
+            },
+            None => (None, Vec::new()),
         };
 
         let flat_image = match master_flat {
@@ -350,6 +371,7 @@ impl CalibrationData {
         Ok(CalibrationData {
             dark_image,
             flat_image,
+            bias_image,
             hot_pixels
         })
     }

@@ -45,6 +45,8 @@ pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
         &options.result_file,
         &progress,
         &thread_pool,
-        &cancel_flag
-    )
+        &cancel_flag,
+    )?;
+
+    Ok(())
 }

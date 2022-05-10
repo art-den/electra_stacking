@@ -64,18 +64,6 @@ pub fn get_files_list(
     Ok(result)
 }
 
-pub fn get_temp_dark_file_name(file_name: &Path) -> PathBuf {
-    file_name.with_extension("temp_dark")
-}
-
-pub fn get_temp_flat_file_name(file_name: &Path) -> PathBuf {
-    file_name.with_extension("temp_flat")
-}
-
-pub fn get_temp_light_file_name(file_name: &Path) -> PathBuf {
-    file_name.with_extension("temp_light")
-}
-
 pub fn get_light_info_file_name(file_name: &Path) -> PathBuf {
     file_name.with_extension("light_info")
 }
