@@ -1877,7 +1877,7 @@ fn confirm_dialog<F: Fn() + 'static>(
     let dialog = gtk::MessageDialog::builder()
         .modal(true)
         .transient_for(&objects.window)
-        .message_type(gtk::MessageType::Error)
+        .message_type(gtk::MessageType::Question)
         .buttons(gtk::ButtonsType::OkCancel)
         .title("Confirmation")
         .text(&text)
