@@ -207,6 +207,7 @@ where
 
     let all_tasks_finished_waiter = WaitGroup::new();
     let postprocess_fun = Arc::new(postprocess_fun);
+    let cur_result = Arc::new(Mutex::new(anyhow::Result::<bool>::Ok(false)));
 
     progress.lock().unwrap().set_total(files_list.len());
     let files_to_process = Arc::new(Mutex::new(Vec::new()));
@@ -218,32 +219,51 @@ where
         let file_path = file_path.clone();
         let waiter = all_tasks_finished_waiter.clone();
         let postprocess_fun = Arc::clone(&postprocess_fun);
+        let cur_result = Arc::clone(&cur_result);
 
         thread_pool.spawn(move || {
             if cancel_flag.load(Ordering::Relaxed) { return; }
-            let mut raw = RawImage::load_camera_raw_file(
+            if cur_result.lock().unwrap().is_err() { return; }
+
+            let raw_res = RawImage::load_camera_raw_file(
                 &file_path,
                 load_raw_flags,
                 Some(&disk_access_mutex)
-            ).unwrap();
+            );
+
+            let mut raw = match raw_res {
+                Ok(raw) => raw,
+                Err(err) => { *cur_result.lock().unwrap() = Err(err); return; }
+            };
+
             let is_ok = postprocess_fun(&mut raw);
             if !is_ok { return; }
             let temp_fn = file_path.with_extension("temp_raw");
 
             let locker = disk_access_mutex.lock();
-            raw.save_to_internal_format_file(&temp_fn).unwrap();
+            let save_res = raw.save_to_internal_format_file(&temp_fn);
             drop(locker);
+
+            if let Err(save_res) = save_res {
+                *cur_result.lock().unwrap() = Err(save_res);
+                return;
+            }
 
             progress.lock().unwrap().progress(true, extract_file_name(&file_path));
 
             files_to_process.lock().unwrap().push(temp_fn);
+            drop(cur_result);
             drop(waiter);
         });
     }
 
     all_tasks_finished_waiter.wait();
-
     if cancel_flag.load(Ordering::Relaxed) { return Ok(false); }
+
+    if cur_result.lock().unwrap().is_err() {
+        let extracted_res = Arc::try_unwrap(cur_result).expect("Extracting error");
+        return extracted_res.into_inner()?;
+    }
 
     let mut opened_files = Vec::new();
     let mut temp_file_list = FilesToDeleteLater::new();
@@ -334,6 +354,7 @@ pub fn create_temp_light_files(
     progress.lock().unwrap().set_total(files_list.len());
 
     let disk_access_mutex = Arc::new(Mutex::new(()));
+    let cur_result = Arc::new(Mutex::new(anyhow::Result::<()>::Ok(())));
 
     let all_tasks_finished_waiter = WaitGroup::new();
     for file in files_list.iter() {
@@ -346,9 +367,12 @@ pub fn create_temp_light_files(
         let wait = all_tasks_finished_waiter.clone();
         let disk_access_mutex = Arc::clone(&disk_access_mutex);
         let cancel_flag = Arc::clone(&cancel_flag);
+        let cur_result = Arc::clone(&cur_result);
 
         thread_pool.spawn(move || {
             if cancel_flag.load(Ordering::Relaxed) { return; }
+            if cur_result.lock().unwrap().is_err() { return; }
+
             let res = create_temp_file_from_light_file(
                 &file,
                 cal_data,
@@ -360,16 +384,19 @@ pub fn create_temp_light_files(
             );
             if res.is_err() {
                 log::error!("create_temp_file_from_light_file returns: {:?}", res);
+                *cur_result.lock().unwrap() = res;
             }
-            res.unwrap();
+
             progress.lock().unwrap().progress(true, extract_file_name(&file));
+            drop(cur_result);
             drop(wait)
         });
     }
 
     all_tasks_finished_waiter.wait();
 
-    Ok(())
+    let extracted_res = Arc::try_unwrap(cur_result).expect("Extracting error");
+    extracted_res.into_inner()?
 }
 
 fn create_temp_file_from_light_file(
