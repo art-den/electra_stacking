@@ -109,11 +109,8 @@ fn build_ui(application: &gtk::Application) {
     let preview_ctrls_box   = builder.object::<gtk::Widget>("preview_ctrls_box").unwrap();
     let recent_menu         = builder.object::<gtk::RecentChooserMenu>("recent_menu").unwrap();
     let mi_change_file_type = builder.object::<gtk::MenuItem>("mi_change_file_type").unwrap();
-
-    preview_img_gamma.set_range(2.0, 10.0);
-
-    let mi_dark_theme = builder.object::<gtk::RadioMenuItem>("dark_theme_mi").unwrap();
-    let mi_light_theme = builder.object::<gtk::RadioMenuItem>("light_theme_mi").unwrap();
+    let mi_dark_theme       = builder.object::<gtk::RadioMenuItem>("dark_theme_mi").unwrap();
+    let mi_light_theme      = builder.object::<gtk::RadioMenuItem>("light_theme_mi").unwrap();
 
     let prj_tree_col_names = get_prj_tree_col_items();
 
