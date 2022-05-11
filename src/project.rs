@@ -70,6 +70,11 @@ impl Project {
         self.groups.push(ProjectGroup::new(GroupOptions::new()));
     }
 
+    pub fn add_default_group_if_empty(&mut self) {
+        if !self.groups.is_empty() { return; }
+        self.groups.push(ProjectGroup::new(GroupOptions::new()));
+    }
+
     pub fn group_exists(&self, uuid: &str) -> bool {
         self.groups
             .iter()
@@ -287,7 +292,7 @@ impl Project {
         self.groups
             .iter()
             .filter(|g| g.used)
-            .map(|g| g.light_files.calc_time())
+            .map(|g| g.light_files.calc_total_exp_time())
             .sum()
     }
 
@@ -874,6 +879,18 @@ impl ProjectFiles {
         }
     }
 
+    pub fn check_all(&mut self, value: bool) {
+        for file in &mut self.list {
+            file.used = value;
+        }
+    }
+
+    pub fn check_by_indices(&mut self, indices: &[usize], value: bool) {
+        for &idx in indices {
+            self.list[idx].used = value;
+        }
+    }
+
     pub fn update_reg_info(&mut self, reg_info: &HashMap<PathBuf, RegInfo>) {
         for file in &mut self.list {
             if let Some(info) = reg_info.get(&file.file_name) {
@@ -882,7 +899,7 @@ impl ProjectFiles {
         }
     }
 
-    pub fn calc_time(&self) -> f64 {
+    pub fn calc_total_exp_time(&self) -> f64 {
         self.list
             .iter()
             .filter(|f| f.used)

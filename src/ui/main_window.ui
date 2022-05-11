@@ -140,8 +140,50 @@
       <object class="GtkMenuItem">
         <property name="visible">True</property>
         <property name="can-focus">False</property>
+        <property name="action-name">win.check_all_files</property>
+        <property name="label" translatable="yes">Check all file(s)</property>
+        <property name="use-underline">True</property>
+      </object>
+    </child>
+    <child>
+      <object class="GtkMenuItem">
+        <property name="visible">True</property>
+        <property name="can-focus">False</property>
+        <property name="action-name">win.uncheck_all_files</property>
+        <property name="label" translatable="yes">Uncheck all file(s)</property>
+        <property name="use-underline">True</property>
+      </object>
+    </child>
+    <child>
+      <object class="GtkMenuItem">
+        <property name="visible">True</property>
+        <property name="can-focus">False</property>
+        <property name="action-name">win.check_selected_files</property>
+        <property name="label" translatable="yes">Check selected file(s)</property>
+        <property name="use-underline">True</property>
+      </object>
+    </child>
+    <child>
+      <object class="GtkMenuItem">
+        <property name="visible">True</property>
+        <property name="can-focus">False</property>
+        <property name="action-name">win.uncheck_selected_files</property>
+        <property name="label" translatable="yes">Uncheck selected file(s)</property>
+        <property name="use-underline">True</property>
+      </object>
+    </child>
+    <child>
+      <object class="GtkSeparatorMenuItem">
+        <property name="visible">True</property>
+        <property name="can-focus">False</property>
+      </object>
+    </child>
+    <child>
+      <object class="GtkMenuItem">
+        <property name="visible">True</property>
+        <property name="can-focus">False</property>
         <property name="action-name">win.delete_item</property>
-        <property name="label" translatable="yes">Delete item(s)...</property>
+        <property name="label" translatable="yes">Remove item(s)...</property>
         <property name="use-underline">True</property>
       </object>
     </child>

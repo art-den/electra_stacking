@@ -16,6 +16,7 @@ use gtk::{
     glib::{MainContext, PRIORITY_DEFAULT, clone},
     glib,
 };
+use rayon::prelude::*;
 use itertools::*;
 use astro_utils::{
     image_formats::*,
@@ -277,30 +278,36 @@ fn build_ui(application: &gtk::Application) {
         Inhibit(false)
     }));
 
-    conn_action(&objects, "new_project",          action_new_project);
-    conn_action(&objects, "open_project",         action_open_project);
-    conn_action(&objects, "save_project_as",      action_save_project_as);
-    conn_action(&objects, "save_project",         action_save_project);
-    conn_action(&objects, "exit",                 action_exit);
-    conn_action(&objects, "add_light_files",      action_add_light_files);
-    conn_action(&objects, "add_dark_files",       action_add_dark_files);
-    conn_action(&objects, "add_flat_files",       action_add_flat_files);
-    conn_action(&objects, "add_bias_files",       action_add_bias_files);
-    conn_action(&objects, "new_group",            action_new_group);
-    conn_action(&objects, "delete_item",          action_delete_item);
-    conn_action(&objects, "use_as_ref_image",     action_use_as_reference_image);
-    conn_action(&objects, "item_properties",      action_item_properties);
-    conn_action(&objects, "register_light_files", action_register);
-    conn_action(&objects, "stack_light_files",    action_stack);
-    conn_action(&objects, "project_options",      action_project_options);
-    conn_action(&objects, "light_theme",          action_light_theme);
-    conn_action(&objects, "dark_theme",           action_dark_theme);
-    conn_action(&objects, "cleanup_light_files",  action_cleanup_light_files);
-    conn_action(&objects, "change_file_to_light", action_change_file_to_light);
-    conn_action(&objects, "change_file_to_dark",  action_change_file_to_dark);
-    conn_action(&objects, "change_file_to_flat",  action_change_file_to_flat);
-    conn_action(&objects, "change_file_to_bias",  action_change_file_to_bias);
-    conn_action(&objects, "move_file_to_group",   action_move_file_to_group);
+    conn_action(&objects, "new_project",            action_new_project);
+    conn_action(&objects, "open_project",           action_open_project);
+    conn_action(&objects, "save_project_as",        action_save_project_as);
+    conn_action(&objects, "save_project",           action_save_project);
+    conn_action(&objects, "exit",                   action_exit);
+    conn_action(&objects, "add_light_files",        action_add_light_files);
+    conn_action(&objects, "add_dark_files",         action_add_dark_files);
+    conn_action(&objects, "add_flat_files",         action_add_flat_files);
+    conn_action(&objects, "add_bias_files",         action_add_bias_files);
+    conn_action(&objects, "new_group",              action_new_group);
+    conn_action(&objects, "delete_item",            action_delete_item);
+    conn_action(&objects, "use_as_ref_image",       action_use_as_reference_image);
+    conn_action(&objects, "item_properties",        action_item_properties);
+    conn_action(&objects, "register_light_files",   action_register);
+    conn_action(&objects, "stack_light_files",      action_stack);
+    conn_action(&objects, "project_options",        action_project_options);
+    conn_action(&objects, "light_theme",            action_light_theme);
+    conn_action(&objects, "dark_theme",             action_dark_theme);
+    conn_action(&objects, "cleanup_light_files",    action_cleanup_light_files);
+    conn_action(&objects, "change_file_to_light",   action_change_file_to_light);
+    conn_action(&objects, "change_file_to_dark",    action_change_file_to_dark);
+    conn_action(&objects, "change_file_to_flat",    action_change_file_to_flat);
+    conn_action(&objects, "change_file_to_bias",    action_change_file_to_bias);
+    conn_action(&objects, "move_file_to_group",     action_move_file_to_group);
+    conn_action(&objects, "check_all_files",        action_check_all_files);
+    conn_action(&objects, "uncheck_all_files",      action_uncheck_all_files);
+    conn_action(&objects, "check_selected_files",   action_check_selected_files);
+    conn_action(&objects, "uncheck_selected_files", action_uncheck_selected_files);
+
+    //
 
     fill_project_tree(&objects);
     update_project_name_and_time_in_gui(&objects, true, true);
@@ -561,7 +568,7 @@ enum SelItemType {
     None,
     Project,
     Group,
-    FileFolder,
+    FileType,
     File
 }
 
@@ -609,7 +616,7 @@ fn get_selection_for_path(path: &gtk::TreePath) -> SelectedItem {
     match values.len() {
         1 => result.item_type = SelItemType::Project,
         2 => result.item_type = SelItemType::Group,
-        3 => result.item_type = SelItemType::FileFolder,
+        3 => result.item_type = SelItemType::FileType,
         4 => result.item_type = SelItemType::File,
         _ => (),
     }
@@ -859,7 +866,15 @@ fn select_and_add_files_into_project(
     let fc = create_src_file_select_dialog(files_dialog_cap, objects, true);
     fc.connect_response(clone!(@strong objects => move |file_chooser, response| {
         if response == gtk::ResponseType::Accept {
-            let group_index = get_active_group_index(&objects, select_group_cap);
+            let group_index = get_active_group_index(&objects, select_group_cap).
+                or_else(|| {
+                    if objects.project.borrow().groups.is_empty() {
+                        Some(0)
+                    } else {
+                        None
+                    }
+                });
+
             if let Some(group_index) = group_index {
                 let user_selected_files = get_filenames_from_file_vec(file_chooser.files());
                 log::info!("Dialog '{}' confirmed", select_group_cap);
@@ -885,9 +900,12 @@ fn select_and_add_files_into_project(
         file_type:        ProjectFileType
     ) {
         {
-            let group = &objects.project.borrow().groups[group_iter_index];
-            let files = &group.get_file_list_by_type(file_type);
-            files.retain_files_if_they_are_not_here(&mut file_names);
+            let project = objects.project.borrow();
+            let group = project.groups.get(group_iter_index);
+            if let Some(group) = group {
+                let files = &group.get_file_list_by_type(file_type);
+                files.retain_files_if_they_are_not_here(&mut file_names);
+            }
         }
 
         exec_and_show_progress(
@@ -899,6 +917,7 @@ fn select_and_add_files_into_project(
                 let helper = TreeViewFillHelper::new(&objects.project.borrow());
                 {
                     let mut project = objects.project.borrow_mut();
+                    project.add_default_group_if_empty();
                     let group = &mut project.groups[group_iter_index];
                     let files = &mut group.get_file_list_by_type_mut(file_type);
                     log::info!("Added {} files", result.len());
@@ -970,7 +989,6 @@ fn get_filenames_from_file_vec(files: Vec<gio::File>) -> Vec<PathBuf> {
         .filter_map(|f| f.path())
         .collect()
 }
-
 
 fn action_register(objects: &MainWindowObjectsPtr) {
     log::info!("Registering light files started");
@@ -1397,7 +1415,7 @@ impl TreeViewFillHelper {
                     format!(
                         "{} [{}] ({})",
                         folder_name,
-                        seconds_to_total_time_str(project_files.calc_time()),
+                        seconds_to_total_time_str(project_files.calc_total_exp_time()),
                         project_files.list.len()
                     )
                 } else {
@@ -1443,12 +1461,11 @@ fn handler_project_tree_selection_changed(objects: &MainWindowObjectsPtr) {
     preview_selected_file(objects);
     let selection = get_current_selection(objects);
     let is_file = selection.item_type == SelItemType::File;
+    let is_group = selection.item_type == SelItemType::Group;
+    let is_file_type = selection.item_type == SelItemType::FileType;
     let support_item_properties =
-        selection.item_type == SelItemType::Project ||
-        selection.item_type == SelItemType::Group;
-    let support_delete =
-        selection.item_type == SelItemType::Group ||
-        is_file;
+        selection.item_type == SelItemType::Project || is_group;
+    let support_delete = is_group || is_file;
     let support_use_as_ref_image =
         is_file &&
         selection.file_type == Some(ProjectFileType::Light) &&
@@ -1478,6 +1495,10 @@ fn handler_project_tree_selection_changed(objects: &MainWindowObjectsPtr) {
         "change_file_to_bias",
         selection.file_type != Some(ProjectFileType::Bias)
     );
+    enable_action(&objects.window, "check_all_files", is_file || is_file_type);
+    enable_action(&objects.window, "uncheck_all_files", is_file || is_file_type);
+    enable_action(&objects.window, "check_selected_files", is_file);
+    enable_action(&objects.window, "uncheck_selected_files", is_file);
 }
 
 fn preview_selected_file(objects: &MainWindowObjectsPtr) {
@@ -1538,7 +1559,7 @@ fn preview_image_after_change_view_opts(objects: &MainWindowObjectsPtr) {
 
 fn preview_image_file(objects: &MainWindowObjectsPtr, file_name: &PathBuf) {
     enum UiMessage {
-        Image{ image: image::Image, img_bytes: Vec<u8>, file_name: PathBuf },
+        Image{ image: image::Image, file_name: PathBuf },
         Error(String),
     }
 
@@ -1557,15 +1578,14 @@ fn preview_image_file(objects: &MainWindowObjectsPtr, file_name: &PathBuf) {
         None,
         clone!(@strong objects => move |message: UiMessage| {
             match message {
-                UiMessage::Image { image, img_bytes, file_name } => {
+                UiMessage::Image { image, file_name } => {
                     show_preview_image(
                         &objects,
-                        img_bytes,
+                        convert_image_to_bytes(&image, gamma, auto_min_flag),
                         image.width() as i32,
                         image.height() as i32,
                         scale
                     );
-
                     objects.preview_file_name.set_label(file_name.to_str().unwrap_or(""));
                     *objects.last_preview_file.borrow_mut() = file_name.clone();
                     *objects.prev_preview_img.borrow_mut() = image;
@@ -1626,10 +1646,8 @@ fn preview_image_file(objects: &MainWindowObjectsPtr, file_name: &PathBuf) {
                     }
                 }
 
-                let img_bytes = convert_image_to_bytes(&light_file.image, gamma, auto_min_flag);
                 sender.send(UiMessage::Image {
                     image: light_file.image,
-                    img_bytes,
                     file_name
                 }).unwrap();
             },
@@ -1641,6 +1659,8 @@ fn preview_image_file(objects: &MainWindowObjectsPtr, file_name: &PathBuf) {
 }
 
 fn convert_image_to_bytes(image: &image::Image, gamma: f32, auto_minimum: bool) -> Vec<u8> {
+    let timer = TimeLogger::start();
+
     let mut tt = InterpolTable::new();
     for i in 0..=10 {
         let x = (i as f32 / 10.0).powf(gamma);
@@ -1650,12 +1670,11 @@ fn convert_image_to_bytes(image: &image::Image, gamma: f32, auto_minimum: bool) 
 
     let (min, range) = if auto_minimum {
         let mut test_values: Vec<_> =
-            image.l.iter()
-            .chain(image.r.iter())
-            .chain(image.g.iter())
-            .chain(image.b.iter())
+            image.l.as_slice().par_iter()
+            .chain(image.r.as_slice().par_iter().step_by(42))
+            .chain(image.g.as_slice().par_iter().step_by(42))
+            .chain(image.b.as_slice().par_iter().step_by(42))
             .filter(|v| !v.is_infinite())
-            .step_by(42)
             .copied()
             .collect();
 
@@ -1667,30 +1686,38 @@ fn convert_image_to_bytes(image: &image::Image, gamma: f32, auto_minimum: bool) 
         (0.0, 1.0)
     };
 
-    let mut bytes = Vec::with_capacity((3 * image.width() * image.height()) as usize);
-    for (_, _, r, g, b) in image.iter_rgb_crd() {
-        let mut r = (tt.get((r-min)*range) * 255.0) as i32;
-        if r < 0 { r = 0; }
-        if r > 255 { r = 255; }
-        let mut g = (tt.get((g-min)*range) * 255.0) as i32;
-        if g < 0 { g = 0; }
-        if g > 255 { g = 255; }
-        let mut b = (tt.get((b-min)*range) * 255.0) as i32;
-        if b < 0 { b = 0; }
-        if b > 255 { b = 255; }
-        bytes.push(r as u8);
-        bytes.push(g as u8);
-        bytes.push(b as u8);
-    }
+    let bytes: Vec<u8> = if image.is_rgb() {
+        image.r.as_slice().par_iter()
+            .zip_eq(image.g.as_slice().par_iter())
+            .zip_eq(image.b.as_slice().par_iter())
+            .map(|((&r, &g), &b)| {
+                let mut r = (tt.get((r-min)*range) * 255.0) as i32;
+                if r < 0 { r = 0; }
+                if r > 255 { r = 255; }
+                let mut g = (tt.get((g-min)*range) * 255.0) as i32;
+                if g < 0 { g = 0; }
+                if g > 255 { g = 255; }
+                let mut b = (tt.get((b-min)*range) * 255.0) as i32;
+                if b < 0 { b = 0; }
+                if b > 255 { b = 255; }
+                [r as u8, g as u8, b as u8]
+            })
+            .flatten_iter()
+            .collect()
+    } else {
+        image.l.as_slice().par_iter()
+            .map(|l| {
+                let mut l = (tt.get((l-min)*range) * 255.0) as i32;
+                if l < 0 { l = 0; }
+                if l > 255 { l = 255; }
+                let l = l as u8;
+                [l, l, l]
+            })
+            .flatten_iter()
+            .collect()
+    };
 
-    for l in image.l.iter() {
-        let mut l = (tt.get((l-min)*range) * 255.0) as i32;
-        if l < 0 { l = 0; }
-        if l > 255 { l = 255; }
-        bytes.push(l as u8);
-        bytes.push(l as u8);
-        bytes.push(l as u8);
-    }
+    timer.log("convert_image_to_bytes");
 
     bytes
 }
@@ -1984,10 +2011,11 @@ fn group_options_dialog<F: Fn(GroupOptions) + 'static>(
 }
 
 fn get_active_group_index(objects: &MainWindowObjectsPtr, title: &str) -> Option<usize> {
-    assert!(!objects.project.borrow().groups.is_empty());
-    if objects.project.borrow().groups.len() == 1 {
-        return Some(0);
-    }
+    match objects.project.borrow().groups.len() {
+        0 => return None,
+        1 => return Some(0),
+        _ => {},
+    };
 
     let selection = get_current_selection(objects);
     let cur_group = selection.group_idx;
@@ -2577,4 +2605,54 @@ fn action_move_file_to_group(objects: &MainWindowObjectsPtr) {
     }));
 
     dialog.show();
+}
+
+fn action_check_all_files(objects: &MainWindowObjectsPtr) {
+    check_all_files(objects, true);
+}
+
+fn action_uncheck_all_files(objects: &MainWindowObjectsPtr) {
+    check_all_files(objects, false);
+}
+
+fn check_all_files(objects: &MainWindowObjectsPtr, value: bool) {
+    let s = get_current_selection(objects);
+    let (group_idx, file_type) = match (s.group_idx, s.file_type) {
+        (Some(group_idx), Some(file_type)) => (group_idx, file_type),
+        _ => return,
+    };
+
+    let helper = TreeViewFillHelper::new(&objects.project.borrow());
+    objects.project.borrow_mut()
+        .groups[group_idx]
+        .get_file_list_by_type_mut(file_type)
+        .check_all(value);
+    helper.apply_changes(&objects, true);
+    update_project_name_and_time_in_gui(&objects, true, false);
+}
+
+fn action_check_selected_files(objects: &MainWindowObjectsPtr) {
+    check_selected_files(objects, true);
+}
+
+fn action_uncheck_selected_files(objects: &MainWindowObjectsPtr) {
+    check_selected_files(objects, false);
+}
+
+fn check_selected_files(objects: &MainWindowObjectsPtr, value: bool) {
+    let s = get_current_selection(objects);
+    let (group_idx, file_type, files) = match (s.group_idx, s.file_type, s.files) {
+        (Some(group_idx), Some(file_type), files) if !files.is_empty() =>
+            (group_idx, file_type, files),
+        _ =>
+            return,
+    };
+
+    let helper = TreeViewFillHelper::new(&objects.project.borrow());
+    objects.project.borrow_mut()
+        .groups[group_idx]
+        .get_file_list_by_type_mut(file_type)
+        .check_by_indices(&files, value);
+    helper.apply_changes(&objects, true);
+    update_project_name_and_time_in_gui(&objects, true, false);
 }
