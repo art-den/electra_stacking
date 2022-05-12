@@ -9,6 +9,7 @@ bitflags! { pub struct LoadLightFlags: u32 {
     const NOISE = 2;
     const BACKGROUND = 4;
     const SHARPNESS = 8;
+    const FAST_DEMOSAIC = 16;
 }}
 
 pub struct LightFile {
@@ -32,7 +33,12 @@ impl LightFile {
         let mut src_data = if is_image_file_name(file_name) {
             load_image_from_file(file_name)
         } else {
-            load_raw_light_file(file_name, cal_data, disk_mutex)
+            load_raw_light_file(
+                file_name,
+                cal_data,
+                disk_mutex,
+                flags.contains(LoadLightFlags::FAST_DEMOSAIC)
+            )
         }?;
 
         if bin == 2 {
@@ -146,9 +152,10 @@ fn check_raw_data(
 }
 
 fn load_raw_light_file(
-    file_name:  &PathBuf,
-    cal_data:   &CalibrationData,
-    disk_mutex: Option<&std::sync::Mutex<()>>,
+    file_name:     &PathBuf,
+    cal_data:      &CalibrationData,
+    disk_mutex:    Option<&std::sync::Mutex<()>>,
+    fast_demosaic: bool,
 ) -> anyhow::Result<SrcImageData> {
     // load raw file
     let raw_log = TimeLogger::start();
@@ -183,8 +190,12 @@ fn load_raw_light_file(
 
     // do demosaic
     let dem_log = TimeLogger::start();
-    let image = raw_image.demosaic_linear()?;
-    dem_log.log("demosaic");
+    let image = raw_image.demosaic_linear(fast_demosaic)?;
+    if fast_demosaic {
+        dem_log.log("fast demosaic");
+    } else {
+        dem_log.log("demosaic");
+    }
 
     // return result
     Ok(SrcImageData {

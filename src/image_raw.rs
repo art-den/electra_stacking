@@ -304,7 +304,7 @@ impl RawImage {
         Ok(RawImage{ info, data: image })
     }
 
-    pub fn demosaic_linear(&self) -> anyhow::Result<Image> {
+    pub fn demosaic_linear(&self, fast: bool) -> anyhow::Result<Image> {
         if self.data.is_empty() {
             anyhow::bail!("Raw image is empty");
         }
@@ -339,11 +339,13 @@ impl RawImage {
                 const LIN_DIAG:       &[(Crd, Crd)] = &[(-1, -1), (1, -1), (-1, 1), (1, 1)];
                 const LIN_CROSS:      &[(Crd, Crd)] = &[(0, -1), (-1, 0), (1, 0), (0, 1)];
 
-                for ((x, y, r, g, b), s) in result.iter_rgb_crd_mut().zip(self.data.iter()) {
-                    let raw_ct = p.get_color_type(x, y);
-                    let get_color = |ct, a| {
-                        if raw_ct == ct {
-                            a * *s
+                let demosaic_row = |y, d_row: &mut[f32], s_row: &[f32], ct: CfaColor, k: f32| {
+                    for (x, (d, s)) in d_row.iter_mut().zip(s_row).enumerate() {
+                        let x = x as Crd;
+                        let raw_ct = p.get_color_type(x, y);
+
+                        let value = if raw_ct == ct {
+                            k * *s
                         } else {
                             let pixels = match (raw_ct, ct) {
                                 (_, CfaColor::G) =>
@@ -370,13 +372,38 @@ impl RawImage {
                                 sum += v;
                                 cnt += 1;
                             }}
-                            if cnt != 0 { a * sum / cnt as f32 } else { 0.0 }
-                        }
-                    };
+                            if cnt != 0 { k * sum / cnt as f32 } else { 0.0 }
+                        };
 
-                    *r = get_color(CfaColor::R, lin_coeffs[0]);
-                    *g = get_color(CfaColor::G, lin_coeffs[1]);
-                    *b = get_color(CfaColor::B, lin_coeffs[2]);
+                        *d = value;
+                    }
+                };
+
+                if !fast {
+                    for y in 0..self.data.height() {
+                        let s = self.data.row(y);
+                        demosaic_row(y, result.r.row_mut(y), s, CfaColor::R, lin_coeffs[0]);
+                        demosaic_row(y, result.g.row_mut(y), s, CfaColor::G, lin_coeffs[1]);
+                        demosaic_row(y, result.b.row_mut(y), s, CfaColor::B, lin_coeffs[2]);
+                    }
+                } else {
+                    rayon::scope(|s| {
+                        s.spawn(|_| {
+                            for y in 0..self.data.height() {
+                                demosaic_row(y, result.r.row_mut(y), self.data.row(y), CfaColor::R, lin_coeffs[0]);
+                            }
+                        });
+                        s.spawn(|_| {
+                            for y in 0..self.data.height() {
+                                demosaic_row(y, result.g.row_mut(y), self.data.row(y), CfaColor::G, lin_coeffs[1]);
+                            }
+                        });
+                        s.spawn(|_| {
+                            for y in 0..self.data.height() {
+                                demosaic_row(y, result.b.row_mut(y), self.data.row(y), CfaColor::B, lin_coeffs[2]);
+                            }
+                        });
+                    });
                 }
             }
         }

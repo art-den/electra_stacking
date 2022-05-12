@@ -124,6 +124,16 @@ where T: Copy + Clone + ImgLayerDefValue<Type = T> {
         self.data.iter_mut()
     }
 
+    pub fn row<'a>(&'a self, y: Crd) -> &'a [T]{
+        let pos = (y*self.width) as usize;
+        &self.data[pos..pos + self.width as usize]
+    }
+
+    pub fn row_mut<'a>(&'a mut self, y: Crd) -> &'a mut [T]{
+        let pos = (y*self.width) as usize;
+        &mut self.data[pos..pos + self.width as usize]
+    }
+
     pub fn iter_row<'a>(&'a self, y: Crd) -> std::slice::Iter<'a, T> {
         let pos = (y*self.width) as usize;
         self.data[pos..pos + self.width as usize].iter()
