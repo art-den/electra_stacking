@@ -1,6 +1,5 @@
 use std::{path::*, sync::*};
 use structopt::*;
-use crossbeam::sync::WaitGroup;
 use crate::{consts::*, image_raw::*, progress::*, fs_utils::*, light_file::*, stars::*};
 
 #[derive(StructOpt, Debug)]
@@ -44,51 +43,43 @@ pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
         .num_threads(options.num_tasks)
         .build()?;
 
-    let all_tasks_finished_waiter = WaitGroup::new();
+    thread_pool.scope(|s| {
+        for file_name in file_names_list.iter() {
+            s.spawn(|_| {
+                let file_name = file_name.clone();
 
-    for file_name in file_names_list.iter() {
-        let wait = all_tasks_finished_waiter.clone();
-        let file_name = file_name.clone();
-        let progress = Arc::clone(&progress);
-        let cal_data = Arc::clone(&cal_data);
-        let disk_access_mutex = Arc::clone(&disk_access_mutex);
+                progress.lock().unwrap().progress(true, extract_file_name(&file_name));
 
-        thread_pool.spawn(move || {
-            progress.lock().unwrap().progress(true, extract_file_name(&file_name));
+                let light_file = LightFile::load(
+                    &file_name,
+                    &cal_data,
+                    Some(&disk_access_mutex),
+                    LoadLightFlags::STARS
+                    | LoadLightFlags::NOISE
+                    | LoadLightFlags::BACKGROUND,
+                    1
+                ).expect("Can't load light file");
 
-            let light_file = LightFile::load(
-                &file_name,
-                &cal_data,
-                Some(&disk_access_mutex),
-                LoadLightFlags::STARS
-                | LoadLightFlags::NOISE
-                | LoadLightFlags::BACKGROUND,
-                1
-            ).expect("Can't load light file");
+                let stars_stat = calc_stars_stat(
+                    &light_file.stars,
+                    light_file.image.width(),
+                    light_file.image.height()
+                );
 
-            let stars_stat = calc_stars_stat(
-                &light_file.stars,
-                light_file.image.width(),
-                light_file.image.height()
-            );
+                let file_data = LightFileRegInfo {
+                    file_name:   extract_file_name(&file_name).to_string(),
+                    noise:       light_file.noise,
+                    background:  light_file.background,
+                    stars_r:     stars_stat.aver_r,
+                    stars_r_dev: stars_stat.aver_r_dev,
+                };
 
-            let file_data = LightFileRegInfo {
-                file_name:   extract_file_name(&file_name).to_string(),
-                noise:       light_file.noise,
-                background:  light_file.background,
-                stars_r:     stars_stat.aver_r,
-                stars_r_dev: stars_stat.aver_r_dev,
-            };
-
-            let file_data_str = serde_json::to_string_pretty(&file_data).expect("Can't serialize");
-            let info_file_name = get_light_info_file_name(&file_name);
-            std::fs::write(info_file_name, &file_data_str).expect("Can't write file registration info");
-
-            drop(wait)
-        });
-    }
-
-    all_tasks_finished_waiter.wait();
+                let file_data_str = serde_json::to_string_pretty(&file_data).expect("Can't serialize");
+                let info_file_name = get_light_info_file_name(&file_name);
+                std::fs::write(info_file_name, &file_data_str).expect("Can't write file registration info");
+            });
+        }
+    });
 
     progress.lock().unwrap().percent(0, 100, "Done!");
 

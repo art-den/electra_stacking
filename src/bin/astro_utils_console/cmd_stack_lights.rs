@@ -108,18 +108,18 @@ pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
         &None // TODO: Add bias support for console version
     )?;
 
-    let ref_data = Arc::new(RefBgData::new(
+    let ref_bg_data = RefBgData::new(
         &options.ref_file,
         &ref_cal,
         options.bin.unwrap_or(1)
-    )?);
+    )?;
 
     let thread_pool = rayon::ThreadPoolBuilder::new()
         .num_threads(options.num_tasks)
         .build()?;
 
-    let temp_file_names = Arc::new(Mutex::new(Vec::<TempFileData>::new()));
-    let files_to_del_later = Arc::new(Mutex::new(FilesToDeleteLater::new()));
+    let temp_file_names = Mutex::new(Vec::<TempFileData>::new());
+    let files_to_del_later = Mutex::new(FilesToDeleteLater::new());
 
     for item in dir_data.iter() {
         progress.lock().unwrap().percent(0, 100, "Searching files...");
@@ -132,7 +132,7 @@ pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
             &item.master_flat,
             &item.master_dark,
             &None, // TODO: Add bias support for console version
-            &ref_data,
+            &ref_bg_data,
             options.bin.unwrap_or(1),
             &temp_file_names,
             &files_to_del_later,
@@ -154,9 +154,9 @@ pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
         &progress,
         &temp_file_names.lock().unwrap(),
         &options.calc_opts,
-        ref_data.image.image.is_rgb(),
-        ref_data.image.image.width(),
-        ref_data.image.image.height(),
+        ref_bg_data.image.image.is_rgb(),
+        ref_bg_data.image.image.width(),
+        ref_bg_data.image.image.height(),
         &options.result_file,
         &cancel_flag
     )?;

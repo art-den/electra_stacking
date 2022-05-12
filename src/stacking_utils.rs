@@ -1,7 +1,6 @@
 use std::{path::*, io::*, fs::*, sync::{*, atomic::{AtomicBool, Ordering}}};
 use anyhow::bail;
 use byteorder::*;
-use crossbeam::sync::WaitGroup;
 use serde::{Serialize, Deserialize};
 use crate::{
     image::*,
@@ -178,7 +177,7 @@ fn create_master_calibr_file<PF>(
 where
     PF: Fn (&mut RawImage) -> bool + Send + Sync + 'static
 {
-    let disk_access_mutex = Arc::new(Mutex::new(()));
+    let disk_access_mutex = Mutex::new(());
 
     struct FileData {
         file:       BufReader<File>,
@@ -205,25 +204,19 @@ where
         }
     }
 
-    let all_tasks_finished_waiter = WaitGroup::new();
-    let postprocess_fun = Arc::new(postprocess_fun);
-    let cur_result = Arc::new(Mutex::new(anyhow::Result::<bool>::Ok(false)));
+    let cur_result = Mutex::new(anyhow::Result::<bool>::Ok(false));
 
     progress.lock().unwrap().set_total(files_list.len());
-    let files_to_process = Arc::new(Mutex::new(Vec::new()));
-    for file_path in files_list.iter() {
-        let progress = Arc::clone(&progress);
-        let disk_access_mutex = Arc::clone(&disk_access_mutex);
-        let files_to_process = Arc::clone(&files_to_process);
-        let cancel_flag = Arc::clone(&cancel_flag);
-        let file_path = file_path.clone();
-        let waiter = all_tasks_finished_waiter.clone();
-        let postprocess_fun = Arc::clone(&postprocess_fun);
-        let cur_result = Arc::clone(&cur_result);
+    let files_to_process = Mutex::new(Vec::new());
 
-        thread_pool.spawn(move || {
-            if !cancel_flag.load(Ordering::Relaxed)
-            && !cur_result.lock().unwrap().is_err() {
+    thread_pool.scope(|s| {
+        for file_path in files_list.iter() {
+            s.spawn(|_| {
+                let file_path = file_path.clone();
+                if cancel_flag.load(Ordering::Relaxed)
+                || cur_result.lock().unwrap().is_err() {
+                    return;
+                }
                 let raw_res = RawImage::load_camera_raw_file(
                     &file_path,
                     load_raw_flags,
@@ -233,7 +226,6 @@ where
                     Ok(raw) => raw,
                     Err(err) => {
                         *cur_result.lock().unwrap() = Err(err);
-                        drop(cur_result);
                         return;
                     }
                 };
@@ -249,19 +241,14 @@ where
                 }
                 progress.lock().unwrap().progress(true, extract_file_name(&file_path));
                 files_to_process.lock().unwrap().push(temp_fn);
-            }
+            });
+        }
+    });
 
-            drop(cur_result);
-            drop(waiter);
-        });
-    }
-
-    all_tasks_finished_waiter.wait();
     if cancel_flag.load(Ordering::Relaxed) { return Ok(false); }
 
     if cur_result.lock().unwrap().is_err() {
-        let extracted_res = Arc::try_unwrap(cur_result).expect("Extracting error");
-        return extracted_res.into_inner()?;
+        return cur_result.into_inner()?;
     }
 
     let mut opened_files = Vec::new();
@@ -336,76 +323,60 @@ pub fn create_temp_light_files(
     master_flat:        &Option<PathBuf>,
     master_dark:        &Option<PathBuf>,
     master_bias:        &Option<PathBuf>,
-    ref_data:           &Arc<RefBgData>,
+    ref_data:           &RefBgData,
     bin:                usize,
-    result_list:        &Arc<Mutex<Vec<TempFileData>>>,
-    files_to_del_later: &Arc<Mutex<FilesToDeleteLater>>,
+    result_list:        &Mutex<Vec<TempFileData>>,
+    files_to_del_later: &Mutex<FilesToDeleteLater>,
     thread_pool:        &rayon::ThreadPool,
     cancel_flag:        &Arc<AtomicBool>,
 ) -> anyhow::Result<()> {
     progress.lock().unwrap().percent(0, 100, "Loading calibration images...");
-    let cal_data = Arc::new(CalibrationData::load(
+    let cal_data = CalibrationData::load(
         master_flat,
         master_dark,
         master_bias
-    )?);
+    )?;
 
     progress.lock().unwrap().set_total(files_list.len());
-
-    let disk_access_mutex = Arc::new(Mutex::new(()));
-    let cur_result = Arc::new(Mutex::new(anyhow::Result::<()>::Ok(())));
-
-    let all_tasks_finished_waiter = WaitGroup::new();
-    for file in files_list.iter() {
-        let cal_data = Arc::clone(&cal_data);
-        let ref_data = Arc::clone(&ref_data);
-        let files_to_del_later = Arc::clone(&files_to_del_later);
-        let result_list = Arc::clone(&result_list);
-        let progress = Arc::clone(&progress);
-        let file = file.clone();
-        let wait = all_tasks_finished_waiter.clone();
-        let disk_access_mutex = Arc::clone(&disk_access_mutex);
-        let cancel_flag = Arc::clone(&cancel_flag);
-        let cur_result = Arc::clone(&cur_result);
-
-        thread_pool.spawn(move || {
-            if !cancel_flag.load(Ordering::Relaxed)
-            && !cur_result.lock().unwrap().is_err() {
+    let disk_access_mutex = Mutex::new(());
+    let cur_result = Mutex::new(anyhow::Result::<()>::Ok(()));
+    thread_pool.scope(|s| {
+        for file in files_list.iter() {
+            s.spawn(|_| {
+                if cancel_flag.load(Ordering::Relaxed)
+                || cur_result.lock().unwrap().is_err() {
+                    return;
+                }
+                let file = file.clone();
                 let res = create_temp_file_from_light_file(
                     &file,
-                    cal_data,
+                    &cal_data,
                     ref_data,
                     bin,
                     files_to_del_later,
-                    disk_access_mutex,
+                    &disk_access_mutex,
                     result_list
                 );
                 if res.is_err() {
                     *cur_result.lock().unwrap() = res;
-                    drop(cur_result);
                     return;
                 }
                 progress.lock().unwrap().progress(true, extract_file_name(&file));
-            }
-            drop(cur_result);
-            drop(wait)
-        });
-    }
+            });
+        }
+    });
 
-    all_tasks_finished_waiter.wait();
-
-    let extracted_res = Arc::try_unwrap(cur_result).expect("Extracting error");
-    extracted_res.into_inner()?
+    cur_result.into_inner()?
 }
 
 fn create_temp_file_from_light_file(
     file:               &PathBuf,
-    cal_data:           Arc<CalibrationData>,
-    ref_data:           Arc<RefBgData>,
+    cal_data:           &CalibrationData,
+    ref_data:           &RefBgData,
     bin:                usize,
-    files_to_del_later: Arc<Mutex<FilesToDeleteLater>>,
-    disk_access_mutex:  Arc<Mutex<()>>,
-    result_list:        Arc<Mutex<Vec<TempFileData>>>
+    files_to_del_later: &Mutex<FilesToDeleteLater>,
+    disk_access_mutex:  &Mutex<()>,
+    result_list:        &Mutex<Vec<TempFileData>>
 ) -> anyhow::Result<()> {
     let file_total_log = TimeLogger::start();
 

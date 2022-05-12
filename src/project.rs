@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::{path::*, io::*, fs::*, collections::HashSet};
 use std::sync::{*, atomic::AtomicBool, atomic::Ordering};
-use crossbeam::sync::WaitGroup;
 use serde::*;
 use astro_utils::{
     calc::*,
@@ -128,7 +127,7 @@ impl Project {
 
         progress.lock().unwrap().stage("Registering files...");
 
-        let mut result = Arc::new(Mutex::new(HashMap::new()));
+        let mut result = Mutex::new(HashMap::new());
 
         for group in &self.groups {
             if cancel_flag.load(Ordering::Relaxed) { return Ok(HashMap::new()); }
@@ -140,11 +139,7 @@ impl Project {
             )?;
         }
 
-        Ok(Arc::try_unwrap(result)
-            .expect("Still have multiple owners")
-            .into_inner()
-            .expect("Can't be locked")
-        )
+        Ok(result.into_inner().unwrap())
     }
 
     pub fn update_light_files_reg_info(&mut self, reg_info: HashMap<PathBuf, RegInfo>) {
@@ -590,32 +585,27 @@ impl ProjectGroup {
         progress:    &ProgressTs,
         cancel_flag: &Arc<AtomicBool>,
         thread_pool: &rayon::ThreadPool,
-        result:      &mut Arc<Mutex<HashMap<PathBuf, RegInfo>>>,
+        result:      &mut Mutex<HashMap<PathBuf, RegInfo>>,
     ) -> anyhow::Result<()> {
         progress.lock().unwrap().set_total(self.light_files.list.len());
         progress.lock().unwrap().progress(false, "Loading calibtation master files...");
 
-        let cal_data = Arc::new(CalibrationData::load(
+        let cal_data = CalibrationData::load(
             &self.flat_files.get_master_full_file_name(MASTER_FLAT_FN),
             &self.dark_files.get_master_full_file_name(MASTER_DARK_FN),
             &self.bias_files.get_master_full_file_name(MASTER_BIAS_FN),
-        )?);
+        )?;
 
-        let all_tasks_finished_waiter = WaitGroup::new();
-        let cur_result = Arc::new(Mutex::new(anyhow::Result::<()>::Ok(())));
+        let cur_result = Mutex::new(anyhow::Result::<()>::Ok(()));
 
-        for file in &self.light_files.list {
-            let wait = all_tasks_finished_waiter.clone();
-            let progress = Arc::clone(progress);
-            let result = Arc::clone(&result);
-            let cal_data = Arc::clone(&cal_data);
-            let file_name = file.file_name.clone();
-            let cancel_flag = Arc::clone(&cancel_flag);
-            let cur_result = Arc::clone(&cur_result);
-
-            thread_pool.spawn(move || {
-                if !cancel_flag.load(Ordering::Relaxed)
-                && !cur_result.lock().unwrap().is_err() {
+        thread_pool.scope(|s| {
+            for file in &self.light_files.list {
+                s.spawn(|_| {
+                    if cancel_flag.load(Ordering::Relaxed)
+                    || cur_result.lock().unwrap().is_err() {
+                        return;
+                    }
+                    let file_name = file.file_name.clone();
                     let load_light_file_res = LightFile::load(
                         &file_name,
                         &cal_data,
@@ -626,24 +616,19 @@ impl ProjectGroup {
                         | LoadLightFlags::SHARPNESS,
                         1
                     );
-
                     let light_file = match load_light_file_res {
                         Ok(light_file) => light_file,
                         Err(err) => {
                             *cur_result.lock().unwrap() = Err(err);
-                            drop(result);
                             return;
                         },
                     };
-
                     progress.lock().unwrap().progress(true, file_name.to_str().unwrap_or(""));
-
                     let stars_stat = calc_stars_stat(
                         &light_file.stars,
                         light_file.image.width(),
                         light_file.image.height(),
                     );
-
                     result.lock().unwrap().insert(
                         file_name.clone(),
                         RegInfo {
@@ -654,22 +639,15 @@ impl ProjectGroup {
                             stars_r_dev: stars_stat.aver_r_dev,
                         }
                     );
-
-                }
-
-                drop(result);
-                drop(wait);
-            });
-        }
-
-        all_tasks_finished_waiter.wait();
+                });
+            }
+        });
 
         if cancel_flag.load(Ordering::Relaxed) {
             anyhow::bail!("Terminated");
         }
 
-        let extracted_res = Arc::try_unwrap(cur_result).expect("Extracting error");
-        extracted_res.into_inner()?
+        cur_result.into_inner()?
     }
 
     pub fn can_exec_cleanup(&self) -> bool {
