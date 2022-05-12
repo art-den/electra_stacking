@@ -1,4 +1,5 @@
 use std::{path::*, io::*, fs::*, collections::HashSet, hash::Hash};
+use rayon::prelude::*;
 use serde::{Serialize, Deserialize};
 use byteorder::*;
 use bitflags::bitflags;
@@ -339,13 +340,14 @@ impl RawImage {
                 const LIN_DIAG:       &[(Crd, Crd)] = &[(-1, -1), (1, -1), (-1, 1), (1, 1)];
                 const LIN_CROSS:      &[(Crd, Crd)] = &[(0, -1), (-1, 0), (1, 0), (0, 1)];
 
-                let demosaic_row = |y, d_row: &mut[f32], s_row: &[f32], ct: CfaColor, k: f32| {
+                let demosaic_row = |y, d_row: &mut[f32], ct: CfaColor, k: f32| {
+                    let s_row = self.data.row(y);
                     for (x, (d, s)) in d_row.iter_mut().zip(s_row).enumerate() {
                         let x = x as Crd;
                         let raw_ct = p.get_color_type(x, y);
 
-                        let value = if raw_ct == ct {
-                            k * *s
+                        *d = k * if raw_ct == ct {
+                            *s
                         } else {
                             let pixels = match (raw_ct, ct) {
                                 (_, CfaColor::G) =>
@@ -372,38 +374,37 @@ impl RawImage {
                                 sum += v;
                                 cnt += 1;
                             }}
-                            if cnt != 0 { k * sum / cnt as f32 } else { 0.0 }
+                            if cnt != 0 { sum / cnt as f32 } else { 0.0 }
                         };
-
-                        *d = value;
                     }
                 };
 
                 if !fast {
                     for y in 0..self.data.height() {
-                        let s = self.data.row(y);
-                        demosaic_row(y, result.r.row_mut(y), s, CfaColor::R, lin_coeffs[0]);
-                        demosaic_row(y, result.g.row_mut(y), s, CfaColor::G, lin_coeffs[1]);
-                        demosaic_row(y, result.b.row_mut(y), s, CfaColor::B, lin_coeffs[2]);
+                        demosaic_row(y, result.r.row_mut(y), CfaColor::R, lin_coeffs[0]);
+                        demosaic_row(y, result.g.row_mut(y), CfaColor::G, lin_coeffs[1]);
+                        demosaic_row(y, result.b.row_mut(y), CfaColor::B, lin_coeffs[2]);
                     }
                 } else {
-                    rayon::scope(|s| {
-                        s.spawn(|_| {
-                            for y in 0..self.data.height() {
-                                demosaic_row(y, result.r.row_mut(y), self.data.row(y), CfaColor::R, lin_coeffs[0]);
-                            }
+                    let width = self.data.width() as usize;
+
+                    result.r.as_slice_mut().par_chunks_mut(width)
+                        .enumerate()
+                        .for_each(|(y, d)| {
+                            demosaic_row(y as Crd, d, CfaColor::R, lin_coeffs[0]);
                         });
-                        s.spawn(|_| {
-                            for y in 0..self.data.height() {
-                                demosaic_row(y, result.g.row_mut(y), self.data.row(y), CfaColor::G, lin_coeffs[1]);
-                            }
+
+                    result.g.as_slice_mut().par_chunks_mut(width)
+                        .enumerate()
+                        .for_each(|(y, d)| {
+                            demosaic_row(y as Crd, d, CfaColor::G, lin_coeffs[1]);
                         });
-                        s.spawn(|_| {
-                            for y in 0..self.data.height() {
-                                demosaic_row(y, result.b.row_mut(y), self.data.row(y), CfaColor::B, lin_coeffs[2]);
-                            }
+
+                    result.b.as_slice_mut().par_chunks_mut(width)
+                        .enumerate()
+                        .for_each(|(y, d)| {
+                            demosaic_row(y as Crd, d, CfaColor::B, lin_coeffs[2]);
                         });
-                    });
                 }
             }
         }
