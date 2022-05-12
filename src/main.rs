@@ -16,7 +16,7 @@ use gtk::{
     glib::{MainContext, PRIORITY_DEFAULT, clone},
     glib,
 };
-use rayon::prelude::*;
+
 use itertools::*;
 use astro_utils::{
     image_formats::*,
@@ -104,6 +104,7 @@ fn build_ui(application: &gtk::Application) {
     let prj_img_paned       = builder.object::<gtk::Paned>("prj_img_paned").unwrap();
     let preview_img_scale   = builder.object::<gtk::ComboBoxText>("preview_img_scale").unwrap();
     let preview_auto_min    = builder.object::<gtk::CheckButton>("preview_auto_min").unwrap();
+    let preview_auto_wb     = builder.object::<gtk::CheckButton>("preview_auto_wb").unwrap();
     let preview_img_gamma   = builder.object::<gtk::Scale>("preview_img_gamma").unwrap();
     let preview_file_name   = builder.object::<gtk::Label>("preview_file_name").unwrap();
     let preview_ctrls_box   = builder.object::<gtk::Widget>("preview_ctrls_box").unwrap();
@@ -193,9 +194,11 @@ fn build_ui(application: &gtk::Application) {
         cancel_flag: Arc::new(AtomicBool::new(false)),
         preview_img_scale: preview_img_scale.clone(),
         preview_auto_min: preview_auto_min.clone(),
+        preview_auto_wb: preview_auto_wb.clone(),
         preview_tp,
         prev_preview_cancel_flags: RefCell::new(None),
         prev_preview_img: RefCell::new(image::Image::new()),
+        prev_preview_params: RefCell::new(image::ToRgbBytesParams::new()),
         preview_img_gamma: preview_img_gamma.clone(),
         preview_file_name,
         preview_ctrls_box,
@@ -261,17 +264,22 @@ fn build_ui(application: &gtk::Application) {
             Some(1) => ImgScale::FitWindow,
             _       => return,
         };
-        preview_image_after_change_view_opts(&objects);
+        preview_image_after_change_view_opts(&objects, false);
     }));
 
     preview_auto_min.connect_clicked(clone!(@strong objects => move |chb| {
         objects.config.borrow_mut().preview_auto_min = chb.is_active();
-        preview_image_after_change_view_opts(&objects);
+        preview_image_after_change_view_opts(&objects, true);
+    }));
+
+    preview_auto_wb.connect_clicked(clone!(@strong objects => move |chb| {
+        objects.config.borrow_mut().preview_auto_wb = chb.is_active();
+        preview_image_after_change_view_opts(&objects, true);
     }));
 
     preview_img_gamma.connect_change_value(clone!(@strong objects => move |_, _, value| {
         objects.config.borrow_mut().preview_gamma = value as f32;
-        preview_image_after_change_view_opts(&objects);
+        preview_image_after_change_view_opts(&objects, false);
         Inhibit(false)
     }));
 
@@ -464,11 +472,13 @@ struct MainWindowObjects {
     preview_image: gtk::Image,
     preview_img_scale: gtk::ComboBoxText,
     preview_auto_min: gtk::CheckButton,
+    preview_auto_wb: gtk::CheckButton,
     preview_img_gamma: gtk::Scale,
     last_preview_file: RefCell<PathBuf>,
     preview_tp: rayon::ThreadPool,
     prev_preview_cancel_flags: RefCell<Option<Arc<AtomicBool>>>,
     prev_preview_img: RefCell<image::Image>,
+    prev_preview_params: RefCell<image::ToRgbBytesParams>,
     preview_file_name: gtk::Label,
     preview_ctrls_box: gtk::Widget,
     preview_scroll_pos: RefCell<Option<((f64, f64), (f64, f64))>>,
@@ -556,6 +566,7 @@ fn apply_config(objects: &MainWindowObjectsPtr) {
     }
 
     objects.preview_auto_min.set_active(config.preview_auto_min);
+    objects.preview_auto_wb.set_active(config.preview_auto_wb);
 
     objects.preview_img_gamma.set_value(config.preview_gamma as f64);
 }
@@ -1536,21 +1547,30 @@ fn preview_selected_file(objects: &MainWindowObjectsPtr) {
     preview_image_file(objects, &file_name);
 }
 
-fn preview_image_after_change_view_opts(objects: &MainWindowObjectsPtr) {
+fn preview_image_after_change_view_opts(
+    objects: &MainWindowObjectsPtr,
+    recalc_params: bool
+) {
     let image = objects.prev_preview_img.borrow();
     if image.is_empty() { return; }
-
-    let auto_min_flag = objects.config.borrow().preview_auto_min;
-    let scale = objects.config.borrow().preview_scale;
-    let gamma = objects.config.borrow().preview_gamma;
-
-    let bytes = convert_image_to_bytes(&image, gamma, auto_min_flag);
+    let config = objects.config.borrow();
+    if recalc_params {
+        *objects.prev_preview_params.borrow_mut() =
+            image.calc_to_bytes_params(
+                config.preview_auto_min,
+                config.preview_auto_wb
+            );
+    }
+    let bytes = image.to_rgb_bytes(
+        &objects.prev_preview_params.borrow(),
+        config.preview_gamma,
+    );
     show_preview_image(
         objects,
         bytes,
         image.width() as i32,
         image.height() as i32,
-        scale
+        config.preview_scale
     );
 }
 
@@ -1559,10 +1579,6 @@ fn preview_image_file(objects: &MainWindowObjectsPtr, file_name: &PathBuf) {
         Image{ image: image::Image, file_name: PathBuf },
         Error(String),
     }
-
-    let auto_min_flag = objects.config.borrow().preview_auto_min;
-    let scale = objects.config.borrow().preview_scale;
-    let gamma = objects.config.borrow().preview_gamma;
 
     // cancel previous task in thread pool
     if let Some(flag) = &*objects.prev_preview_cancel_flags.borrow() {
@@ -1576,16 +1592,25 @@ fn preview_image_file(objects: &MainWindowObjectsPtr, file_name: &PathBuf) {
         clone!(@strong objects => move |message: UiMessage| {
             match message {
                 UiMessage::Image { image, file_name } => {
+                    let config = objects.config.borrow();
+                    let params = image.calc_to_bytes_params(
+                        config.preview_auto_min,
+                        config.preview_auto_wb
+                    );
+
+                    let bytes = image.to_rgb_bytes(&params, config.preview_gamma);
                     show_preview_image(
                         &objects,
-                        convert_image_to_bytes(&image, gamma, auto_min_flag),
+                        bytes,
                         image.width() as i32,
                         image.height() as i32,
-                        scale
+                        config.preview_scale
                     );
+
                     objects.preview_file_name.set_label(file_name.to_str().unwrap_or(""));
                     *objects.last_preview_file.borrow_mut() = file_name.clone();
                     *objects.prev_preview_img.borrow_mut() = image;
+                    *objects.prev_preview_params.borrow_mut() = params;
                     objects.preview_ctrls_box.set_sensitive(true);
                 },
 
@@ -1656,76 +1681,12 @@ fn preview_image_file(objects: &MainWindowObjectsPtr, file_name: &PathBuf) {
     }));
 }
 
-fn convert_image_to_bytes(image: &image::Image, gamma: f32, auto_minimum: bool) -> Vec<u8> {
-    let timer = TimeLogger::start();
-
-    let mut tt = InterpolTable::new();
-    for i in 0..=10 {
-        let x = (i as f32 / 10.0).powf(gamma);
-        tt.add(x, x.powf(1.0/gamma));
-    }
-    tt.prepare();
-
-    let (min, range) = if auto_minimum {
-        let mut test_values: Vec<_> =
-            image.l.as_slice().par_iter()
-            .chain(image.r.as_slice().par_iter().step_by(42))
-            .chain(image.g.as_slice().par_iter().step_by(42))
-            .chain(image.b.as_slice().par_iter().step_by(42))
-            .filter(|v| !v.is_infinite())
-            .copied()
-            .collect();
-
-        let pos = test_values.len()/100;
-        let min = test_values.select_nth_unstable_by(pos, cmp_f32).1.max(0.0);
-        let range = 1.0/(1.0-min);
-        (min, range)
-    } else {
-        (0.0, 1.0)
-    };
-
-    let bytes: Vec<u8> = if image.is_rgb() {
-        image.r.as_slice().par_iter()
-            .zip_eq(image.g.as_slice().par_iter())
-            .zip_eq(image.b.as_slice().par_iter())
-            .map(|((&r, &g), &b)| {
-                let mut r = (tt.get((r-min)*range) * 255.0) as i32;
-                if r < 0 { r = 0; }
-                if r > 255 { r = 255; }
-                let mut g = (tt.get((g-min)*range) * 255.0) as i32;
-                if g < 0 { g = 0; }
-                if g > 255 { g = 255; }
-                let mut b = (tt.get((b-min)*range) * 255.0) as i32;
-                if b < 0 { b = 0; }
-                if b > 255 { b = 255; }
-                [r as u8, g as u8, b as u8]
-            })
-            .flatten_iter()
-            .collect()
-    } else {
-        image.l.as_slice().par_iter()
-            .map(|l| {
-                let mut l = (tt.get((l-min)*range) * 255.0) as i32;
-                if l < 0 { l = 0; }
-                if l > 255 { l = 255; }
-                let l = l as u8;
-                [l, l, l]
-            })
-            .flatten_iter()
-            .collect()
-    };
-
-    timer.log("convert_image_to_bytes");
-
-    bytes
-}
-
 fn show_preview_image(
-    objects: &MainWindowObjectsPtr,
-    img_bytes: Vec<u8>,
-    img_width: i32,
+    objects:    &MainWindowObjectsPtr,
+    img_bytes:  Vec<u8>,
+    img_width:  i32,
     img_height: i32,
-    scale: ImgScale
+    scale:      ImgScale
 ) {
     let bytes = glib::Bytes::from_owned(img_bytes);
     let mut pixbuf = gdk_pixbuf::Pixbuf::from_bytes(

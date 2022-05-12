@@ -42,6 +42,9 @@ pub struct Config {
     pub main_win_maximized: bool,
     pub preview_scale: ImgScale,
     pub preview_auto_min: bool,
+
+    #[serde(default)]
+    pub preview_auto_wb: bool,
     pub preview_gamma: f32,
     pub prj_tree_cols: Vec<PrjTreeCol>,
     pub cpu_load: CpuLoad,
@@ -58,6 +61,7 @@ impl Config {
             main_win_maximized: false,
             preview_scale: ImgScale::Original,
             preview_auto_min: true,
+            preview_auto_wb: true,
             preview_gamma: 4.0,
             cpu_load: CpuLoad::HalfCPUs,
         }

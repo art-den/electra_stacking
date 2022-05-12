@@ -1,5 +1,6 @@
 use std::collections::{VecDeque,HashSet};
 use serde::{Serialize, Deserialize};
+use rayon::prelude::*;
 use crate::calc::*;
 
 pub const NO_VALUE_F32: f32 = -999.0;
@@ -659,6 +660,26 @@ pub struct Image {
     pub l: ImageLayerF32,
 }
 
+pub struct ToRgbBytesParams {
+    l_min: f32,
+    r_min: f32,
+    g_min: f32,
+    b_min: f32,
+    range: f32,
+}
+
+impl ToRgbBytesParams {
+    pub fn new() -> Self {
+        Self {
+            l_min: 0.0,
+            r_min: 0.0,
+            g_min: 0.0,
+            b_min: 0.0,
+            range: 0.0
+        }
+    }
+}
+
 impl Image {
     pub fn new() -> Image {
         Image {
@@ -867,6 +888,133 @@ impl Image {
         self.r.clear();
         self.g.clear();
         self.b.clear();
+    }
+
+    pub fn calc_to_bytes_params(
+        &self,
+        auto_minimum: bool,
+        auto_wb:      bool
+    ) -> ToRgbBytesParams {
+        let (l_min, r_min, g_min, b_min, range) = if self.is_rgb() {
+            if auto_minimum || auto_wb {
+                let get_values = |img_values: &[f32]| -> Vec<f32> {
+                    img_values
+                        .par_iter()
+                        .step_by(42)
+                        .filter(|v| !v.is_infinite())
+                        .copied()
+                        .collect()
+                };
+                let mut r_values = get_values(self.r.as_slice());
+                let mut g_values = get_values(self.g.as_slice());
+                let mut b_values = get_values(self.b.as_slice());
+                let get_min = |values: &mut [f32]| -> f32 {
+                    let pos = values.len() / 100;
+                    values.select_nth_unstable_by(pos, cmp_f32).1.max(0.0)
+                };
+
+                let min = [
+                    get_min(&mut r_values),
+                    get_min(&mut g_values),
+                    get_min(&mut b_values)
+                ].into_iter()
+                .min_by(cmp_f32)
+                .unwrap_or(0.0);
+
+                let mut r_min = min;
+                let mut g_min = min;
+                let mut b_min = min;
+                let range = 1.0/(1.0 - min);
+                if auto_wb {
+                    let get_bg = |values: &mut [f32]| -> f32 {
+                        let pos = values.len() / 4;
+                        values.select_nth_unstable_by(pos, cmp_f32).1.max(0.0)
+                    };
+                    let r_bg = get_bg(&mut r_values);
+                    let g_bg = get_bg(&mut g_values);
+                    let b_bg = get_bg(&mut b_values);
+                    if auto_minimum {
+                        let min_bg = [r_bg, g_bg, b_bg]
+                            .into_iter()
+                            .min_by(cmp_f32)
+                            .unwrap_or(0.0);
+                        r_min += r_bg-min_bg;
+                        g_min += g_bg-min_bg;
+                        b_min += b_bg-min_bg;
+                    } else {
+                        let aver_bg = (r_bg + g_bg + b_bg) / 3.0;
+                        r_min += r_bg-aver_bg;
+                        g_min += g_bg-aver_bg;
+                        b_min += b_bg-aver_bg;
+                    }
+                }
+                (0.0, r_min, g_min, b_min, range)
+            } else {
+                (0.0, 0.0, 0.0, 0.0, 1.0)
+            }
+        } else {
+            if auto_minimum {
+                let mut filtered: Vec<_> = self.l.as_slice()
+                    .par_iter()
+                    .step_by(42)
+                    .filter(|v| !v.is_infinite())
+                    .copied()
+                    .collect();
+                let pos = filtered.len()/100;
+                let min = filtered.select_nth_unstable_by(pos, cmp_f32).1.max(0.0);
+                (min, 0.0, 0.0, 0.0, 1.0/(1.0-min))
+            } else {
+                (0.0, 0.0, 0.0, 0.0, 1.0)
+            }
+        };
+
+        ToRgbBytesParams {
+            l_min,
+            r_min,
+            g_min,
+            b_min,
+            range
+        }
+    }
+
+    pub fn to_rgb_bytes(&self, params: &ToRgbBytesParams, gamma: f32) -> Vec<u8> {
+        let mut tt = InterpolTable::new();
+        for i in 0..=10 {
+            let x = (i as f32 / 10.0).powf(gamma);
+            tt.add(x, x.powf(1.0/gamma));
+        }
+        tt.prepare();
+
+        if self.is_rgb() {
+            self.r.as_slice().par_iter()
+                .zip_eq(self.g.as_slice().par_iter())
+                .zip_eq(self.b.as_slice().par_iter())
+                .map(|((&r, &g), &b)| {
+                    let mut r = (tt.get((r-params.r_min)*params.range) * 255.0) as i32;
+                    if r < 0 { r = 0; }
+                    if r > 255 { r = 255; }
+                    let mut g = (tt.get((g-params.g_min)*params.range) * 255.0) as i32;
+                    if g < 0 { g = 0; }
+                    if g > 255 { g = 255; }
+                    let mut b = (tt.get((b-params.b_min)*params.range) * 255.0) as i32;
+                    if b < 0 { b = 0; }
+                    if b > 255 { b = 255; }
+                    [r as u8, g as u8, b as u8]
+                })
+                .flatten_iter()
+                .collect()
+        } else {
+            self.l.as_slice().par_iter()
+                .map(|l| {
+                    let mut l = (tt.get((l-params.l_min)*params.range) * 255.0) as i32;
+                    if l < 0 { l = 0; }
+                    if l > 255 { l = 255; }
+                    let l = l as u8;
+                    [l, l, l]
+                })
+                .flatten_iter()
+                .collect()
+        }
     }
 }
 
