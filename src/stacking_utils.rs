@@ -444,7 +444,10 @@ fn create_temp_file_from_light_file(
             img_offset,
         });
     } else {
-        //todo!() // TODO: log "can't calculate"
+        anyhow::bail!(
+            "Can't calculate offset and angle between reference image and '{}' file",
+            file.to_str().unwrap_or("")
+        );
     }
     file_total_log.log("processing file TOTAL");
     Ok(())

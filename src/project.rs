@@ -209,7 +209,7 @@ impl Project {
             ImageSize::Bin2x2 => 2,
         };
 
-        // Find and load reference fils
+        // Find and load reference files
 
         progress.lock().unwrap().stage("Loading reference image...");
 
@@ -223,12 +223,12 @@ impl Project {
             &group_with_ref_file.bias_files.get_master_full_file_name(MASTER_BIAS_FN),
         )?;
 
-        let ref_data = Arc::new(RefBgData::new(self.ref_image.as_ref().unwrap(), &ref_cal, bin)?);
+        let ref_data = RefBgData::new(self.ref_image.as_ref().unwrap(), &ref_cal, bin)?;
 
         // temporary light files
 
-        let temp_file_names = Arc::new(Mutex::new(Vec::<TempFileData>::new()));
-        let files_to_del_later = Arc::new(Mutex::new(FilesToDeleteLater::new()));
+        let temp_file_names = Mutex::new(Vec::<TempFileData>::new());
+        let files_to_del_later = Mutex::new(FilesToDeleteLater::new());
 
         for (idx, group) in self.groups.iter().enumerate() {
             if cancel_flag.load(Ordering::Relaxed) { anyhow::bail!("Termimated") }
@@ -275,7 +275,7 @@ impl Project {
         if cancel_flag.load(Ordering::Relaxed) { anyhow::bail!("Termimated") }
 
         Ok(StackLightsResult {
-            result_file_name,
+            file_name: result_file_name,
         })
     }
 
@@ -1036,5 +1036,5 @@ impl Default for ClenupConf {
 }
 
 pub struct StackLightsResult {
-    pub result_file_name: PathBuf,
+    pub file_name: PathBuf,
 }

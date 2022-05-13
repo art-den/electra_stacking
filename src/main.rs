@@ -2287,11 +2287,11 @@ fn action_stack(objects: &MainWindowObjectsPtr) {
             project.stack_light_files(progress, cancel_flag, cpu_load)
         },
         move |objects, result| {
-            preview_image_file(&objects, &result.result_file_name);
+            preview_image_file(&objects, &result.file_name);
             show_message(
                 objects,
                 "Finished",
-                &format!("Result file saved to {}", result.result_file_name.to_str().unwrap_or("")),
+                &format!("Result file saved to {}", result.file_name.to_str().unwrap_or("")),
                 gtk::MessageType::Info,
             )
         }
