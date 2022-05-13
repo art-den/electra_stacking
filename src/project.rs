@@ -21,6 +21,7 @@ const MASTER_FLAT_FN: &str = "master-flat.mraw";
 const MASTER_BIAS_FN: &str = "master-bias.mraw";
 
 #[derive(Serialize, Deserialize, Clone)]
+#[serde(default)]
 pub struct Project {
     pub config: ProjectConfig,
     pub cleanup_conf: ClenupConf,
@@ -39,8 +40,8 @@ pub enum CanExecStackLightsRes {
     NoRefFile,
 }
 
-impl Project {
-    pub fn new() -> Project {
+impl Default for Project {
+    fn default() -> Self {
         Project {
             config: Default::default(),
             cleanup_conf: Default::default(),
@@ -50,7 +51,9 @@ impl Project {
             changed: false,
         }
     }
+}
 
+impl Project {
     pub fn load(&mut self, file_name: &Path) -> anyhow::Result<()> {
         let reader = BufReader::new(File::open(file_name)?);
         *self = serde_json::from_reader(reader)?;
@@ -66,12 +69,14 @@ impl Project {
 
     pub fn make_default(&mut self) {
         self.groups.clear();
-        self.groups.push(ProjectGroup::new(GroupOptions::new()));
+        let mut group = ProjectGroup::default();
+        group.options = GroupOptions::default();
+        self.groups.push(group);
     }
 
     pub fn add_default_group_if_empty(&mut self) {
         if !self.groups.is_empty() { return; }
-        self.groups.push(ProjectGroup::new(GroupOptions::new()));
+        self.make_default();
     }
 
     pub fn group_exists(&self, uuid: &str) -> bool {
@@ -88,7 +93,9 @@ impl Project {
     }
 
     pub fn add_new_group(&mut self, options: GroupOptions) {
-        self.groups.push(ProjectGroup::new(options));
+        let mut group = ProjectGroup::default();
+        group.options = options;
+        self.groups.push(group);
         self.changed = true;
     }
 
@@ -268,7 +275,7 @@ impl Project {
         if cancel_flag.load(Ordering::Relaxed) { anyhow::bail!("Termimated") }
 
         Ok(StackLightsResult {
-            file_name: result_file_name,
+            result_file_name,
         })
     }
 
@@ -320,6 +327,7 @@ pub enum ResFileType {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(default)]
 pub struct ProjectConfig {
     pub name: Option<String>,
     pub image_size: ImageSize,
@@ -353,6 +361,7 @@ pub enum ProjectFileType {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
+#[serde(default)]
 pub struct ProjectGroup {
     pub options: GroupOptions,
     pub used: bool,
@@ -363,19 +372,21 @@ pub struct ProjectGroup {
     pub flat_files: ProjectFiles,
 }
 
-impl ProjectGroup {
-    pub fn new(options: GroupOptions) -> ProjectGroup {
+impl Default for ProjectGroup {
+    fn default() -> Self {
         ProjectGroup {
-            options,
+            options: GroupOptions::default(),
             used: true,
             uuid: uuid::Uuid::new_v4().to_string(),
-            dark_files: ProjectFiles::new(),
-            bias_files: ProjectFiles::new(),
-            flat_files: ProjectFiles::new(),
-            light_files: ProjectFiles::new(),
+            dark_files: ProjectFiles::default(),
+            bias_files: ProjectFiles::default(),
+            flat_files: ProjectFiles::default(),
+            light_files: ProjectFiles::default(),
         }
     }
+}
 
+impl ProjectGroup {
     pub fn name(&self, group_index: usize) -> String {
         if let Some(name) = &self.options.name {
             return name.clone();
@@ -798,12 +809,13 @@ impl ProjectGroup {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(default)]
 pub struct GroupOptions {
     pub name: Option<String>,
 }
 
-impl GroupOptions {
-    pub fn new() -> Self {
+impl Default for GroupOptions {
+    fn default() -> Self {
         Self {
             name: None,
         }
@@ -811,17 +823,20 @@ impl GroupOptions {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
+#[serde(default)]
 pub struct ProjectFiles {
     pub list: Vec<ProjectFile>,
 }
 
-impl ProjectFiles {
-    fn new() -> ProjectFiles {
+impl Default for ProjectFiles {
+    fn default() -> Self {
         ProjectFiles {
             list: Vec::new(),
         }
     }
+}
 
+impl ProjectFiles {
     fn get_path(&self) -> PathBuf {
         assert!(!self.list.is_empty());
         self.list[0].file_name
@@ -842,7 +857,9 @@ impl ProjectFiles {
             .map(|f| &f.file_name)
             .collect::<HashSet<_>>();
 
-        files.retain(|file_name| { !existing.contains(file_name) });
+        files.retain(|file_name| {
+            !existing.contains(file_name)
+        });
     }
 
     fn get_master_full_file_name(&self, short_file_name: &str) -> Option<PathBuf> {
@@ -904,6 +921,7 @@ impl ProjectFiles {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(default)]
 pub struct RegInfo {
     pub noise: f32,
     pub background: f32,
@@ -912,7 +930,20 @@ pub struct RegInfo {
     pub sharpness: f32,
 }
 
+impl Default for RegInfo {
+    fn default() -> Self {
+        Self {
+            noise: 0.0,
+            background: 0.0,
+            stars_r: 0.0,
+            stars_r_dev: 0.0,
+            sharpness: 0.0
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone)]
+#[serde(default)]
 pub struct ProjectFile {
     pub used: bool,
     pub file_name: PathBuf,
@@ -923,6 +954,22 @@ pub struct ProjectFile {
     pub width: Option<usize>,
     pub height: Option<usize>,
     pub reg_info: Option<RegInfo>,
+}
+
+impl Default for ProjectFile {
+    fn default() -> Self {
+        Self {
+            used: true,
+            file_name: PathBuf::new(),
+            file_time: None,
+            cfa_type: None,
+            iso: None,
+            exp: None,
+            width: None,
+            height: None,
+            reg_info: None,
+        }
+    }
 }
 
 impl ProjectFile {
@@ -967,6 +1014,7 @@ impl Default for ClenupConfItem {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(default)]
 pub struct ClenupConf {
     pub check_before_execute: bool,
     pub img_sharpness: ClenupConfItem,
@@ -988,5 +1036,5 @@ impl Default for ClenupConf {
 }
 
 pub struct StackLightsResult {
-    pub file_name: PathBuf,
+    pub result_file_name: PathBuf,
 }

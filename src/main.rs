@@ -78,8 +78,8 @@ fn panic_handler(panic_info: &std::panic::PanicInfo) {
 /* Main window */
 
 fn build_ui(application: &gtk::Application) {
-    let mut project = Project::new();
-    let config = Config::new();
+    let mut project = Project::default();
+    let config = Config::default();
 
     project.make_default();
 
@@ -684,7 +684,7 @@ fn get_current_selection(objects: &MainWindowObjectsPtr) -> SelectedItem {
 fn action_new_project(objects: &MainWindowObjectsPtr) {
     let can_create_new_project = ask_user_to_save_project(objects);
     if !can_create_new_project { return; }
-    let mut new_project = Project::new();
+    let mut new_project = Project::default();
     new_project.make_default();
     *objects.project.borrow_mut() = new_project;
     fill_project_tree(objects);
@@ -1774,7 +1774,7 @@ fn handler_project_tree_checked_changed(
 }
 
 fn action_new_group(objects: &MainWindowObjectsPtr) {
-    let def_group_options = GroupOptions::new();
+    let def_group_options = GroupOptions::default();
     let dialog = group_options_dialog(
         objects,
         "Add new group",
@@ -2287,11 +2287,11 @@ fn action_stack(objects: &MainWindowObjectsPtr) {
             project.stack_light_files(progress, cancel_flag, cpu_load)
         },
         move |objects, result| {
-            preview_image_file(&objects, &result.file_name);
+            preview_image_file(&objects, &result.result_file_name);
             show_message(
                 objects,
                 "Finished",
-                &format!("Result file saved to {}", result.file_name.to_str().unwrap_or("")),
+                &format!("Result file saved to {}", result.result_file_name.to_str().unwrap_or("")),
                 gtk::MessageType::Info,
             )
         }
@@ -2531,7 +2531,7 @@ fn action_move_file_to_group(objects: &MainWindowObjectsPtr) {
             {
                 let mut project = objects.project.borrow_mut();
                 let group_id = if rbtn_new_group.is_active() {
-                    let mut group_options = GroupOptions::new();
+                    let mut group_options = GroupOptions::default();
                     let new_group_name = e_new_group.text().to_string().trim().to_string();
                     if !new_group_name.is_empty() {
                         group_options.name = Some(new_group_name.to_string());

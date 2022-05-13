@@ -8,10 +8,21 @@ pub enum Theme { Dark, Light, Other(String) }
 pub enum ImgScale { Original, FitWindow }
 
 #[derive(Serialize, Deserialize)]
+#[serde(default)]
 pub struct PrjTreeCol {
     pub width: i32,
     pub visible: bool,
     pub pos: i32,
+}
+
+impl Default for PrjTreeCol {
+    fn default() -> Self {
+        Self {
+            width: -1,
+            visible: true,
+            pos: -1,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy)]
@@ -34,6 +45,7 @@ impl CpuLoad {
 }
 
 #[derive(Serialize, Deserialize)]
+#[serde(default)]
 pub struct Config {
     pub theme: Theme,
     pub prj_tree_width: i32,
@@ -42,16 +54,14 @@ pub struct Config {
     pub main_win_maximized: bool,
     pub preview_scale: ImgScale,
     pub preview_auto_min: bool,
-
-    #[serde(default)]
     pub preview_auto_wb: bool,
     pub preview_gamma: f32,
     pub prj_tree_cols: Vec<PrjTreeCol>,
     pub cpu_load: CpuLoad,
 }
 
-impl Config {
-    pub fn new() -> Self {
+impl Default for Config {
+    fn default() -> Self {
         Self {
             theme: Theme::Dark,
             prj_tree_width: -1,
@@ -66,7 +76,9 @@ impl Config {
             cpu_load: CpuLoad::HalfCPUs,
         }
     }
+}
 
+impl Config {
     pub fn load(&mut self) -> anyhow::Result<()> {
         let file_name = Self::get_file_name(false)?;
         if !file_name.is_file() { return Ok(()); }
