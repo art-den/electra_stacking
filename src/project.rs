@@ -132,13 +132,11 @@ impl Project {
             )?;
         }
 
-        progress.lock().unwrap().stage("Registering files...");
-
         let mut result = Mutex::new(HashMap::new());
-
-        for group in &self.groups {
+        for (idx, group) in self.groups.iter().enumerate() {
             if cancel_flag.load(Ordering::Relaxed) { return Ok(HashMap::new()); }
             group.register_light_files(
+                idx,
                 progress,
                 cancel_flag,
                 &thread_pool,
@@ -593,11 +591,13 @@ impl ProjectGroup {
 
     fn register_light_files(
         &self,
+        group_idx:   usize,
         progress:    &ProgressTs,
         cancel_flag: &Arc<AtomicBool>,
         thread_pool: &rayon::ThreadPool,
         result:      &mut Mutex<HashMap<PathBuf, RegInfo>>,
     ) -> anyhow::Result<()> {
+        progress.lock().unwrap().stage(&format!("Registering files for group {}...", self.name(group_idx)));
         progress.lock().unwrap().set_total(self.light_files.list.len());
         progress.lock().unwrap().progress(false, "Loading calibtation master files...");
 
