@@ -66,8 +66,11 @@ fn find_mono_data(fits: &Fits) -> anyhow::Result<FitsData> {
         let shape = get_shape(&data);
         if let Some(shape) = shape {
             if (shape.len() == 2) || (shape.len() == 3 && shape[2] == 1) {
-                if hdu.is_none() { hdu = Some(h); }
-                else { anyhow::bail!("Grayscale data not found in FITS file"); }
+                if hdu.is_none() {
+                    hdu = Some(h);
+                } else {
+                    anyhow::bail!("Grayscale data not found in FITS file");
+                }
             }
         }
     }
@@ -77,40 +80,32 @@ fn find_mono_data(fits: &Fits) -> anyhow::Result<FitsData> {
 
 // TODO: !!!
 
-fn create_fits_rgb_data_opt<T>(
+fn create_fits_rgb_data_opt<T: Copy + num::Num>(
     _width:  usize,
     _height: usize,
     _l_arr:  &Vec<Option<T>>,
     _r_arr:  &Vec<Option<T>>,
     _g_arr:  &Vec<Option<T>>,
-    _b_arr:  &Vec<Option<T>>) -> Vec<T>
-where
-    T: Copy + num::Num
-{
+    _b_arr:  &Vec<Option<T>>
+) -> Vec<T> {
     let result: Vec<T> = Vec::new();
 
     result
 }
 
-fn create_fits_rgb_data<T>(
+fn create_fits_rgb_data<T: Copy + num::Num>(
     width:  usize,
     height: usize,
     l_arr:  &Vec<T>,
     r_arr:  &Vec<T>,
     g_arr:  &Vec<T>,
-    b_arr:  &Vec<T>) -> Vec<T>
-where
-    T: Copy + num::Num
-{
+    b_arr:  &Vec<T>
+) -> Vec<T> {
     let mut result: Vec<T> = Vec::new();
-
     let total = width * height;
-
     result.resize(total*3, T::zero());
-
     for (i, (l, r, g, b)) in izip!(l_arr, r_arr, g_arr, b_arr).enumerate() {
         let rgb_summ = *r + *g + *b;
-
         let (lum_r, lum_g, lum_b) = if rgb_summ != T::zero() {
             let norm_r = *r / rgb_summ;
             let norm_g = *g / rgb_summ;
@@ -119,16 +114,19 @@ where
         } else {
             (T::zero(), T::zero(), T::zero())
         };
-
         result[i] = lum_r;
         result[i+total] = lum_g;
         result[i+total*2] = lum_b;
     }
-
     result
 }
 
-fn create_rgb_hdu(l: FitsData, r: FitsData, g: FitsData, b: FitsData) -> anyhow::Result<Hdu> {
+fn create_rgb_hdu(
+    l: FitsData,
+    r: FitsData,
+    g: FitsData,
+    b: FitsData
+) -> anyhow::Result<Hdu> {
     use fitrs::FitsData::*;
 
     let (width, height) = match get_shape(&l) {
@@ -140,16 +138,28 @@ fn create_rgb_hdu(l: FitsData, r: FitsData, g: FitsData, b: FitsData) -> anyhow:
 
     let primary_hdu = match (l, r, g, b) {
         (IntegersI32(l), IntegersI32(r), IntegersI32(g), IntegersI32(b)) =>
-            Hdu::new(&dims, create_fits_rgb_data_opt(width, height, &l.data, &r.data, &g.data, &b.data)),
+            Hdu::new(
+                &dims,
+                create_fits_rgb_data_opt(width, height, &l.data, &r.data, &g.data, &b.data)
+            ),
 
         (IntegersU32(l), IntegersU32(r), IntegersU32(g), IntegersU32(b)) =>
-            Hdu::new(&dims, create_fits_rgb_data_opt(width, height, &l.data, &r.data, &g.data, &b.data)),
+            Hdu::new(
+                &dims,
+                create_fits_rgb_data_opt(width, height, &l.data, &r.data, &g.data, &b.data)
+            ),
 
         (FloatingPoint32(l), FloatingPoint32(r), FloatingPoint32(g), FloatingPoint32(b)) =>
-            Hdu::new(&dims, create_fits_rgb_data(width, height, &l.data, &r.data, &g.data, &b.data)),
+            Hdu::new(
+                &dims,
+                create_fits_rgb_data(width, height, &l.data, &r.data, &g.data, &b.data)
+            ),
 
         (FloatingPoint64(l), FloatingPoint64(r), FloatingPoint64(g), FloatingPoint64(b)) =>
-            Hdu::new(&dims, create_fits_rgb_data(width, height, &l.data, &r.data, &g.data, &b.data)),
+            Hdu::new(
+                &dims,
+                create_fits_rgb_data(width, height, &l.data, &r.data, &g.data, &b.data)
+            ),
 
         _ =>
             anyhow::bail!("types of FITS file don't match"),

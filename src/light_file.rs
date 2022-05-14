@@ -30,6 +30,12 @@ impl LightFile {
         flags:      LoadLightFlags,
         bin:        usize,
     ) -> anyhow::Result<LightFile> {
+        let noise_flag = flags.contains(LoadLightFlags::NOISE);
+        let stars_flag = flags.contains(LoadLightFlags::STARS);
+        let bg_flag = flags.contains(LoadLightFlags::BACKGROUND);
+        let sharpness_flag = flags.contains(LoadLightFlags::SHARPNESS);
+        let fast_demosaic_flag = flags.contains(LoadLightFlags::FAST_DEMOSAIC);
+
         let mut src_data = if is_image_file_name(file_name) {
             load_image_from_file(file_name)
         } else {
@@ -37,7 +43,7 @@ impl LightFile {
                 file_name,
                 cal_data,
                 disk_mutex,
-                flags.contains(LoadLightFlags::FAST_DEMOSAIC)
+                fast_demosaic_flag
             )
         }?;
 
@@ -47,7 +53,7 @@ impl LightFile {
             bin_log.log("decreasing image 2x");
         }
 
-        let grey_image = if !flags.is_empty() {
+        let grey_image = if noise_flag || stars_flag || bg_flag {
             let grey_log = TimeLogger::start();
             let mut result = src_data.image.create_greyscale_layer();
             grey_log.log("creating grey image");
@@ -61,9 +67,7 @@ impl LightFile {
 
         let mut temp_values = Vec::new();
 
-        let noise = if flags.contains(LoadLightFlags::NOISE)
-                    || flags.contains(LoadLightFlags::STARS)
-        {
+        let noise = if noise_flag || stars_flag {
             let noise_log = TimeLogger::start();
             let result = calc_noise(&mut temp_values, &grey_image);
             noise_log.log("noise calculation");
@@ -72,7 +76,7 @@ impl LightFile {
             0.0
         };
 
-        let background = if flags.contains(LoadLightFlags::BACKGROUND) {
+        let background = if bg_flag {
             let bg_log = TimeLogger::start();
             let result = calc_background(&mut temp_values, &grey_image);
             bg_log.log("background calculation");
@@ -81,7 +85,7 @@ impl LightFile {
             0.0
         };
 
-        let stars = if flags.contains(LoadLightFlags::STARS) {
+        let stars = if stars_flag {
             let stars_log = TimeLogger::start();
             let result = find_stars_on_image(&grey_image, &src_data.image, Some(noise));
             stars_log.log("looking for stars on image");
@@ -91,7 +95,7 @@ impl LightFile {
             Stars::new()
         };
 
-        let freq = if flags.contains(LoadLightFlags::SHARPNESS) {
+        let sharpness = if sharpness_flag {
             let f_log = TimeLogger::start();
             let img = if src_data.image.is_greyscale() {
                 &src_data.image.l
@@ -112,7 +116,7 @@ impl LightFile {
             stars,
             background,
             noise,
-            sharpness: freq,
+            sharpness,
         })
     }
 }

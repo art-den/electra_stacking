@@ -8,7 +8,13 @@ use crate::{image::*, image_raw::*, fs_utils::*, compression::*, progress::Progr
 
 pub const FIT_EXTS: &[&str] = &["fit", "fits", "fts"];
 pub const TIF_EXTS: &[&str] = &["tiff", "tif"];
-pub const RAW_EXTS: &[&str] = &["dng", "cr2", "nef", "arw"];
+pub const RAW_EXTS: &[&str] = &[
+    "dng",
+    "cr2", // Canon
+    "nef", // Nikon
+    "arw", // Sony
+    "pef", // Pentax
+];
 
 pub fn load_image_from_file(file_name: &PathBuf) -> anyhow::Result<SrcImageData> {
     let ext = extract_extension(file_name);
@@ -22,6 +28,8 @@ pub fn load_image_from_file(file_name: &PathBuf) -> anyhow::Result<SrcImageData>
 }
 
 pub fn save_image_to_file(image: &Image, exif: &Exif, file_name: &PathBuf) -> anyhow::Result<()> {
+    assert!(!image.is_empty());
+
     let ext = extract_extension(file_name);
     if is_tiff_ext(ext) {
         save_image_to_tiff_file(image, exif, file_name)
@@ -292,39 +300,32 @@ pub fn save_image_to_tiff_file(
     exif:      &Exif,
     file_name: &PathBuf
 ) -> anyhow::Result<()> {
-    if image.is_empty() { anyhow::bail!("Image is empty"); }
+    assert!(!image.is_empty());
 
     let mut file = BufWriter::new(File::create(file_name)?);
     let mut decoder = TiffEncoder::new(&mut file)?;
-
     if image.is_greyscale() {
         let mut tiff = decoder.new_image::<colortype::Gray32Float>(
             image.width() as u32,
             image.height() as u32
         )?;
-
         write_exif_into_tiff(tiff.encoder(), exif)?;
         tiff.write_data(image.l.iter().as_slice())?;
     }
     else if image.is_rgb() {
-        let mut data = Vec::with_capacity((3 * image.width() * image.height()) as usize);
-        for (r, g, b) in izip!(image.r.iter(), image.g.iter(), image.b.iter()) {
-            data.push(*r);
-            data.push(*g);
-            data.push(*b);
-        }
-
+        let data: Vec<_> = izip!(image.r.iter(), image.g.iter(), image.b.iter())
+            .map(|(r, g, b)| [*r, *g, *b])
+            .flatten()
+            .collect();
         let mut tiff = decoder.new_image::<colortype::RGB32Float>(
             image.width() as u32,
             image.height() as u32
         )?;
-
         write_exif_into_tiff(tiff.encoder(), exif)?;
         tiff.write_data(&data)?;
     } else {
         panic!("Internal error");
     }
-
     Ok(())
 }
 
@@ -543,24 +544,29 @@ fn read_fits_data_int<T: Copy + IntInfo + Into::<f64>>(
     }
 }
 
-
 pub fn save_image_to_fits_file(
     image:     &Image,
     _exif:     &Exif, // TODO: implement exif support
     file_name: &PathBuf
 ) -> anyhow::Result<()> {
-    let pages = if image.is_rgb() { 3 } else { 1 };
-    let mut data = Vec::new();
-    if image.is_rgb() {
-        data.reserve((3 * image.width() * image.height()) as usize);
-        for v in image.r.iter() { data.push(*v); }
-        for v in image.g.iter() { data.push(*v); }
-        for v in image.b.iter() { data.push(*v); }
+    assert!(!image.is_empty());
+    let data: Vec<_> = if image.is_rgb() {
+        image.r
+            .iter()
+            .chain(image.g.iter())
+            .chain(image.b.iter())
+            .copied()
+            .collect()
     } else {
-        data.reserve((image.width() * image.height()) as usize);
-        for v in image.l.iter() { data.push(*v); }
-    }
-    let dims = [image.width() as usize, image.height() as usize, pages as usize];
+        image.l.iter()
+            .copied()
+            .collect()
+    };
+    let dims = [
+        image.width() as usize,
+        image.height() as usize,
+        if image.is_rgb() { 3 } else { 1 }
+    ];
     let prim_hdu = Hdu::new(&dims, data);
     Fits::create(file_name, prim_hdu)?;
     Ok(())
@@ -574,7 +580,7 @@ pub fn save_image_into_internal_format(
     image:     &Image,
     file_name: &PathBuf
 ) -> anyhow::Result<()> {
-    if image.is_empty() { anyhow::bail!("Image is empty"); }
+    assert!(!image.is_empty());
 
     let mut file = BufWriter::with_capacity(1024 * 256, File::create(file_name)?);
     let mut writer = BitWriter::endian(&mut file, BigEndian);
