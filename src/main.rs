@@ -341,7 +341,6 @@ fn build_ui(application: &gtk::Application) {
     fill_project_tree(&objects);
     update_project_name_and_time_in_gui(&objects, true, true);
     mi_theme.set_sensitive(cfg!(target_os = "windows"));
-    objects.progress_cont.set_visible(false);
 
     objects.window.connect_delete_event(clone!(@strong objects => move |_, _| {
         let can_close = ask_user_to_save_project(&objects);
@@ -403,6 +402,7 @@ fn build_ui(application: &gtk::Application) {
 
     window.set_application(Some(application));
     window.show_all();
+    objects.progress_cont.set_visible(false);
 }
 
 fn conn_action<F: Fn(&MainWindowObjectsPtr) + 'static>(
