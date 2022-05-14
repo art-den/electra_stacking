@@ -1,5 +1,6 @@
 use std::{path::*, sync::*};
 use structopt::*;
+use serde::{Serialize, Deserialize};
 use crate::{consts::*, image_raw::*, progress::*, fs_utils::*, light_file::*, stars::*};
 
 #[derive(StructOpt, Debug)]
@@ -86,3 +87,11 @@ pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct LightFileRegInfo {
+    pub file_name: String,
+    pub noise: f32,
+    pub background: f32,
+    pub stars_r: f32,
+    pub stars_r_dev: f32,
+}

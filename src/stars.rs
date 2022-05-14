@@ -234,8 +234,6 @@ pub fn find_stars_on_image(
 
     stars.sort_by(|s1, s2| cmp_f64(&s1.brightness, &s2.brightness).reverse());
 
-    while stars.len() > 1000 { stars.pop(); }
-
     stars
 }
 
@@ -247,7 +245,6 @@ pub struct ImageOffset {
     pub angle:    f64,
 }
 
-
 pub fn calc_image_offset_by_stars(
     ref_stars:  &Stars,
     stars:      &Stars,
@@ -255,6 +252,11 @@ pub fn calc_image_offset_by_stars(
     img_height: f64
 ) -> Option<ImageOffset> {
     let image_size = (img_width + img_height) / 2.0;
+
+    const MAX_STARS: usize = 100;
+    let ref_stars = if ref_stars.len() < MAX_STARS { &ref_stars } else { &ref_stars[..MAX_STARS] };
+    let stars     = if stars.len()     < MAX_STARS { &stars }     else { &stars[..MAX_STARS] };
+
     let ref_triangles = get_stars_triangles(ref_stars, image_size / 5.0);
     let triangles = get_stars_triangles(stars, image_size / 5.0);
 
@@ -399,7 +401,7 @@ impl<'a> StarsTriangle<'a> {
 
 type StarsTriangles<'a> = Vec<StarsTriangle<'a>>;
 
-fn get_stars_triangles<'a>(stars: &'a Stars, min_len: f64) -> StarsTriangles<'a> {
+fn get_stars_triangles<'a>(stars: &'a [Star], min_len: f64) -> StarsTriangles<'a> {
     let mut result = StarsTriangles::new();
     let mut full_max = stars.len() / 20;
     if full_max > 20 { full_max = 20; }

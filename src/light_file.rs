@@ -1,7 +1,6 @@
 use std::{path::*};
 use bitflags::bitflags;
 use itertools::Itertools;
-use serde::{Serialize, Deserialize};
 use crate::{image::*, image_formats::*, image_raw::*, stars::*, log_utils::*, calc::*};
 
 bitflags! { pub struct LoadLightFlags: u32 {
@@ -297,13 +296,3 @@ fn calc_sharpness(grey_image: &ImageLayerF32) -> f32 {
 
     by_cols_value.min(by_rows_value) as f32
 }
-
-#[derive(Serialize, Deserialize)]
-pub struct LightFileRegInfo {
-    pub file_name: String,
-    pub noise: f32,
-    pub background: f32,
-    pub stars_r: f32,
-    pub stars_r_dev: f32,
-}
-

@@ -1,7 +1,8 @@
 use std::path::*;
 use structopt::*;
 use clap::arg_enum;
-use astro_utils::{light_file::*, fs_utils::*, calc::*};
+use astro_utils::{fs_utils::*, calc::*};
+use crate::cmd_register::*;
 
 arg_enum! {
     #[derive(Debug)]

@@ -111,7 +111,7 @@ fn build_ui(application: &gtk::Application) {
     let mi_cpu_load_half    = builder.object::<gtk::RadioMenuItem>("mi_cpu_load_half").unwrap();
     let mi_cpu_load_max     = builder.object::<gtk::RadioMenuItem>("mi_cpu_load_max").unwrap();
 
-    let prj_tree_col_names = get_prj_tree_col_items();
+    let prj_tree_col_names = get_prj_tree_store_columns();
 
     for (col1, col2) in prj_tree_col_names.iter().tuple_windows() {
         assert!(col1.1+1 == col2.1);
@@ -123,7 +123,7 @@ fn build_ui(application: &gtk::Application) {
         .sensitive(true)
         .build();
 
-    for (col_name, idx, _) in prj_tree_col_names {
+    for (col_name, idx, sidx, _) in prj_tree_col_names {
         if col_name.is_empty() { continue; }
         let cell_text = gtk::CellRendererText::new();
         let col = gtk::TreeViewColumn::builder()
@@ -148,7 +148,7 @@ fn build_ui(application: &gtk::Application) {
             col.add_attribute(&cell_check, "visible", COLUMN_CHECKBOX_VIS as i32);
         }
 
-        col.set_sort_column_id(idx as i32);
+        col.set_sort_column_id(sidx as i32);
 
         project_tree.append_column(&col);
     }
@@ -1149,42 +1149,60 @@ fn enable_progress_bar(objects: &MainWindowObjectsPtr, enable: bool) {
     }
 }
 
-const COLUMN_FILE_NAME:    u32 = 0;
-const COLUMN_FILE_PATH:    u32 = 1;
-const COLUMN_FILE_TIME:    u32 = 2;
-const COLUMN_DIM:          u32 = 3;
-const COLUMN_CAMERA:       u32 = 4;
-const COLUMN_ISO:          u32 = 5;
-const COLUMN_EXP:          u32 = 6;
-const COLUMN_FNUMBER:      u32 = 7;
-const COLUMN_NOISE:        u32 = 8;
-const COLUMN_BACKGROUND:   u32 = 9;
-const COLUMN_STARS_FWHM:   u32 = 10;
-const COLUMN_STARS_R_DEV:  u32 = 11;
-const COLUMN_SHARPNESS:    u32 = 12;
+const COLUMN_FILE_NAME:       u32 = 0;
+const COLUMN_FILE_PATH:       u32 = 1;
+const COLUMN_FILE_TIME:       u32 = 2;
+const COLUMN_DIM:             u32 = 3;
+const COLUMN_CAMERA:          u32 = 4;
+const COLUMN_ISO_STR:         u32 = 5;
+const COLUMN_EXP_STR:         u32 = 6;
+const COLUMN_FNUMBER:         u32 = 7;
+const COLUMN_NOISE_STR:       u32 = 8;
+const COLUMN_BG_STR:          u32 = 9;
+const COLUMN_STARS_STR:       u32 = 10;
+const COLUMN_FWHM_STR:        u32 = 11;
+const COLUMN_STARS_R_DEV_STR: u32 = 12;
+const COLUMN_SHARPNESS_STR:   u32 = 13;
+const COLUMN_ICON:            u32 = 14;
+const COLUMN_CHECKBOX:        u32 = 15;
+const COLUMN_CHECKBOX_VIS:    u32 = 16;
+const COLUMN_ISO:             u32 = 17;
+const COLUMN_EXP:             u32 = 18;
+const COLUMN_NOISE:           u32 = 19;
+const COLUMN_BG:              u32 = 20;
+const COLUMN_STARS:           u32 = 21;
+const COLUMN_FWHM:            u32 = 22;
+const COLUMN_STARS_R_DEV:     u32 = 23;
+const COLUMN_SHARPNESS:       u32 = 24;
 
-const COLUMN_ICON:         u32 = 13;
-const COLUMN_CHECKBOX:     u32 = 14;
-const COLUMN_CHECKBOX_VIS: u32 = 15;
-
-fn get_prj_tree_col_items() -> [(&'static str, u32, glib::Type); 16] {
+fn get_prj_tree_store_columns() -> [(&'static str, u32, u32, glib::Type); 25] {
     [
-        ("Project/File name", COLUMN_FILE_NAME,    String::static_type()),
-        ("File path",         COLUMN_FILE_PATH,    String::static_type()),
-        ("File time",         COLUMN_FILE_TIME,    String::static_type()),
-        ("Dimensions",        COLUMN_DIM,          String::static_type()),
-        ("Camera",            COLUMN_CAMERA,       String::static_type()),
-        ("ISO",               COLUMN_ISO,          String::static_type()),
-        ("Exposure",          COLUMN_EXP,          String::static_type()),
-        ("FNumber",           COLUMN_FNUMBER,      String::static_type()),
-        ("Noise",             COLUMN_NOISE,        String::static_type()),
-        ("Background",        COLUMN_BACKGROUND,   String::static_type()),
-        ("FWHM",              COLUMN_STARS_FWHM,   String::static_type()),
-        ("Stars R dev",       COLUMN_STARS_R_DEV,  String::static_type()),
-        ("Sharpness",         COLUMN_SHARPNESS,    String::static_type()),
-        ("",                  COLUMN_ICON,         gdk_pixbuf::Pixbuf::static_type()),
-        ("",                  COLUMN_CHECKBOX,     bool::static_type()),
-        ("",                  COLUMN_CHECKBOX_VIS, bool::static_type()),
+        // Column name in tree | Model column          | Sort model column | Model column type
+        ("Project/File name",    COLUMN_FILE_NAME,       COLUMN_FILE_NAME,   String::static_type()),
+        ("File path",            COLUMN_FILE_PATH,       COLUMN_FILE_PATH,   String::static_type()),
+        ("File time",            COLUMN_FILE_TIME,       COLUMN_FILE_TIME,   String::static_type()),
+        ("Dimensions",           COLUMN_DIM,             COLUMN_DIM,         String::static_type()),
+        ("Camera",               COLUMN_CAMERA,          COLUMN_CAMERA,      String::static_type()),
+        ("ISO",                  COLUMN_ISO_STR,         COLUMN_ISO,         String::static_type()),
+        ("Exposure",             COLUMN_EXP_STR,         COLUMN_EXP,         String::static_type()),
+        ("FNumber",              COLUMN_FNUMBER,         COLUMN_FNUMBER,     String::static_type()),
+        ("Noise",                COLUMN_NOISE_STR,       COLUMN_NOISE,       String::static_type()),
+        ("Background",           COLUMN_BG_STR,          COLUMN_BG,          String::static_type()),
+        ("Stars",                COLUMN_STARS_STR,       COLUMN_STARS,       String::static_type()),
+        ("FWHM",                 COLUMN_FWHM_STR,        COLUMN_FWHM,        String::static_type()),
+        ("Stars R dev.",         COLUMN_STARS_R_DEV_STR, COLUMN_STARS_R_DEV, String::static_type()),
+        ("Sharpness",            COLUMN_SHARPNESS_STR,   COLUMN_SHARPNESS,   String::static_type()),
+        ("",                     COLUMN_ICON,            0,                  gdk_pixbuf::Pixbuf::static_type()),
+        ("",                     COLUMN_CHECKBOX,        0,                  bool::static_type()),
+        ("",                     COLUMN_CHECKBOX_VIS,    0,                  bool::static_type()),
+        ("",                     COLUMN_ISO,             0,                  u32::static_type()),
+        ("",                     COLUMN_EXP,             0,                  f32::static_type()),
+        ("",                     COLUMN_NOISE,           0,                  f32::static_type()),
+        ("",                     COLUMN_BG,              0,                  f32::static_type()),
+        ("",                     COLUMN_STARS,           0,                  u32::static_type()),
+        ("",                     COLUMN_FWHM,            0,                  f32::static_type()),
+        ("",                     COLUMN_STARS_R_DEV,     0,                  f32::static_type()),
+        ("",                     COLUMN_SHARPNESS,       0,                  f32::static_type()),
     ]
 }
 
@@ -1264,9 +1282,9 @@ impl TreeViewFillHelper {
                 tree_store
             }
             None => {
-                let col_types = get_prj_tree_col_items()
+                let col_types = get_prj_tree_store_columns()
                     .iter()
-                    .map(|(_, _, tp)| *tp)
+                    .map(|(_, _, _, tp)| *tp)
                     .collect::<Vec<_>>();
 
                 let result = gtk::TreeStore::new(&col_types);
@@ -1380,22 +1398,22 @@ impl TreeViewFillHelper {
                             String::new()
                         };
 
-                        let iso_str = if let Some(iso) = project_file.iso {
-                            format!("{}", iso)
+                        let (iso_str, iso) = if let Some(iso) = project_file.iso {
+                            (format!("{}", iso), iso)
                         } else {
-                            String::new()
+                            (String::new(), 0)
                         };
 
-                        let exp_str = if let Some(exp) = project_file.exp {
+                        let (exp_str, exp) = if let Some(exp) = project_file.exp {
                             if exp == 0.0 {
-                                "0".to_string()
+                                ("0".to_string(), 0.0)
                             } else if exp > 0.5 {
-                                format!("{:.1} s", exp)
+                                (format!("{:.1}s", exp), exp)
                             } else {
-                                format!("1/{:.0}", 1.0/exp)
+                                (format!("1/{:.0}", 1.0/exp), exp)
                             }
                         } else {
-                            String::new()
+                            (String::new(), 0.0)
                         };
 
                         let fnumber_str = if let Some(fnumber) = project_file.fnumber {
@@ -1408,56 +1426,65 @@ impl TreeViewFillHelper {
                             String::new()
                         };
 
-                        let noise_str = if let Some(reg_info) = &project_file.reg_info {
-                            format!("{:.7}", reg_info.noise)
-                        } else {
-                            String::new()
-                        };
-
-                        let background_str = if let Some(reg_info) = &project_file.reg_info {
-                            format!("{:.4}", reg_info.background)
-                        } else {
-                            String::new()
-                        };
-
-                        let star_r_str = if let Some(reg_info) = &project_file.reg_info {
-                            format!("{:.3}", reg_info.stars_r)
-                        } else {
-                            String::new()
-                        };
-
-                        let star_r_dev_str = if let Some(reg_info) = &project_file.reg_info {
-                            format!("{:.3}", reg_info.stars_r_dev)
-                        } else {
-                            String::new()
-                        };
-
-                        let sharpness = if let Some(reg_info) = &project_file.reg_info {
-                            format!("{:.3}", reg_info.sharpness)
-                        } else {
-                            String::new()
-                        };
+                        let (noise_str, noise, bg_str, bg, stars_cnt_str, stars_cnt,
+                             star_r_str, star_r, star_r_dev_str, star_r_dev, sharpness_str, sharpness)
+                            = if let Some(reg_info) = &project_file.reg_info {(
+                                format!("{:.3e}", reg_info.noise),
+                                reg_info.noise,
+                                format!("{:.1}%", 100.0 * reg_info.background),
+                                reg_info.background,
+                                if reg_info.stars != 0 { format!("{}", reg_info.stars) } else { String::new() },
+                                reg_info.stars as u32,
+                                format!("{:.3}", reg_info.stars_r),
+                                reg_info.stars_r,
+                                format!("{:.3}", reg_info.stars_r_dev),
+                                reg_info.stars_r_dev,
+                                format!("{:.3}", reg_info.sharpness),
+                                reg_info.sharpness,
+                            )} else {(
+                                String::new(),
+                                0.0,
+                                String::new(),
+                                0.0,
+                                String::new(),
+                                0,
+                                String::new(),
+                                0.0,
+                                String::new(),
+                                0.0,
+                                String::new(),
+                                0.0,
+                            )};
 
                         let is_ref_file = Some(&project_file.file_name) == project.ref_image.as_ref();
                         let icon = if is_ref_file { &objects.icon_ref_image } else { &objects.icon_image };
 
                         tree_store.set(&file_iter, &[
-                            (COLUMN_ICON,         icon),
-                            (COLUMN_CHECKBOX,     &project_file.used),
-                            (COLUMN_CHECKBOX_VIS, &true),
-                            (COLUMN_FILE_NAME,    &file_name),
-                            (COLUMN_FILE_PATH,    &path),
-                            (COLUMN_FILE_TIME,    &file_time_str),
-                            (COLUMN_DIM,          &dim_str),
-                            (COLUMN_CAMERA,       &camera_str),
-                            (COLUMN_ISO,          &iso_str),
-                            (COLUMN_EXP,          &exp_str),
-                            (COLUMN_FNUMBER,      &fnumber_str),
-                            (COLUMN_NOISE,        &noise_str),
-                            (COLUMN_BACKGROUND,   &background_str),
-                            (COLUMN_STARS_FWHM,   &star_r_str),
-                            (COLUMN_STARS_R_DEV,  &star_r_dev_str),
-                            (COLUMN_SHARPNESS,    &sharpness),
+                            (COLUMN_ICON,            icon),
+                            (COLUMN_CHECKBOX,        &project_file.used),
+                            (COLUMN_CHECKBOX_VIS,    &true),
+                            (COLUMN_FILE_NAME,       &file_name),
+                            (COLUMN_FILE_PATH,       &path),
+                            (COLUMN_FILE_TIME,       &file_time_str),
+                            (COLUMN_DIM,             &dim_str),
+                            (COLUMN_CAMERA,          &camera_str),
+                            (COLUMN_ISO_STR,         &iso_str),
+                            (COLUMN_ISO,             &iso),
+                            (COLUMN_EXP_STR,         &exp_str),
+                            (COLUMN_EXP,             &exp),
+                            (COLUMN_FNUMBER,         &fnumber_str),
+                            (COLUMN_NOISE_STR,       &noise_str),
+                            (COLUMN_NOISE,           &noise),
+                            (COLUMN_BG_STR,          &bg_str),
+                            (COLUMN_BG,              &bg),
+                            (COLUMN_STARS_STR,       &stars_cnt_str),
+                            (COLUMN_STARS,           &stars_cnt),
+                            (COLUMN_FWHM_STR,        &star_r_str),
+                            (COLUMN_FWHM,            &star_r),
+                            (COLUMN_STARS_R_DEV_STR, &star_r_dev_str),
+                            (COLUMN_STARS_R_DEV,     &star_r_dev),
+                            (COLUMN_SHARPNESS_STR,   &sharpness_str),
+                            (COLUMN_SHARPNESS,       &sharpness),
                         ]);
                     }
 

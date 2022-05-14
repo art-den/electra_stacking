@@ -647,6 +647,7 @@ impl ProjectGroup {
                             background:  light_file.background,
                             sharpness:   light_file.sharpness,
                             stars_r:     stars_stat.aver_r,
+                            stars:       light_file.stars.len(),
                             stars_r_dev: stars_stat.aver_r_dev,
                         }
                     );
@@ -926,6 +927,7 @@ pub struct RegInfo {
     pub noise: f32,
     pub background: f32,
     pub stars_r: f32,
+    pub stars: usize,
     pub stars_r_dev: f32,
     pub sharpness: f32,
 }
@@ -936,6 +938,7 @@ impl Default for RegInfo {
             noise: 0.0,
             background: 0.0,
             stars_r: 0.0,
+            stars: 0,
             stars_r_dev: 0.0,
             sharpness: 0.0
         }
