@@ -995,6 +995,7 @@ impl ProjectFile {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(default)]
 pub struct ClenupConfItem {
     pub used: bool,
     pub kappa: f32,
