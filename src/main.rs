@@ -110,10 +110,11 @@ fn build_ui(application: &gtk::Application) {
     let mi_cpu_load_min     = builder.object::<gtk::RadioMenuItem>("mi_cpu_load_min").unwrap();
     let mi_cpu_load_half    = builder.object::<gtk::RadioMenuItem>("mi_cpu_load_half").unwrap();
     let mi_cpu_load_max     = builder.object::<gtk::RadioMenuItem>("mi_cpu_load_max").unwrap();
+    let mi_theme            = builder.object::<gtk::MenuItem>("mi_theme").unwrap();
 
-    let prj_tree_col_names = get_prj_tree_store_columns();
+    let prj_tree_store_columns = get_prj_tree_store_columns();
 
-    for (col1, col2) in prj_tree_col_names.iter().tuple_windows() {
+    for (col1, col2) in prj_tree_store_columns.iter().tuple_windows() {
         assert!(col1.1+1 == col2.1);
     }
 
@@ -123,7 +124,7 @@ fn build_ui(application: &gtk::Application) {
         .sensitive(true)
         .build();
 
-    for (col_name, idx, sidx, _) in prj_tree_col_names {
+    for (col_name, idx, sidx, _) in prj_tree_store_columns {
         if col_name.is_empty() { continue; }
         let cell_text = gtk::CellRendererText::new();
         let col = gtk::TreeViewColumn::builder()
@@ -332,19 +333,14 @@ fn build_ui(application: &gtk::Application) {
     conn_action(&objects, "check_selected_files",   action_check_selected_files);
     conn_action(&objects, "uncheck_selected_files", action_uncheck_selected_files);
 
-    //
-
-    fill_project_tree(&objects);
-    update_project_name_and_time_in_gui(&objects, true, true);
-
     if cfg!(target_os = "windows") {
         let settings = gtk::Settings::default().unwrap();
         settings.set_property("gtk-font-name", "Tahoma 9");
     }
 
-    window.set_application(Some(application));
-    window.show_all();
-
+    fill_project_tree(&objects);
+    update_project_name_and_time_in_gui(&objects, true, true);
+    mi_theme.set_sensitive(cfg!(target_os = "windows"));
     objects.progress_cont.set_visible(false);
 
     objects.window.connect_delete_event(clone!(@strong objects => move |_, _| {
@@ -404,6 +400,9 @@ fn build_ui(application: &gtk::Application) {
         }
         Inhibit(false)
     }));
+
+    window.set_application(Some(application));
+    window.show_all();
 }
 
 fn conn_action<F: Fn(&MainWindowObjectsPtr) + 'static>(
@@ -1051,15 +1050,19 @@ fn action_register(objects: &MainWindowObjectsPtr) {
 }
 
 fn action_light_theme(_: &MainWindowObjectsPtr) {
-    let settings = gtk::Settings::default().unwrap();
-    settings.set_property("gtk-theme-name", "Adwaita");
-    log::info!("Light theme selected");
+    if cfg!(target_os = "windows") {
+        let settings = gtk::Settings::default().unwrap();
+        settings.set_property("gtk-theme-name", "Adwaita");
+        log::info!("Light theme selected");
+    }
 }
 
 fn action_dark_theme(_: &MainWindowObjectsPtr) {
-    let settings = gtk::Settings::default().unwrap();
-    settings.set_property("gtk-theme-name", "Skeuos-Blue-Dark");
-    log::info!("Dark theme selected");
+    if cfg!(target_os = "windows") {
+        let settings = gtk::Settings::default().unwrap();
+        settings.set_property("gtk-theme-name", "Skeuos-Blue-Dark");
+        log::info!("Dark theme selected");
+    }
 }
 
 fn show_message(
