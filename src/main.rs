@@ -353,17 +353,15 @@ fn build_ui(application: &gtk::Application) {
     }));
 
     recent_menu.connect_item_activated(clone!(@strong objects => move |item| {
-        let cur_item = item.current_item().unwrap();
-        let mut uri = cur_item.uri().unwrap().to_string();
-        const PREFIX: &str = "file:///";
-        if uri.starts_with(PREFIX) {
-            uri = uri[PREFIX.len()..].to_string();
-        }
-        uri = uri.replace("%20", " ");
-        let path = PathBuf::from(uri);
-        let can_open = ask_user_to_save_project(&objects);
-        if can_open {
-            open_project(&objects, &path);
+        let file_name = item
+            .current_item()
+            .and_then(|info| info.uri())
+            .and_then(|uri| gio::File::for_uri(&uri).path());
+        if let Some(file_name) = file_name {
+            let can_open = ask_user_to_save_project(&objects);
+            if can_open {
+                open_project(&objects, &file_name);
+            }
         }
     }));
 
