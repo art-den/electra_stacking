@@ -448,7 +448,6 @@
                         <property name="label" translatable="yes">Dark theme</property>
                         <property name="use-underline">True</property>
                         <property name="draw-as-radio">True</property>
-                        <property name="group">light_theme_mi</property>
                       </object>
                     </child>
                     <child>
@@ -459,6 +458,55 @@
                         <property name="use-underline">True</property>
                         <property name="draw-as-radio">True</property>
                         <property name="group">dark_theme_mi</property>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkSeparatorMenuItem">
+                        <property name="visible">True</property>
+                        <property name="can-focus">False</property>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkMenuItem">
+                        <property name="visible">True</property>
+                        <property name="can-focus">False</property>
+                        <property name="label" translatable="yes">CPU load</property>
+                        <property name="use-underline">True</property>
+                        <child type="submenu">
+                          <object class="GtkMenu">
+                            <property name="visible">True</property>
+                            <property name="can-focus">False</property>
+                            <child>
+                              <object class="GtkRadioMenuItem" id="mi_cpu_load_min">
+                                <property name="visible">True</property>
+                                <property name="can-focus">False</property>
+                                <property name="label" translatable="yes">Minimal</property>
+                                <property name="use-underline">True</property>
+                                <property name="draw-as-radio">True</property>
+                              </object>
+                            </child>
+                            <child>
+                              <object class="GtkRadioMenuItem" id="mi_cpu_load_half">
+                                <property name="visible">True</property>
+                                <property name="can-focus">False</property>
+                                <property name="label" translatable="yes">Half</property>
+                                <property name="use-underline">True</property>
+                                <property name="draw-as-radio">True</property>
+                                <property name="group">mi_cpu_load_min</property>
+                              </object>
+                            </child>
+                            <child>
+                              <object class="GtkRadioMenuItem" id="mi_cpu_load_max">
+                                <property name="visible">True</property>
+                                <property name="can-focus">False</property>
+                                <property name="label" translatable="yes">Maximal</property>
+                                <property name="use-underline">True</property>
+                                <property name="draw-as-radio">True</property>
+                                <property name="group">mi_cpu_load_min</property>
+                              </object>
+                            </child>
+                          </object>
+                        </child>
                       </object>
                     </child>
                   </object>

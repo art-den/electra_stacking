@@ -1,8 +1,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-// TODO: Version for calibration files
-// TODO: Insert info of calibration file info file data
-
 mod config;
 mod project;
 
@@ -62,14 +59,12 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn panic_handler(panic_info: &std::panic::PanicInfo) {
+    log::error!("(╯°□°）╯︵ ┻━┻ PANIC OCCURRED");
     if let Some(s) = panic_info.payload().downcast_ref::<&str>() {
-        log::error!("panic occurred: {}", s);
-    } else {
-        log::error!("panic occurred");
+        log::error!("{}", s);
     }
-
     if let Some(loc) = panic_info.location() {
-        log::error!("at location: {}", loc.to_string());
+        log::error!("AT LOCATION: {}", loc.to_string());
     }
 }
 
@@ -112,6 +107,9 @@ fn build_ui(application: &gtk::Application) {
     let mi_change_file_type = builder.object::<gtk::MenuItem>("mi_change_file_type").unwrap();
     let mi_dark_theme       = builder.object::<gtk::RadioMenuItem>("dark_theme_mi").unwrap();
     let mi_light_theme      = builder.object::<gtk::RadioMenuItem>("light_theme_mi").unwrap();
+    let mi_cpu_load_min     = builder.object::<gtk::RadioMenuItem>("mi_cpu_load_min").unwrap();
+    let mi_cpu_load_half    = builder.object::<gtk::RadioMenuItem>("mi_cpu_load_half").unwrap();
+    let mi_cpu_load_max     = builder.object::<gtk::RadioMenuItem>("mi_cpu_load_max").unwrap();
 
     let prj_tree_col_names = get_prj_tree_col_items();
 
@@ -181,6 +179,10 @@ fn build_ui(application: &gtk::Application) {
         prj_img_paned,
         mi_dark_theme: mi_dark_theme.clone(),
         mi_light_theme: mi_light_theme.clone(),
+        mi_cpu_load_min: mi_cpu_load_min.clone(),
+        mi_cpu_load_half: mi_cpu_load_half.clone(),
+        mi_cpu_load_max: mi_cpu_load_max.clone(),
+
         mi_change_file_type,
         progress_bar,
         progress_cont: progress_box.upcast(),
@@ -255,6 +257,24 @@ fn build_ui(application: &gtk::Application) {
     mi_light_theme.connect_activate(clone!(@strong objects => move |mi| {
         if mi.is_active() {
             action_light_theme(&objects);
+        }
+    }));
+
+    mi_cpu_load_min.connect_activate(clone!(@strong objects => move |mi| {
+        if mi.is_active() {
+            objects.config.borrow_mut().cpu_load = CpuLoad::OneThread;
+        }
+    }));
+
+    mi_cpu_load_half.connect_activate(clone!(@strong objects => move |mi| {
+        if mi.is_active() {
+            objects.config.borrow_mut().cpu_load = CpuLoad::HalfCPUs;
+        }
+    }));
+
+    mi_cpu_load_max.connect_activate(clone!(@strong objects => move |mi| {
+        if mi.is_active() {
+            objects.config.borrow_mut().cpu_load = CpuLoad::AllCPUs;
         }
     }));
 
@@ -486,6 +506,9 @@ struct MainWindowObjects {
     mi_dark_theme: gtk::RadioMenuItem,
     mi_light_theme: gtk::RadioMenuItem,
     mi_change_file_type: gtk::MenuItem,
+    mi_cpu_load_min: gtk::RadioMenuItem,
+    mi_cpu_load_half: gtk::RadioMenuItem,
+    mi_cpu_load_max: gtk::RadioMenuItem,
 
     icon_folder: Option<gdk_pixbuf::Pixbuf>,
     icon_image: Option<gdk_pixbuf::Pixbuf>,
@@ -499,6 +522,7 @@ struct MainWindowObjects {
 
 type MainWindowObjectsPtr = Rc::<MainWindowObjects>;
 
+// widgets -> config
 fn assign_config(objects: &MainWindowObjectsPtr) {
     let mut config = objects.config.borrow_mut();
     config.prj_tree_width = objects.prj_img_paned.position();
@@ -524,6 +548,7 @@ fn assign_config(objects: &MainWindowObjectsPtr) {
     config.main_win_maximized = objects.window.is_maximized();
 }
 
+// config -> widgets
 fn apply_config(objects: &MainWindowObjectsPtr) {
     let config = objects.config.borrow();
 
@@ -538,6 +563,16 @@ fn apply_config(objects: &MainWindowObjectsPtr) {
         },
         Theme::Other(_) => (),
     }
+
+    match config.cpu_load {
+        CpuLoad::OneThread =>
+            objects.mi_cpu_load_min.set_active(true),
+        CpuLoad::HalfCPUs =>
+            objects.mi_cpu_load_half.set_active(true),
+        CpuLoad::AllCPUs =>
+            objects.mi_cpu_load_max.set_active(true),
+        _ => {},
+    };
 
     if config.prj_tree_width != -1 {
         objects.prj_img_paned.set_position(config.prj_tree_width);
