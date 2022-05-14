@@ -3,10 +3,10 @@ use rayon::prelude::*;
 use serde::{Serialize, Deserialize};
 use byteorder::*;
 use bitflags::bitflags;
-use crate::{image::*, fs_utils, log_utils::*};
+use crate::{image::*, fs_utils, log_utils::*, calc::*,};
 
-const RAW_FILE_SIG: &[u8] = b"raw-file-1";
-const RAW_VERS: u64 = 1;
+const CALIBR_FILE_SIG: &[u8] = b"calibr-file-1";
+const MASTER_FILE_SIG: &[u8] = b"master-file-1";
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq)]
 pub enum CfaColor {
@@ -108,25 +108,26 @@ pub struct RawImageInfo {
 
 impl RawImageInfo {
     pub fn read_from<R: Read>(src: &mut R) -> anyhow::Result<RawImageInfo> {
-        let mut sig = [0u8; RAW_FILE_SIG.len()];
+        let sig_len = leb128::read::unsigned(src)? as usize;
+        if sig_len > 42 { anyhow::bail!("Wrong signature lentgh"); }
+        let mut sig = Vec::<u8>::new();
+        sig.resize(sig_len, 0);
         src.read_exact(&mut sig)?;
-        if &sig != RAW_FILE_SIG { anyhow::bail!("File is not raw one"); }
-        let version = leb128::read::unsigned(src)?;
-        if version != RAW_VERS { anyhow::bail!("wrong file version: {}", version); }
+        if &sig != CALIBR_FILE_SIG { anyhow::bail!("Wrong file format"); }
         let header_len = leb128::read::unsigned(src)? as usize;
         let mut buf = Vec::<u8>::new();
         buf.resize(header_len, 0);
         src.read_exact(&mut buf)?;
-        let info_str = std::str::from_utf8(buf.as_slice())?;
-        Ok(serde_json::from_str(info_str)?)
+        let header_str = std::str::from_utf8(buf.as_slice())?;
+        Ok(serde_json::from_str(header_str)?)
     }
 
     pub fn write_to<W: Write>(&self, dst: &mut W) -> anyhow::Result<()> {
-        dst.write(RAW_FILE_SIG)?; // signature
-        leb128::write::unsigned(dst, RAW_VERS)?;
-        let info_header = serde_json::to_string(&self).unwrap();
-        leb128::write::unsigned(dst, info_header.len() as u64)?;
-        dst.write(&info_header.as_bytes())?;
+        leb128::write::unsigned(dst, CALIBR_FILE_SIG.len() as u64)?;
+        dst.write(CALIBR_FILE_SIG)?;
+        let header = serde_json::to_string(&self).unwrap();
+        leb128::write::unsigned(dst, header.len() as u64)?;
+        dst.write(&header.as_bytes())?;
         Ok(())
     }
 
@@ -136,6 +137,40 @@ impl RawImageInfo {
         self.cfa == other.cfa
     }
 }
+
+#[derive(Serialize, Deserialize, PartialEq)]
+pub struct MasterFileInfo {
+    pub files:     Vec<PathBuf>,
+    pub calc_opts: CalcOpts,
+}
+
+impl MasterFileInfo {
+    pub fn read_fro(file_name: &Path) -> anyhow::Result<MasterFileInfo> {
+        let mut file = std::io::BufReader::new(std::fs::File::open(file_name)?);
+        let sig_len = leb128::read::unsigned(&mut file)? as usize;
+        if sig_len > 42 { anyhow::bail!("Wrong signature lentgh"); }
+        let mut sig = Vec::<u8>::new();
+        sig.resize(sig_len, 0);
+        file.read_exact(&mut sig)?;
+        if &sig != MASTER_FILE_SIG { anyhow::bail!("Wrong file format"); }
+        let header_len = leb128::read::unsigned(&mut file)? as usize;
+        let mut buf = Vec::<u8>::new();
+        buf.resize(header_len, 0);
+        file.read_exact(&mut buf)?;
+        let header_str = std::str::from_utf8(buf.as_slice())?;
+        Ok(serde_json::from_str(header_str)?)
+    }
+
+    pub fn write_to<W: Write>(&self, dst: &mut W) -> anyhow::Result<()> {
+        leb128::write::unsigned(dst, MASTER_FILE_SIG.len() as u64)?;
+        dst.write(MASTER_FILE_SIG)?;
+        let header = serde_json::to_string(&self).unwrap();
+        leb128::write::unsigned(dst, header.len() as u64)?;
+        dst.write(&header.as_bytes())?;
+        Ok(())
+    }
+}
+
 pub struct RawImage {
     pub info: RawImageInfo,
     pub data: ImageLayerF32,
@@ -290,20 +325,40 @@ impl RawImage {
         Ok(RawImage{ info, data })
     }
 
-    pub fn save_to_internal_format_file(&self, file_name: &Path) -> anyhow::Result<()> {
+    pub fn save_to_calibr_format_file(&self, file_name: &Path) -> anyhow::Result<()> {
         let mut file = BufWriter::new(File::create(file_name)?);
         self.info.write_to(&mut file)?;
         for v in self.data.iter() { file.write_f32::<BigEndian>(*v)?; }
         Ok(())
     }
 
-    pub fn new_from_internal_format_file(file_name: &Path) -> anyhow::Result<RawImage> {
+    pub fn save_to_master_format_file(
+        &self,
+        file_name: &Path,
+        master_info: &MasterFileInfo
+    ) -> anyhow::Result<()> {
+        let mut file = BufWriter::new(File::create(file_name)?);
+        master_info.write_to(&mut file)?;
+        self.info.write_to(&mut file)?;
+        for v in self.data.iter() { file.write_f32::<BigEndian>(*v)?; }
+        Ok(())
+    }
+
+    pub fn new_from_master_format_file(file_name: &Path) -> anyhow::Result<RawImage> {
         let mut file = std::io::BufReader::new(std::fs::File::open(file_name)?);
+
+        // skip master file header
+        let sig_len = leb128::read::unsigned(&mut file)?;
+        file.seek_relative(sig_len as i64)?;
+        let header_len = leb128::read::unsigned(&mut file)?;
+        file.seek_relative(header_len as i64)?;
+
         let info = RawImageInfo::read_from(&mut file)?;
         let mut image = ImageLayerF32::new(info.width, info.height);
         for v in image.iter_mut() { *v = file.read_f32::<BigEndian>()?; }
         Ok(RawImage{ info, data: image })
     }
+
 
     pub fn demosaic_linear(&self, fast: bool) -> anyhow::Result<Image> {
         if self.data.is_empty() {
@@ -509,7 +564,7 @@ impl CalibrationData {
                     "loading master bias '{}'...",
                     fs_utils::path_to_str(file_name)
                 );
-                Some(RawImage::new_from_internal_format_file(file_name)?)
+                Some(RawImage::new_from_master_format_file(file_name)?)
             },
             None => None,
         };
@@ -520,7 +575,7 @@ impl CalibrationData {
                     "loading master dark '{}'...",
                     fs_utils::path_to_str(file_name)
                 );
-                let mut image = RawImage::new_from_internal_format_file(file_name)?;
+                let mut image = RawImage::new_from_master_format_file(file_name)?;
                 if let Some(bias_image) = &bias_image {
                     image.data -= &bias_image.data;
                 }
@@ -539,7 +594,7 @@ impl CalibrationData {
                     "loading master flat '{}'...",
                     fs_utils::path_to_str(file_name)
                 );
-                let mut image = RawImage::new_from_internal_format_file(file_name)?;
+                let mut image = RawImage::new_from_master_format_file(file_name)?;
                 image.remove_hot_pixels(&hot_pixels);
                 let filter_log = TimeLogger::start();
                 let mut image = image.filter_flat_image();

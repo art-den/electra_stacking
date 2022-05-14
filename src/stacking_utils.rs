@@ -1,7 +1,6 @@
 use std::{path::*, io::*, fs::*, sync::{*, atomic::{AtomicBool, Ordering}}};
 use anyhow::bail;
 use byteorder::*;
-use serde::{Serialize, Deserialize};
 use crate::{
     image::*,
     calc::*,
@@ -140,7 +139,7 @@ pub fn create_master_flat_file(
 ) -> anyhow::Result<bool> {
     let bias_image = match master_bias_file {
         Some(master_bias_file) =>
-            Some(RawImage::new_from_internal_format_file(&master_bias_file)?),
+            Some(RawImage::new_from_master_format_file(&master_bias_file)?),
         None =>
             None,
     };
@@ -158,12 +157,6 @@ pub fn create_master_flat_file(
     )
 }
 
-#[derive(Serialize, Deserialize, PartialEq)]
-struct MasterFileInfo {
-    files:     Vec<PathBuf>,
-    calc_opts: CalcOpts,
-}
-
 fn create_master_calibr_file<PF>(
     files_list:          &[PathBuf],
     calc_opts:           &CalcOpts,
@@ -179,28 +172,17 @@ where
 {
     let disk_access_mutex = Mutex::new(());
 
-    struct FileData {
-        file:       BufReader<File>,
-        image_info: RawImageInfo,
-    }
-
     let this_info = MasterFileInfo {
         files: files_list.iter().cloned().collect(),
         calc_opts: calc_opts.clone(),
     };
 
-    let info_file_name = result_file.with_extension("info");
-
     if !force_even_if_exist {
-        let from_disk_info = if info_file_name.exists() {
-            let file_str = std::fs::read_to_string(&info_file_name)?;
-            serde_json::from_str::<MasterFileInfo>(&file_str)?
-        } else {
-            MasterFileInfo { files: Vec::new(), calc_opts: CalcOpts::default(), }
-        };
-
-        if from_disk_info == this_info {
-            return Ok(false);
+        if result_file.exists() {
+            let from_disk_info = MasterFileInfo::read_fro(&result_file);
+            if let Ok(from_disk_info) = from_disk_info {
+                if from_disk_info == this_info { return Ok(false); }
+            }
         }
     }
 
@@ -233,7 +215,7 @@ where
                 if !is_ok { return; }
                 let temp_fn = file_path.with_extension("temp_raw");
                 let locker = disk_access_mutex.lock();
-                let save_res = raw.save_to_internal_format_file(&temp_fn);
+                let save_res = raw.save_to_calibr_format_file(&temp_fn);
                 drop(locker);
                 if let Err(save_res) = save_res {
                     *cur_result.lock().unwrap() = Err(save_res);
@@ -251,6 +233,11 @@ where
         return cur_result.into_inner()?;
     }
 
+    struct FileData {
+        file:       BufReader<File>,
+        image_info: RawImageInfo,
+    }
+
     let mut opened_files = Vec::new();
     let mut temp_file_list = FilesToDeleteLater::new();
     let mut first_image_info: Option<RawImageInfo> = None;
@@ -259,7 +246,7 @@ where
         let image_info = RawImageInfo::read_from(&mut file)?;
         if let Some(fii) = &first_image_info {
             if !fii.check_is_compatible(&image_info) { bail!(
-                "Dimesions of file {:?} is not same compared first one",
+                "Parameters of file {:?} is not same compared first one",
                 file_path
             ); }
         } else {
@@ -296,10 +283,10 @@ where
 
     progress.lock().unwrap().percent(100, 100, "Done");
 
-    image.save_to_internal_format_file(result_file)?;
-
-    let this_info_str = serde_json::to_string_pretty(&this_info)?;
-    std::fs::write(&info_file_name, &this_info_str)?;
+    image.save_to_master_format_file(
+        result_file,
+        &this_info
+    )?;
 
     Ok(true)
 }
