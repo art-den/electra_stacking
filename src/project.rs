@@ -599,7 +599,7 @@ impl ProjectGroup {
     ) -> anyhow::Result<()> {
         progress.lock().unwrap().stage(&format!("Registering files for group {}...", self.name(group_idx)));
         progress.lock().unwrap().set_total(self.light_files.list.len());
-        progress.lock().unwrap().progress(false, "Loading calibtation master files...");
+        progress.lock().unwrap().progress(false, "Loading calibration master files...");
 
         let cal_data = CalibrationData::load(
             &self.flat_files.get_master_full_file_name(MASTER_FLAT_FN),
@@ -630,7 +630,11 @@ impl ProjectGroup {
                     let light_file = match load_light_file_res {
                         Ok(light_file) => light_file,
                         Err(err) => {
-                            *cur_result.lock().unwrap() = Err(err);
+                            *cur_result.lock().unwrap() = Err(anyhow::anyhow!(
+                                r#"Error "{}" during processing of file "{}""#,
+                                err.to_string(),
+                                file_name.to_str().unwrap_or("")
+                            ));
                             return;
                         },
                     };

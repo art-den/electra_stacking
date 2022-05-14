@@ -42,7 +42,7 @@ pub fn find_stars_on_image(
     img: &ImageLayerF32,
     orig_image: &Image,
     noise: Option<f32>
-) -> Stars {
+) -> anyhow::Result<Stars> {
     let border = match noise {
         Some(noise)
         if noise != 0.0 =>
@@ -228,13 +228,13 @@ pub fn find_stars_on_image(
             let max = mean + dev*3.0;
             stars.retain(|s| s.radius_std_dev < max);
         } else {
-            break; // TODO: need idea how to process it
+            anyhow::bail!("Wrong stars");
         }
     }
 
     stars.sort_by(|s1, s2| cmp_f64(&s1.brightness, &s2.brightness).reverse());
 
-    stars
+    Ok(stars)
 }
 
 

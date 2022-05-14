@@ -207,7 +207,11 @@ where
                 let mut raw = match raw_res {
                     Ok(raw) => raw,
                     Err(err) => {
-                        *cur_result.lock().unwrap() = Err(err);
+                        *cur_result.lock().unwrap() = Err(anyhow::anyhow!(
+                            r#"Error "{}" during processing of file "{}""#,
+                            err.to_string(),
+                            file_path.to_str().unwrap_or("")
+                        ));
                         return;
                     }
                 };
@@ -344,8 +348,12 @@ pub fn create_temp_light_files(
                     &disk_access_mutex,
                     result_list
                 );
-                if res.is_err() {
-                    *cur_result.lock().unwrap() = res;
+                if let Err(err) = res {
+                    *cur_result.lock().unwrap() = Err(anyhow::anyhow!(
+                        r#"Error "{}" during processing of file "{}""#,
+                        err.to_string(),
+                        file.to_str().unwrap_or("")
+                    ));
                     return;
                 }
                 progress.lock().unwrap().progress(true, extract_file_name(&file));
@@ -431,10 +439,7 @@ fn create_temp_file_from_light_file(
             img_offset,
         });
     } else {
-        anyhow::bail!(
-            "Can't calculate offset and angle between reference image and '{}' file",
-            file.to_str().unwrap_or("")
-        );
+        anyhow::bail!("Can't calculate offset and angle between reference image and light file");
     }
     file_total_log.log("processing file TOTAL");
     Ok(())
