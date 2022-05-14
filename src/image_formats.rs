@@ -75,12 +75,14 @@ fn err_format_not_supported<R>(ext: &str) -> anyhow::Result<R> {
 
 pub struct SrcFileInfo {
     pub file_name: PathBuf,
-    pub file_time: Option<DateTime<Local>>,
     pub width:     usize,
     pub height:    usize,
+    pub file_time: Option<DateTime<Local>>,
     pub cfa_type:  Option<CfaType>,
     pub iso:       Option<u32>,
     pub exp:       Option<f32>,
+    pub fnumber:   Option<f32>,
+    pub camera:    Option<String>,
 }
 
 pub fn load_src_file_info(file_name: &PathBuf) -> anyhow::Result<SrcFileInfo> {
@@ -123,9 +125,13 @@ pub fn load_src_file_info_raw(file_name: &PathBuf) -> anyhow::Result<SrcFileInfo
     let mut iso = None;
     let mut exp = None;
     let mut file_time = None;
+    let mut fnumber = None;
+    let mut camera = None;
     if let Some(exif) = raw_data.exif {
         iso = exif.get_uint(rawloader::Tag::ISOSpeed);
         exp = exif.get_rational(rawloader::Tag::ExposureTime);
+        fnumber = exif.get_rational(rawloader::Tag::FNumber);
+        camera = exif.get_str(rawloader::Tag::Model).and_then(|v| Some(v.to_string()));
         if let Some(time_str) = exif.get_str(rawloader::Tag::DateTimeOriginal) {
             file_time = Local.datetime_from_str(time_str, "%Y:%m:%d %H:%M:%S").ok();
         }
@@ -158,6 +164,8 @@ pub fn load_src_file_info_raw(file_name: &PathBuf) -> anyhow::Result<SrcFileInfo
         iso,
         exp,
         cfa_type,
+        fnumber,
+        camera,
     })
 }
 
@@ -201,6 +209,8 @@ pub fn load_src_file_info_tiff(file_name: &PathBuf) -> anyhow::Result<SrcFileInf
         iso: None,
         exp: None,
         cfa_type: None,
+        fnumber: None,
+        camera: None,
     })
 }
 
@@ -369,6 +379,8 @@ pub fn load_src_file_info_fits(file_name: &PathBuf) -> anyhow::Result<SrcFileInf
                     iso: None,
                     exp: None,
                     cfa_type: None,
+                    fnumber: None,
+                    camera: None,
                 });
             }
         }

@@ -947,12 +947,14 @@ impl Default for RegInfo {
 pub struct ProjectFile {
     pub used: bool,
     pub file_name: PathBuf,
+    pub width: Option<usize>,
+    pub height: Option<usize>,
     pub file_time: Option<DateTime<Local>>,
     pub cfa_type: Option<CfaType>,
     pub iso: Option<u32>,
     pub exp: Option<f32>,
-    pub width: Option<usize>,
-    pub height: Option<usize>,
+    pub fnumber: Option<f32>,
+    pub camera: Option<String>,
     pub reg_info: Option<RegInfo>,
 }
 
@@ -967,6 +969,8 @@ impl Default for ProjectFile {
             exp: None,
             width: None,
             height: None,
+            fnumber: None,
+            camera: None,
             reg_info: None,
         }
     }
@@ -983,6 +987,8 @@ impl ProjectFile {
             exp: info.exp,
             width: Some(info.width),
             height: Some(info.height),
+            fnumber: info.fnumber,
+            camera: info.camera,
             reg_info: None,
         }
     }

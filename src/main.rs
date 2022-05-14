@@ -1117,30 +1117,34 @@ fn enable_progress_bar(objects: &MainWindowObjectsPtr, enable: bool) {
 const COLUMN_FILE_NAME:    u32 = 0;
 const COLUMN_FILE_PATH:    u32 = 1;
 const COLUMN_FILE_TIME:    u32 = 2;
-const COLUMN_ISO:          u32 = 3;
-const COLUMN_EXP:          u32 = 4;
-const COLUMN_DIM:          u32 = 5;
-const COLUMN_NOISE:        u32 = 6;
-const COLUMN_BACKGROUND:   u32 = 7;
-const COLUMN_STARS_FWHM:   u32 = 8;
-const COLUMN_STARS_R_DEV:  u32 = 9;
-const COLUMN_SHARPNESS:    u32 = 10;
+const COLUMN_DIM:          u32 = 3;
+const COLUMN_CAMERA:       u32 = 4;
+const COLUMN_ISO:          u32 = 5;
+const COLUMN_EXP:          u32 = 6;
+const COLUMN_FNUMBER:      u32 = 7;
+const COLUMN_NOISE:        u32 = 8;
+const COLUMN_BACKGROUND:   u32 = 9;
+const COLUMN_STARS_FWHM:   u32 = 10;
+const COLUMN_STARS_R_DEV:  u32 = 11;
+const COLUMN_SHARPNESS:    u32 = 12;
 
-const COLUMN_ICON:         u32 = 11;
-const COLUMN_CHECKBOX:     u32 = 12;
-const COLUMN_CHECKBOX_VIS: u32 = 13;
+const COLUMN_ICON:         u32 = 13;
+const COLUMN_CHECKBOX:     u32 = 14;
+const COLUMN_CHECKBOX_VIS: u32 = 15;
 
-fn get_prj_tree_col_items() -> [(&'static str, u32, glib::Type); 14] {
+fn get_prj_tree_col_items() -> [(&'static str, u32, glib::Type); 16] {
     [
         ("Project/File name", COLUMN_FILE_NAME,    String::static_type()),
         ("File path",         COLUMN_FILE_PATH,    String::static_type()),
         ("File time",         COLUMN_FILE_TIME,    String::static_type()),
+        ("Dimensions",        COLUMN_DIM,          String::static_type()),
+        ("Camera",            COLUMN_CAMERA,       String::static_type()),
         ("ISO",               COLUMN_ISO,          String::static_type()),
         ("Exposure",          COLUMN_EXP,          String::static_type()),
-        ("Dimensions",        COLUMN_DIM,          String::static_type()),
+        ("FNumber",           COLUMN_FNUMBER,      String::static_type()),
         ("Noise",             COLUMN_NOISE,        String::static_type()),
         ("Background",        COLUMN_BACKGROUND,   String::static_type()),
-        ("Stars FWHM",        COLUMN_STARS_FWHM,   String::static_type()),
+        ("FWHM",              COLUMN_STARS_FWHM,   String::static_type()),
         ("Stars R dev",       COLUMN_STARS_R_DEV,  String::static_type()),
         ("Sharpness",         COLUMN_SHARPNESS,    String::static_type()),
         ("",                  COLUMN_ICON,         gdk_pixbuf::Pixbuf::static_type()),
@@ -1323,6 +1327,18 @@ impl TreeViewFillHelper {
                             .and_then(|v|v.to_str())
                             .unwrap_or("");
 
+                        let dim_str = if let (Some(width), Some(height)) = (project_file.width, project_file.height) {
+                            format!("{} x {}", width, height)
+                        } else {
+                            String::new()
+                        };
+
+                        let camera_str = if let Some(camera) = project_file.camera.as_ref() {
+                            camera.as_str()
+                        } else {
+                            ""
+                        };
+
                         let file_time_str = if let Some(file_time) = project_file.file_time {
                             file_time.format("%Y-%m-%d %H:%M:%S").to_string()
                         } else {
@@ -1336,13 +1352,23 @@ impl TreeViewFillHelper {
                         };
 
                         let exp_str = if let Some(exp) = project_file.exp {
-                            format!("{:.1} s", exp)
+                            if exp == 0.0 {
+                                "0".to_string()
+                            } else if exp > 0.5 {
+                                format!("{:.1} s", exp)
+                            } else {
+                                format!("1/{:.0}", 1.0/exp)
+                            }
                         } else {
                             String::new()
                         };
 
-                        let dim_str = if let (Some(width), Some(height)) = (project_file.width, project_file.height) {
-                            format!("{} x {}", width, height)
+                        let fnumber_str = if let Some(fnumber) = project_file.fnumber {
+                            if fnumber != 0.0 {
+                                format!("f/{:.1}", fnumber)
+                            } else {
+                                String::new()
+                            }
                         } else {
                             String::new()
                         };
@@ -1387,9 +1413,11 @@ impl TreeViewFillHelper {
                             (COLUMN_FILE_NAME,    &file_name),
                             (COLUMN_FILE_PATH,    &path),
                             (COLUMN_FILE_TIME,    &file_time_str),
+                            (COLUMN_DIM,          &dim_str),
+                            (COLUMN_CAMERA,       &camera_str),
                             (COLUMN_ISO,          &iso_str),
                             (COLUMN_EXP,          &exp_str),
-                            (COLUMN_DIM,          &dim_str),
+                            (COLUMN_FNUMBER,      &fnumber_str),
                             (COLUMN_NOISE,        &noise_str),
                             (COLUMN_BACKGROUND,   &background_str),
                             (COLUMN_STARS_FWHM,   &star_r_str),
