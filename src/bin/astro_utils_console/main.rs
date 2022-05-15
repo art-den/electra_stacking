@@ -8,6 +8,7 @@ mod cmd_cleanup;
 mod cmd_convert;
 mod cmd_create_master_dark;
 mod cmd_create_master_flat;
+mod cmd_create_master_bias;
 mod cmd_merge_lrgb;
 mod cmd_register;
 mod cmd_stack_lights;
@@ -23,6 +24,9 @@ enum SubCommands {
 
     /// Create master flat file from several flat files
     MasterFlat(cmd_create_master_flat::CmdOptions),
+
+    /// Create master flat file from several flat files
+    MasterBias(cmd_create_master_bias::CmdOptions),
 
     /// Stack light files into result light file
     StackLights(cmd_stack_lights::CmdOptions),
@@ -64,6 +68,9 @@ fn main() -> anyhow::Result<()> {
 
         SubCommands::MasterFlat(opts) =>
             cmd_create_master_flat::execute(opts),
+
+        SubCommands::MasterBias(opts) =>
+            cmd_create_master_bias::execute(opts),
 
         SubCommands::StackLights(opts) =>
             cmd_stack_lights::execute(opts),

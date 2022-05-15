@@ -25,6 +25,10 @@ pub struct CmdOptions {
     #[structopt(long, parse(from_os_str))]
     master_dark: Vec<PathBuf>,
 
+    /// Master-bias file
+    #[structopt(long, parse(from_os_str))]
+    master_bias: Vec<PathBuf>,
+
     /// Reference light file
     #[structopt(long, parse(from_os_str))]
     ref_file: PathBuf,
@@ -54,6 +58,7 @@ struct DirData {
     path: PathBuf,
     master_dark: Option<PathBuf>,
     master_flat: Option<PathBuf>,
+    master_bias: Option<PathBuf>,
 }
 
 pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
@@ -79,6 +84,9 @@ pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
             master_flat:
                 if !options.master_flat.is_empty() { Some(options.master_flat[0].clone()) }
                 else { None },
+            master_bias:
+                if !options.master_bias.is_empty() { Some(options.master_bias[0].clone()) }
+                else { None },
         });
     } else {
         if options.path.len() != options.master_dark.len() {
@@ -93,6 +101,7 @@ pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
                 path:        options.path[i].clone(),
                 master_dark: Some(options.master_dark[i].clone()),
                 master_flat: Some(options.master_flat[i].clone()),
+                master_bias: Some(options.master_bias[i].clone()),
             });
         }
     }
@@ -105,7 +114,7 @@ pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
     let ref_cal = CalibrationData::load(
         &dir_data[0].master_flat,
         &dir_data[0].master_dark,
-        &None // TODO: Add bias support for console version
+        &dir_data[0].master_bias
     )?;
 
     let ref_bg_data = RefBgData::new(
@@ -131,7 +140,7 @@ pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
             file_names_list,
             &item.master_flat,
             &item.master_dark,
-            &None, // TODO: Add bias support for console version
+            &item.master_bias,
             &ref_bg_data,
             options.bin.unwrap_or(1),
             &temp_file_names,

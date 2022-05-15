@@ -469,7 +469,7 @@ impl ProjectGroup {
             progress,
             cancel_flag,
             &config.flat_calc_opts,
-            self.bias_files.get_master_full_file_name(MASTER_BIAS_FN),
+            &self.bias_files.get_master_full_file_name(MASTER_BIAS_FN),
             &thread_pool,
             bias_recreated
         )?;
@@ -515,7 +515,7 @@ impl ProjectGroup {
         progress:            &ProgressTs,
         cancel_flag:         &Arc<AtomicBool>,
         calc_opts:           &CalcOpts,
-        master_bias_file:    Option<PathBuf>,
+        master_bias_file:    &Option<PathBuf>,
         thread_pool:         &rayon::ThreadPool,
         force_even_if_exist: bool,
     ) -> anyhow::Result<()> {

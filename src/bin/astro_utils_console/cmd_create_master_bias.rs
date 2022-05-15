@@ -1,31 +1,27 @@
 use structopt::*;
-use std::{path::*, sync::*, sync::atomic::AtomicBool};
+use std::{path::*, sync::Arc, sync::atomic::AtomicBool};
 use crate::{
+    fs_utils::*,
     stacking_utils::*,
     calc::*,
     consts::*,
-    fs_utils::*,
     progress::*,
 };
 
 #[derive(StructOpt, Debug)]
 pub struct CmdOptions {
-    /// path to directory containing RAW flat files
+    /// path to directory containing RAW bias files
     #[structopt(short, long, parse(from_os_str))]
     path: PathBuf,
 
-    /// Extension of RAW flat files
+    /// Extension of RAW bias files
     #[structopt(short, long, default_value = DEF_RAW_EXTS)]
     exts: String,
-
-    /// Master-bias file
-    #[structopt(long, parse(from_os_str))]
-    master_bias: Option<PathBuf>,
 
     #[structopt(flatten)]
     calc_opts: CalcOpts,
 
-    /// File name of result master flat file (with .raw extension)
+    /// File name of result master bias file (with .raw extension)
     #[structopt(short, long, parse(from_os_str))]
     result_file: PathBuf,
 
@@ -33,7 +29,6 @@ pub struct CmdOptions {
     #[structopt(long, default_value = "1")]
     num_tasks: usize,
 }
-
 
 pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
     let files_list = get_files_list(&options.path, &options.exts, true)?;
@@ -44,15 +39,14 @@ pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
         .num_threads(options.num_tasks)
         .build()?;
 
-    create_master_flat_file(
+    create_master_dark_or_bias_file(
         &files_list,
         &options.calc_opts,
-        &options.master_bias,
         &options.result_file,
         &progress,
         &thread_pool,
         &cancel_flag,
-        true
     )?;
+
     Ok(())
 }

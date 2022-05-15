@@ -17,6 +17,10 @@ pub struct CmdOptions {
     #[structopt(long, parse(from_os_str))]
     master_dark: Option<PathBuf>,
 
+    /// Master-bias file
+    #[structopt(long, parse(from_os_str))]
+    master_bias: Option<PathBuf>,
+
     /// Extensions of RAW lights files
     #[structopt(long, default_value = DEF_RAW_EXTS)]
     exts: String,
@@ -36,7 +40,7 @@ pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
     let cal_data = Arc::new(CalibrationData::load(
         &options.master_flat,
         &options.master_dark,
-        &None, // TODO: Add bias support for console version
+        &options.master_bias
     )?);
 
     let disk_access_mutex = Arc::new(Mutex::new(()));

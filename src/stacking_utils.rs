@@ -130,7 +130,7 @@ fn postprocess_single_flat_image(raw_image: &mut RawImage, bias_image: Option<&R
 pub fn create_master_flat_file(
     files_list:          &[PathBuf],
     calc_opts:           &CalcOpts,
-    master_bias_file:    Option<PathBuf>,
+    master_bias_file:    &Option<PathBuf>,
     result_file:         &Path,
     progress:            &ProgressTs,
     thread_pool:         &rayon::ThreadPool,
@@ -139,7 +139,7 @@ pub fn create_master_flat_file(
 ) -> anyhow::Result<bool> {
     let bias_image = match master_bias_file {
         Some(master_bias_file) =>
-            Some(RawImage::new_from_master_format_file(&master_bias_file)?),
+            Some(RawImage::new_from_master_format_file(master_bias_file)?),
         None =>
             None,
     };
