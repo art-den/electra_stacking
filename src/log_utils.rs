@@ -34,7 +34,7 @@ pub fn start_logger(log_path: &PathBuf) -> anyhow::Result<()> {
         .log_to_file(
             FileSpec::default()
                 .directory(log_path)
-                .basename("astro-utils")
+                .basename(env!("CARGO_PKG_NAME"))
         )
         .format(custom_format_fun)
         .print_message()

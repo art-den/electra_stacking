@@ -104,7 +104,7 @@ impl Config {
 
 pub fn get_app_conf_dir(create_dir: bool) -> anyhow::Result<PathBuf> {
     let mut conf_dir = dirs::data_local_dir().unwrap();
-    conf_dir.push(".astro-utils");
+    conf_dir.push(format!(".{}", env!("CARGO_PKG_NAME")));
     if create_dir && !conf_dir.exists() {
         std::fs::create_dir(&conf_dir)?;
     }

@@ -518,7 +518,6 @@ impl RawImage {
 
     pub fn filter_flat_image(self) -> RawImage {
         const R: Crd = 2;
-
         let mut result = RawImage::new_from_info(self.info);
         for (x, y, v) in result.data.iter_crd_mut() {
             let color = result.info.cfa.get_pixel_color(x, y);
@@ -579,10 +578,8 @@ impl CalibrationData {
                 if let Some(bias_image) = &bias_image {
                     image.data -= &bias_image.data;
                 }
-
                 let hot_pixels = image.find_hot_pixels();
                 log::info!("hot pixels count = {}", hot_pixels.len());
-
                 (Some(image), hot_pixels)
             },
             None => (None, Vec::new()),

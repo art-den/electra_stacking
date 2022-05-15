@@ -47,7 +47,7 @@ fn main() -> anyhow::Result<()> {
 
     // build gui
     let application = gtk::Application::new(
-        Some("com.github.art-den-astro-utils"),
+        Some("com.github.electra-stacking"),
         Default::default(),
     );
     application.connect_activate(build_ui);
@@ -823,7 +823,7 @@ fn action_save_project_as(objects: &MainWindowObjectsPtr) {
         let path = file_name
             .path()
             .unwrap()
-            .with_extension("au_proj");
+            .with_extension("es_proj");
         let project_name = path.with_extension("")
             .file_name()
             .and_then(|v| v.to_str())
@@ -972,8 +972,8 @@ fn select_and_add_files_into_project(
 
 fn create_file_filter_for_project() -> gtk::FileFilter {
     let ff = gtk::FileFilter::new();
-    ff.set_name(Some("Astro-utils project"));
-    ff.add_pattern("*.au_proj");
+    ff.set_name(Some("Electra stacking project"));
+    ff.add_pattern("*.es_proj");
     ff
 }
 

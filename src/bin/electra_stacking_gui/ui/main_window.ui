@@ -206,7 +206,7 @@
   </object>
   <object class="GtkRecentFilter" id="recent_filter">
     <patterns>
-      <pattern>*.au_proj</pattern>
+      <pattern>*.es_proj</pattern>
     </patterns>
   </object>
   <object class="GtkApplicationWindow" id="main_window">

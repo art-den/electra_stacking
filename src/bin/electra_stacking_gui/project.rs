@@ -16,9 +16,9 @@ use electra_stacking::{
 use chrono::prelude::*;
 use crate::config::*;
 
-const MASTER_DARK_FN: &str = "master-dark.mraw";
-const MASTER_FLAT_FN: &str = "master-flat.mraw";
-const MASTER_BIAS_FN: &str = "master-bias.mraw";
+const MASTER_DARK_FN: &str = "master-dark.es_raw";
+const MASTER_FLAT_FN: &str = "master-flat.es_raw";
+const MASTER_BIAS_FN: &str = "master-bias.es_raw";
 
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(default)]
