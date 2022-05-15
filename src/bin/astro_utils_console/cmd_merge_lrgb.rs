@@ -78,18 +78,38 @@ fn find_mono_data(fits: &Fits) -> anyhow::Result<FitsData> {
     return Ok(hdu.unwrap().read_data());
 }
 
-// TODO: !!!
-
 fn create_fits_rgb_data_opt<T: Copy + num::Num>(
-    _width:  usize,
-    _height: usize,
-    _l_arr:  &Vec<Option<T>>,
-    _r_arr:  &Vec<Option<T>>,
-    _g_arr:  &Vec<Option<T>>,
-    _b_arr:  &Vec<Option<T>>
+    width:    usize,
+    height:   usize,
+    l_arr:    &Vec<Option<T>>,
+    r_arr:    &Vec<Option<T>>,
+    g_arr:    &Vec<Option<T>>,
+    b_arr:    &Vec<Option<T>>,
+    t_to_f64: fn(T) -> f64,
+    f64_to_t: fn(f64) -> T
 ) -> Vec<T> {
-    let result: Vec<T> = Vec::new();
-
+    let mut result: Vec<T> = Vec::new();
+    let total = width * height;
+    result.resize(total*3, T::zero());
+    for (i, (l, r, g, b)) in izip!(l_arr, r_arr, g_arr, b_arr).enumerate() {
+        let (mut lum_r, mut lum_g, mut lum_b) = (T::zero(), T::zero(), T::zero());
+        if let (&Some(l), &Some(r), &Some(g), &Some(b)) = (l, r, g, b) {
+            let rgb_summ = r + g + b;
+            if rgb_summ != T::zero() {
+                let rgb_summ = t_to_f64(rgb_summ);
+                let norm_r = t_to_f64(r) / rgb_summ;
+                let norm_g = t_to_f64(g) / rgb_summ;
+                let norm_b = t_to_f64(b) / rgb_summ;
+                let l = t_to_f64(l);
+                lum_r = f64_to_t(l * norm_r);
+                lum_g = f64_to_t(l * norm_g);
+                lum_b = f64_to_t(l * norm_b);
+            }
+        }
+        result[i] = lum_r;
+        result[i+total] = lum_g;
+        result[i+total*2] = lum_b;
+    }
     result
 }
 
@@ -140,13 +160,23 @@ fn create_rgb_hdu(
         (IntegersI32(l), IntegersI32(r), IntegersI32(g), IntegersI32(b)) =>
             Hdu::new(
                 &dims,
-                create_fits_rgb_data_opt(width, height, &l.data, &r.data, &g.data, &b.data)
+                create_fits_rgb_data_opt(
+                    width, height,
+                    &l.data, &r.data, &g.data, &b.data,
+                    |v| v as f64,
+                    |v| v as i32
+                )
             ),
 
         (IntegersU32(l), IntegersU32(r), IntegersU32(g), IntegersU32(b)) =>
             Hdu::new(
                 &dims,
-                create_fits_rgb_data_opt(width, height, &l.data, &r.data, &g.data, &b.data)
+                create_fits_rgb_data_opt(
+                    width, height,
+                    &l.data, &r.data, &g.data, &b.data,
+                    |v| v as f64,
+                    |v| v as u32
+                )
             ),
 
         (FloatingPoint32(l), FloatingPoint32(r), FloatingPoint32(g), FloatingPoint32(b)) =>
