@@ -331,6 +331,7 @@ fn build_ui(application: &gtk::Application) {
     conn_action(&objects, "uncheck_all_files",      action_uncheck_all_files);
     conn_action(&objects, "check_selected_files",   action_check_selected_files);
     conn_action(&objects, "uncheck_selected_files", action_uncheck_selected_files);
+    conn_action(&objects, "about",                  action_about);
 
     if cfg!(target_os = "windows") {
         let settings = gtk::Settings::default().unwrap();
@@ -2704,4 +2705,20 @@ fn check_selected_files(objects: &MainWindowObjectsPtr, value: bool) {
         .check_by_indices(&files, value);
     helper.apply_changes(&objects, true);
     update_project_name_and_time_in_gui(&objects, true, false);
+}
+
+fn action_about(objects: &MainWindowObjectsPtr) {
+    let builder = gtk::Builder::from_string(include_str!("ui/about_dialog.ui"));
+    let dialog = builder.object::<gtk::Dialog>("dialog").unwrap();
+    let image = builder.object::<gtk::Image>("image").unwrap();
+    let btn_close = builder.object::<gtk::Button>("btn_close").unwrap();
+    let l_version = builder.object::<gtk::Label>("l_version").unwrap();
+    let logo_image = gdk_pixbuf::Pixbuf::from_read(include_bytes!(
+        r"ui/electra_128x128.png"
+    ).as_slice()).unwrap();
+    image.set_pixbuf(Some(&logo_image));
+    l_version.set_label(&format!("v{}", env!("CARGO_PKG_VERSION")));
+    dialog.set_transient_for(Some(&objects.window));
+    dialog.show();
+    btn_close.connect_clicked(move |_| dialog.close());
 }
