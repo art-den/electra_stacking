@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::{path::*, io::*, fs::*, collections::HashSet};
 use std::sync::{*, atomic::AtomicBool, atomic::Ordering};
 use serde::*;
-use astro_utils::{
+use electra_stacking::{
     calc::*,
     progress::*,
     stacking_utils::*,

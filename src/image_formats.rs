@@ -345,7 +345,15 @@ fn write_exif_into_tiff<W: Write + Seek, K: TiffKind>(
 ) -> anyhow::Result<()> {
     use tiff::tags::*;
 
-    enc.write_tag(Tag::Software, "astro_utils (https://github.com/art-den/astro_utils)")?;
+    enc.write_tag(
+        Tag::Software,
+        format!(
+            "{} v{}",
+            env!("CARGO_PKG_NAME"),
+            env!("CARGO_PKG_DESCRIPTION")
+        ).as_str()
+    )?;
+
     if let Some(exp_time) = exif.exp_time {
         enc.write_tag(Tag::Unknown(0x829a), &[exp_time as u32, 1_u32][..])?;
     }

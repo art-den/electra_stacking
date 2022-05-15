@@ -1,5 +1,5 @@
 # Утилита для сложения астрофотографий
-`astro_utils` - это консольная утилита для сложения астрофотографий. Это аналог DeepSkyStacker,  но без внешнего интерфейса. Утилита позволяет складывать дарк-, флэт- и лайт- кадры и на выходе получать tif или fits-файл с конечным линейным фото, которое можно обрабатывать в других программах (например в PhotoShop).
+`electra_stacking` - это консольная утилита для сложения астрофотографий. Это аналог DeepSkyStacker,  но без внешнего интерфейса. Утилита позволяет складывать дарк-, флэт- и лайт- кадры и на выходе получать tif или fits-файл с конечным линейным фото, которое можно обрабатывать в других программах (например в PhotoShop).
 Программа была написана с одной целью - обкатать алгоритмы обработки астрономических фотографий.
 
 # Особенности программы
@@ -23,7 +23,7 @@
 
 ## Получение master-dark файла из набора dark-файлов
 ```
-astro_utils.exe                           ^
+electra_stacking.exe                           ^
   master-dark                             ^
   --path        "<папка с dark-файлами>"  ^
   --result-file "<имя master-dark файла>"
@@ -31,7 +31,7 @@ astro_utils.exe                           ^
 
 ## Получение master-flat файла из набора flat-файлов
 ```
-astro_utils.exe                           ^
+electra_stacking.exe                           ^
   master-flat                             ^
   --path        "<папка с flat-файлами>"  ^
   --result-file "<имя master-flat файла>"
@@ -39,7 +39,7 @@ astro_utils.exe                           ^
 
 ## Регистрация снимков с сохранением краткой информации о каждом снимке
 ```
-astro_utils.exe                           ^
+electra_stacking.exe                           ^
   register                                ^
   --master-dark "<имя master-dark файла>" ^
   --master-flat "<имя master-flat файла>" ^
@@ -50,14 +50,14 @@ astro_utils.exe                           ^
 Неудачные фото будут удалены в подкаталог `bad`
 Удаление фото со смазом:
 ```
-astro_utils.exe                     ^
+electra_stacking.exe                     ^
   cleanup                           ^
   --path "<папка с light-файлами>"  ^
   --mode StarsRDev
 ```
 Удаление фото с дымкой:
 ```
-astro_utils.exe                     ^
+electra_stacking.exe                     ^
   cleanup                           ^
   --path "<папка с light-файлами>"  ^
   --mode Background
@@ -66,7 +66,7 @@ astro_utils.exe                     ^
 ## Сложение снимков в один результирующий файл
 Для сложения требуется указать один референсный light-файл. В качестве такого файла лучше всего выбирать файл без смазов, метеоров, спутников, облаков и других нежелательных объектов
 ```
-astro_utils.exe                                    ^
+electra_stacking.exe                                    ^
   stack-lights                                     ^
   --master-dark "<имя master-dark файла>"          ^
   --master-flat "<имя master-flat файла>"          ^
@@ -77,34 +77,34 @@ astro_utils.exe                                    ^
 
 ## Пример команд для всего цикла обработки
 ```
-astro_utils.exe                                ^
+electra_stacking.exe                                ^
   --log-path    logs                           ^
   master-dark                                  ^
   --path        "darks-iso-800-16s"            ^
   --result-file "master-files\master_dark.raw" ^
   --mode        CappaSigma
 
-astro_utils.exe                                ^
+electra_stacking.exe                                ^
   --log-path    logs                           ^
   master-flat                                  ^
   --path        "flats"                        ^
   --result-file "master-files\master_flat.raw" ^
   --mode        CappaSigma
 
-astro_utils.exe                                ^
+electra_stacking.exe                                ^
   --log-path    logs                           ^
   register                                     ^
   --master-dark "master-files\master_dark.raw" ^
   --master-flat "master-files\master_flat.raw" ^
   --path        "lights-iso-800-f4.0-16s"
 
-astro_utils.exe                        ^
+electra_stacking.exe                        ^
   --log-path logs                      ^
     cleanup                            ^
   --mode     StarsRDev                 ^
   --path     "lights-iso-800-f4.0-16s" ^
 
-astro_utils.exe                                        ^
+electra_stacking.exe                                   ^
   --log-path    "logs"                                 ^
   stack-lights                                         ^
   --master-dark "master-files\master_dark.raw"         ^

@@ -15,7 +15,7 @@ use gtk::{
 };
 
 use itertools::*;
-use astro_utils::{
+use electra_stacking::{
     image_formats::*,
     image_raw::*,
     stacking_utils::*,
@@ -1125,11 +1125,10 @@ fn get_project_title(project: &Project) -> String {
 fn update_project_name_and_time_in_gui(objects: &MainWindowObjectsPtr, title: bool, tree: bool) {
     if title {
         objects.window.set_title(&format!(
-            "[{}] - {} v{} - {}",
+            "[{}] - {} v{}",
             get_project_title(&objects.project.borrow()),
-            env!("CARGO_PKG_NAME"),
-            env!("CARGO_PKG_VERSION"),
             env!("CARGO_PKG_DESCRIPTION"),
+            env!("CARGO_PKG_VERSION"),
         ));
     }
 

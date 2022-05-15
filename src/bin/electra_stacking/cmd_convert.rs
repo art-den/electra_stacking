@@ -1,6 +1,6 @@
 use std::path::*;
 use structopt::*;
-use astro_utils::image_formats::*;
+use electra_stacking::image_formats::*;
 
 #[derive(StructOpt, Debug)]
 pub struct CmdOptions {
