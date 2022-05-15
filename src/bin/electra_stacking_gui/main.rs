@@ -206,7 +206,6 @@ fn build_ui(application: &gtk::Application) {
         preview_file_name,
         preview_ctrls_box,
         preview_scroll_pos: RefCell::new(None),
-        last_selected_path: RefCell::new(PathBuf::new()),
         move_to_group_last_uuid: RefCell::new(String::new()),
     });
 
@@ -513,7 +512,6 @@ struct MainWindowObjects {
     icon_ref_image: Option<gdk_pixbuf::Pixbuf>,
 
     cancel_flag: Arc<AtomicBool>,
-    last_selected_path: RefCell<PathBuf>,
     move_to_group_last_uuid: RefCell<String>,
 }
 
@@ -736,7 +734,7 @@ fn action_open_project(objects: &MainWindowObjectsPtr) {
         .transient_for(&objects.window)
         .build();
 
-    fc.set_current_folder(objects.last_selected_path.borrow().clone());
+    fc.set_current_folder(objects.config.borrow().last_path.clone());
 
     if cfg!(target_os = "windows") {
         fc.add_buttons(&[
@@ -756,7 +754,7 @@ fn action_open_project(objects: &MainWindowObjectsPtr) {
             let path = file_name.path().unwrap();
 
             if let Some(cur_folder) = file_chooser.current_folder() {
-                *objects.last_selected_path.borrow_mut() = cur_folder;
+                objects.config.borrow_mut().last_path = cur_folder;
             }
 
             open_project(&objects, &path);
@@ -813,6 +811,8 @@ fn action_save_project_as(objects: &MainWindowObjectsPtr) {
 
     if let Some(file_name) = objects.project.borrow().file_name.clone() {
         let _ = fc.set_file(&gio::File::for_path(file_name));
+    } else {
+        fc.set_current_folder(objects.config.borrow().last_path.clone());
     }
 
     let resp = fc.run();
@@ -831,7 +831,7 @@ fn action_save_project_as(objects: &MainWindowObjectsPtr) {
             .to_string();
 
         if let Some(cur_folder) = fc.current_folder() {
-            *objects.last_selected_path.borrow_mut() = cur_folder;
+            objects.config.borrow_mut().last_path = cur_folder;
         }
 
         objects.project.borrow_mut().config.name = Some(project_name);
@@ -926,7 +926,7 @@ fn select_and_add_files_into_project(
                 );
             }
             if let Some(cur_folder) = file_chooser.current_folder() {
-                *objects.last_selected_path.borrow_mut() = cur_folder;
+                objects.config.borrow_mut().last_path = cur_folder;
             }
         }
         file_chooser.close();
@@ -1006,7 +1006,7 @@ fn create_src_file_select_dialog(
         .select_multiple(true)
         .build();
 
-    fc.set_current_folder(objects.last_selected_path.borrow().clone());
+    fc.set_current_folder(objects.config.borrow().last_path.clone());
 
     if cfg!(target_os = "windows") {
         fc.add_buttons(&[

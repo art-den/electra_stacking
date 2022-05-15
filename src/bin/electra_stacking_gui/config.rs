@@ -58,6 +58,7 @@ pub struct Config {
     pub preview_gamma: f32,
     pub prj_tree_cols: Vec<PrjTreeCol>,
     pub cpu_load: CpuLoad,
+    pub last_path: PathBuf,
 }
 
 impl Default for Config {
@@ -74,6 +75,7 @@ impl Default for Config {
             preview_auto_wb: true,
             preview_gamma: 4.0,
             cpu_load: CpuLoad::HalfCPUs,
+            last_path: PathBuf::new(),
         }
     }
 }
