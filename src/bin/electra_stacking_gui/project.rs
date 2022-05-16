@@ -230,6 +230,9 @@ impl Project {
 
         for (idx, group) in self.groups.iter().enumerate() {
             if cancel_flag.load(Ordering::Relaxed) { anyhow::bail!("Termimated") }
+            if !group.used {
+                continue;
+            }
 
             progress.lock().unwrap().stage("Loading reference image...");
 
@@ -253,7 +256,12 @@ impl Project {
             )?;
         }
 
-        if cancel_flag.load(Ordering::Relaxed) { anyhow::bail!("Termimated") }
+        if cancel_flag.load(Ordering::Relaxed) {
+            anyhow::bail!("Termimated")
+        }
+        if temp_file_names.lock().unwrap().is_empty() {
+            anyhow::bail!("No light files to stack");
+        }
 
         // stacking all temporary light files into result image
 
@@ -284,7 +292,6 @@ impl Project {
                 return Some(group);
             }
         }
-
         None
     }
 
