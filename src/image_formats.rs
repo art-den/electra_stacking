@@ -350,7 +350,7 @@ fn write_exif_into_tiff<W: Write + Seek, K: TiffKind>(
         format!(
             "{} v{}",
             env!("CARGO_PKG_NAME"),
-            env!("CARGO_PKG_DESCRIPTION")
+            env!("CARGO_PKG_VERSION")
         ).as_str()
     )?;
 
