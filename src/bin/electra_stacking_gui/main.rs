@@ -13,7 +13,7 @@ use gtk::{
     glib::{MainContext, PRIORITY_DEFAULT, clone},
     glib,
 };
-
+use gettextrs::*;
 use itertools::*;
 use electra_stacking::{
     image_formats::*,
@@ -29,6 +29,16 @@ use electra_stacking::{
 use crate::{config::*, project::*};
 
 fn main() -> anyhow::Result<()> {
+    // localization
+    let locale_path = std::env::current_exe()?
+        .parent().ok_or_else(|| anyhow::anyhow!("Can't get path parent"))?
+        .to_path_buf()
+        .join("locale");
+
+    setlocale(LocaleCategory::LcAll, "");
+    bindtextdomain("electra_stacking_gui", locale_path.to_str().unwrap_or(""))?;
+    textdomain("electra_stacking_gui")?;
+
     // logger
     let mut log_dir = get_app_conf_dir(true)?;
     log_dir.push("logs");
@@ -47,7 +57,7 @@ fn main() -> anyhow::Result<()> {
 
     // build gui
     let application = gtk::Application::new(
-        Some("com.github.electra-stacking"),
+        Some("com.github.art-den.electra-stacking"),
         Default::default(),
     );
     application.connect_activate(build_ui);
@@ -128,7 +138,7 @@ fn build_ui(application: &gtk::Application) {
         if col_name.is_empty() { continue; }
         let cell_text = gtk::CellRendererText::new();
         let col = gtk::TreeViewColumn::builder()
-            .title(col_name)
+            .title(&col_name)
             .resizable(true)
             .clickable(true)
             .build();
@@ -800,13 +810,13 @@ fn action_save_project_as(objects: &MainWindowObjectsPtr) {
 
     if cfg!(target_os = "windows") {
         fc.add_buttons(&[
-            ("_Save", gtk::ResponseType::Accept),
-            ("_Cancel", gtk::ResponseType::Cancel),
+            (&gettext("_Save"), gtk::ResponseType::Accept),
+            (&gettext("_Cancel"), gtk::ResponseType::Cancel),
         ]);
     } else {
         fc.add_buttons(&[
-            ("_Cancel", gtk::ResponseType::Cancel),
-            ("_Save", gtk::ResponseType::Accept),
+            (&gettext("_Cancel"), gtk::ResponseType::Cancel),
+            (&gettext("_Save"), gtk::ResponseType::Accept),
         ]);
     }
 
@@ -866,8 +876,8 @@ fn action_add_light_files(objects: &MainWindowObjectsPtr) {
     select_and_add_files_into_project(
         objects,
         ProjectFileType::Light,
-        "Select LIGHT files",
-        "Add light files",
+        gettext("Select LIGHT files"),
+        gettext("Add light files"),
     );
 }
 
@@ -875,8 +885,8 @@ fn action_add_dark_files(objects: &MainWindowObjectsPtr) {
     select_and_add_files_into_project(
         objects,
         ProjectFileType::Dark,
-        "Select DARK files",
-        "Add dark files",
+        gettext("Select DARK files"),
+        gettext("Add dark files"),
     );
 }
 
@@ -884,8 +894,8 @@ fn action_add_flat_files(objects: &MainWindowObjectsPtr) {
     select_and_add_files_into_project(
         objects,
         ProjectFileType::Flat,
-        "Select FLAT files",
-        "Add flat files",
+        gettext("Select FLAT files"),
+        gettext("Add flat files"),
     );
 }
 
@@ -893,21 +903,21 @@ fn action_add_bias_files(objects: &MainWindowObjectsPtr) {
     select_and_add_files_into_project(
         objects,
         ProjectFileType::Bias,
-        "Select BIAS files",
-        "Add bias files",
+        gettext("Select BIAS files"),
+        gettext("Add bias files"),
     );
 }
 
 fn select_and_add_files_into_project(
     objects:          &MainWindowObjectsPtr,
     file_type:        ProjectFileType,
-    files_dialog_cap: &'static str,
-    select_group_cap: &'static str,
+    files_dialog_cap: String,
+    select_group_cap: String,
 ) {
     let fc = create_src_file_select_dialog(files_dialog_cap, objects, true);
     fc.connect_response(clone!(@strong objects => move |file_chooser, response| {
         if response == gtk::ResponseType::Accept {
-            let group_index = get_active_group_index(&objects, select_group_cap).
+            let group_index = get_active_group_index(&objects, &select_group_cap).
                 or_else(|| {
                     if objects.project.borrow().groups.is_empty() {
                         Some(0)
@@ -979,7 +989,7 @@ fn create_file_filter_for_project() -> gtk::FileFilter {
 }
 
 fn create_src_file_select_dialog(
-    title:       &str,
+    title:       String,
     objects:     &MainWindowObjectsPtr,
     light_files: bool
 ) -> gtk::FileChooserDialog {
@@ -1000,7 +1010,7 @@ fn create_src_file_select_dialog(
     }
     let fc = FileChooserDialogBuilder::new()
         .action(gtk::FileChooserAction::Open)
-        .title(title)
+        .title(&title)
         .filter(&ff)
         .modal(true)
         .transient_for(&objects.window)
@@ -1091,7 +1101,7 @@ fn show_error_message(text: &str, objects: &MainWindowObjects) {
     log::error!("Show error message: {}", text);
     show_message(
         objects,
-        "Error",
+        &gettext("Error"),
         text,
         gtk::MessageType::Error,
     );
@@ -1106,7 +1116,7 @@ fn fill_project_tree(objects: &MainWindowObjectsPtr) {
 fn get_project_title(project: &Project) -> String {
     let mut result = project.config.name
         .clone()
-        .unwrap_or("Unnamed project".to_string());
+        .unwrap_or(gettext("Unnamed project"));
 
     if project.config.image_size == ImageSize::Bin2x2 {
         result.push_str(" - bin 2x2");
@@ -1125,10 +1135,18 @@ fn get_project_title(project: &Project) -> String {
 
 fn update_project_name_and_time_in_gui(objects: &MainWindowObjectsPtr, title: bool, tree: bool) {
     if title {
+        let app_descr_text = {
+            let transl_descr = gettext("APP_DESCRIPTION");
+            if transl_descr == "APP_DESCRIPTION" {
+                env!("CARGO_PKG_DESCRIPTION").to_string()
+            } else {
+                transl_descr
+            }
+        };
         objects.window.set_title(&format!(
-            "[{}] - {} v{}",
+            "[{}] - Electra - {} v{}",
             get_project_title(&objects.project.borrow()),
-            env!("CARGO_PKG_DESCRIPTION"),
+            app_descr_text,
             env!("CARGO_PKG_VERSION"),
         ));
     }
@@ -1176,34 +1194,35 @@ const COLUMN_FWHM:            u32 = 22;
 const COLUMN_STARS_R_DEV:     u32 = 23;
 const COLUMN_SHARPNESS:       u32 = 24;
 
-fn get_prj_tree_store_columns() -> [(&'static str, u32, u32, glib::Type); 25] {
+fn get_prj_tree_store_columns() -> [(String, u32, u32, glib::Type); 25] {
+    const EMPT: String = String::new();
     [
-        // Column name in tree | Model column          | Sort model column | Model column type
-        ("Project/File name",    COLUMN_FILE_NAME,       COLUMN_FILE_NAME,   String::static_type()),
-        ("File path",            COLUMN_FILE_PATH,       COLUMN_FILE_PATH,   String::static_type()),
-        ("File time",            COLUMN_FILE_TIME,       COLUMN_FILE_TIME,   String::static_type()),
-        ("Dimensions",           COLUMN_DIM,             COLUMN_DIM,         String::static_type()),
-        ("Camera",               COLUMN_CAMERA,          COLUMN_CAMERA,      String::static_type()),
-        ("ISO",                  COLUMN_ISO_STR,         COLUMN_ISO,         String::static_type()),
-        ("Exposure",             COLUMN_EXP_STR,         COLUMN_EXP,         String::static_type()),
-        ("FNumber",              COLUMN_FNUMBER,         COLUMN_FNUMBER,     String::static_type()),
-        ("Noise",                COLUMN_NOISE_STR,       COLUMN_NOISE,       String::static_type()),
-        ("Background",           COLUMN_BG_STR,          COLUMN_BG,          String::static_type()),
-        ("Stars",                COLUMN_STARS_STR,       COLUMN_STARS,       String::static_type()),
-        ("FWHM",                 COLUMN_FWHM_STR,        COLUMN_FWHM,        String::static_type()),
-        ("Stars R dev.",         COLUMN_STARS_R_DEV_STR, COLUMN_STARS_R_DEV, String::static_type()),
-        ("Sharpness",            COLUMN_SHARPNESS_STR,   COLUMN_SHARPNESS,   String::static_type()),
-        ("",                     COLUMN_ICON,            0,                  gdk_pixbuf::Pixbuf::static_type()),
-        ("",                     COLUMN_CHECKBOX,        0,                  bool::static_type()),
-        ("",                     COLUMN_CHECKBOX_VIS,    0,                  bool::static_type()),
-        ("",                     COLUMN_ISO,             0,                  u32::static_type()),
-        ("",                     COLUMN_EXP,             0,                  f32::static_type()),
-        ("",                     COLUMN_NOISE,           0,                  f32::static_type()),
-        ("",                     COLUMN_BG,              0,                  f32::static_type()),
-        ("",                     COLUMN_STARS,           0,                  u32::static_type()),
-        ("",                     COLUMN_FWHM,            0,                  f32::static_type()),
-        ("",                     COLUMN_STARS_R_DEV,     0,                  f32::static_type()),
-        ("",                     COLUMN_SHARPNESS,       0,                  f32::static_type()),
+        // Column name in tree       | Model column          | Sort model column | Model column type
+        (gettext("Project/File name"), COLUMN_FILE_NAME,       COLUMN_FILE_NAME,   String::static_type()),
+        (gettext("File path"),         COLUMN_FILE_PATH,       COLUMN_FILE_PATH,   String::static_type()),
+        (gettext("File time"),         COLUMN_FILE_TIME,       COLUMN_FILE_TIME,   String::static_type()),
+        (gettext("Dimensions"),        COLUMN_DIM,             COLUMN_DIM,         String::static_type()),
+        (gettext("Camera"),            COLUMN_CAMERA,          COLUMN_CAMERA,      String::static_type()),
+        (gettext("ISO"),               COLUMN_ISO_STR,         COLUMN_ISO,         String::static_type()),
+        (gettext("Exposure"),          COLUMN_EXP_STR,         COLUMN_EXP,         String::static_type()),
+        (gettext("FNumber"),           COLUMN_FNUMBER,         COLUMN_FNUMBER,     String::static_type()),
+        (gettext("Noise"),             COLUMN_NOISE_STR,       COLUMN_NOISE,       String::static_type()),
+        (gettext("Background"),        COLUMN_BG_STR,          COLUMN_BG,          String::static_type()),
+        (gettext("Stars"),             COLUMN_STARS_STR,       COLUMN_STARS,       String::static_type()),
+        (gettext("FWHM"),              COLUMN_FWHM_STR,        COLUMN_FWHM,        String::static_type()),
+        (gettext("Stars R dev."),      COLUMN_STARS_R_DEV_STR, COLUMN_STARS_R_DEV, String::static_type()),
+        (gettext("Sharpness"),         COLUMN_SHARPNESS_STR,   COLUMN_SHARPNESS,   String::static_type()),
+        (EMPT,                         COLUMN_ICON,            0,                  gdk_pixbuf::Pixbuf::static_type()),
+        (EMPT,                         COLUMN_CHECKBOX,        0,                  bool::static_type()),
+        (EMPT,                         COLUMN_CHECKBOX_VIS,    0,                  bool::static_type()),
+        (EMPT,                         COLUMN_ISO,             0,                  u32::static_type()),
+        (EMPT,                         COLUMN_EXP,             0,                  f32::static_type()),
+        (EMPT,                         COLUMN_NOISE,           0,                  f32::static_type()),
+        (EMPT,                         COLUMN_BG,              0,                  f32::static_type()),
+        (EMPT,                         COLUMN_STARS,           0,                  u32::static_type()),
+        (EMPT,                         COLUMN_FWHM,            0,                  f32::static_type()),
+        (EMPT,                         COLUMN_STARS_R_DEV,     0,                  f32::static_type()),
+        (EMPT,                         COLUMN_SHARPNESS,       0,                  f32::static_type()),
     ]
 }
 
@@ -1340,22 +1359,24 @@ impl TreeViewFillHelper {
             };
 
             let data_to_update = &[
-                ("Light files", &project_group.light_files, &prev_group.light_names, true),
-                ("Dark files",  &project_group.dark_files,  &prev_group.dark_names,  true),
-                ("Flat files",  &project_group.flat_files,  &prev_group.flat_names,  false),
-                ("Bias files",  &project_group.bias_files,  &prev_group.bias_names,  false),
+                (gettext("Light files"), &project_group.light_files, &prev_group.light_names, true),
+                (gettext("Dark files"),  &project_group.dark_files,  &prev_group.dark_names,  true),
+                (gettext("Flat files"),  &project_group.flat_files,  &prev_group.flat_names,  false),
+                (gettext("Bias files"),  &project_group.bias_files,  &prev_group.bias_names,  false),
             ];
 
-            for (idx, (folder_name, project_files, prev_files, show_total_time)) in data_to_update.iter().cloned().enumerate() {
-                let files_iter = if let Some(iter) = tree_store.iter_nth_child(Some(&group_iter), idx as i32) {
-                    iter
-                } else {
-                    tree_store.insert_with_values(
-                        Some(&group_iter),
-                        None,
-                        &[(COLUMN_ICON, &objects.icon_folder)]
-                    )
-                };
+            for (idx, (folder_name, project_files, prev_files, show_total_time))
+            in data_to_update.iter().cloned().enumerate() {
+                let files_iter =
+                    if let Some(iter) = tree_store.iter_nth_child(Some(&group_iter), idx as i32) {
+                        iter
+                    } else {
+                        tree_store.insert_with_values(
+                            Some(&group_iter),
+                            None,
+                            &[(COLUMN_ICON, &objects.icon_folder)]
+                        )
+                    };
 
                 if update_files {
                     // add/update files
@@ -1868,7 +1889,7 @@ fn action_new_group(objects: &MainWindowObjectsPtr) {
     let def_group_options = GroupOptions::default();
     let dialog = group_options_dialog(
         objects,
-        "Add new group",
+        gettext("Add new group"),
         def_group_options,
         clone!(@strong objects => move |group_options| {
             let helper = TreeViewFillHelper::new(&objects.project.borrow());
@@ -1979,7 +2000,7 @@ fn action_item_properties(objects: &MainWindowObjectsPtr) {
         } => {
             let dialog = group_options_dialog(
                 objects,
-                "Group properties",
+                gettext("Group properties"),
                 objects.project.borrow().groups[group_idx].options.clone(),
                 clone!(@strong objects => move |new_options| {
                     let helper = TreeViewFillHelper::new(&objects.project.borrow());
@@ -2006,7 +2027,7 @@ fn action_item_properties(objects: &MainWindowObjectsPtr) {
 
 fn group_options_dialog<F: Fn(GroupOptions) + 'static>(
     objects:       &MainWindowObjectsPtr,
-    title:         &str,
+    title:         String,
     group_options: GroupOptions,
     fun:           F
 ) -> gtk::Dialog {
@@ -2016,18 +2037,18 @@ fn group_options_dialog<F: Fn(GroupOptions) + 'static>(
     let rb_custom_name  = builder.object::<gtk::RadioButton>("rb_custom_name").unwrap();
     let e_name          = builder.object::<gtk::Entry>("e_name").unwrap();
 
-    dialog.set_title(title);
+    dialog.set_title(&title);
     dialog.set_transient_for(Some(&objects.window));
 
     if cfg!(target_os = "windows") {
         dialog.add_buttons(&[
-            ("Ok", gtk::ResponseType::Ok),
-            ("Cancel", gtk::ResponseType::Cancel),
+            (&gettext("_Ok"), gtk::ResponseType::Ok),
+            (&gettext("_Cancel"), gtk::ResponseType::Cancel),
         ]);
     } else {
         dialog.add_buttons(&[
-            ("Cancel", gtk::ResponseType::Cancel),
-            ("Ok", gtk::ResponseType::Ok),
+            (&gettext("_Cancel"), gtk::ResponseType::Cancel),
+            (&gettext("_Ok"), gtk::ResponseType::Ok),
         ]);
     }
 
@@ -2156,8 +2177,8 @@ fn configure_project_options<F: Fn(ProjectConfig) + 'static>(
 
     let show_calc_opts = |opts: &CalcOpts, mode: &gtk::ComboBoxText, kappa: &gtk::Entry, steps: &gtk::Entry| {
         mode.append_text("Kappa-Sigma clipping");
-        mode.append_text("Median");
-        mode.append_text("Mean");
+        mode.append_text(&gettext("Median"));
+        mode.append_text(&gettext("Mean"));
 
         mode.set_active(Some(match opts.mode {
             CalcMode::CappaSigma => 0,
@@ -2180,18 +2201,17 @@ fn configure_project_options<F: Fn(ProjectConfig) + 'static>(
     show_calc_opts(&project_config.flat_calc_opts, &flats_stack_mode, &flats_stack_kappa, &flats_stack_steps);
     show_calc_opts(&project_config.bias_calc_opts, &bias_stack_mode, &bias_stack_kappa, &bias_stack_steps);
 
-    dialog.set_title("Project options");
     dialog.set_transient_for(Some(&objects.window));
 
     if cfg!(target_os = "windows") {
         dialog.add_buttons(&[
-            ("_Ok", gtk::ResponseType::Ok),
-            ("_Cancel", gtk::ResponseType::Cancel),
+            (&gettext("_Ok"), gtk::ResponseType::Ok),
+            (&gettext("_Cancel"), gtk::ResponseType::Cancel),
         ]);
     } else {
         dialog.add_buttons(&[
-            ("_Cancel", gtk::ResponseType::Cancel),
-            ("_Ok", gtk::ResponseType::Ok),
+            (&gettext("_Cancel"), gtk::ResponseType::Cancel),
+            (&gettext("_Ok"), gtk::ResponseType::Ok),
         ]);
     }
 
@@ -2240,7 +2260,10 @@ fn configure_project_options<F: Fn(ProjectConfig) + 'static>(
 
 fn action_cleanup_light_files(objects: &MainWindowObjectsPtr) {
     if !objects.project.borrow().can_exec_cleanup() {
-        show_error_message("You have execute register light files first!", objects);
+        show_error_message(
+            &gettext("You have execute register light files first!"),
+            objects
+        );
         return;
     }
 
@@ -2290,13 +2313,13 @@ fn action_cleanup_light_files(objects: &MainWindowObjectsPtr) {
     dialog.set_transient_for(Some(&objects.window));
     if cfg!(target_os = "windows") {
         dialog.add_buttons(&[
-            ("_Cleanup", gtk::ResponseType::Ok),
-            ("_Close", gtk::ResponseType::Cancel),
+            (&gettext("_Cleanup"), gtk::ResponseType::Ok),
+            (&gettext("_Close"), gtk::ResponseType::Cancel),
         ]);
     } else {
         dialog.add_buttons(&[
-            ("_Close", gtk::ResponseType::Cancel),
-            ("_Cleanup", gtk::ResponseType::Ok),
+            (&gettext("_Close"), gtk::ResponseType::Cancel),
+            (&gettext("_Cleanup"), gtk::ResponseType::Ok),
         ]);
     }
 
@@ -2339,7 +2362,7 @@ fn action_cleanup_light_files(objects: &MainWindowObjectsPtr) {
                 Ok(cleaned_up_count) => {
                     show_message(
                         &objects,
-                        "Cleanup light files result",
+                        &gettext("Cleanup light files result"),
                         &format!("Cleaned up {} files", cleaned_up_count),
                         gtk::MessageType::Info,
                     );
@@ -2361,7 +2384,7 @@ fn action_stack(objects: &MainWindowObjectsPtr) {
         CanExecStackLightsRes::Ok => (),
         CanExecStackLightsRes::NoRefFile => {
             show_error_message(
-                "Reference image is not defined",
+                &gettext("Reference image is not defined"),
                 objects
             );
             return;
@@ -2381,7 +2404,7 @@ fn action_stack(objects: &MainWindowObjectsPtr) {
             preview_image_file(&objects, &result.file_name);
             show_message(
                 objects,
-                "Finished",
+                &gettext("Finished"),
                 &format!("Result file saved to {}", result.file_name.to_str().unwrap_or("")),
                 gtk::MessageType::Info,
             )
@@ -2527,13 +2550,13 @@ fn change_selected_files_type(
 
     if cfg!(target_os = "windows") {
         dialog.add_buttons(&[
-            ("Yes", gtk::ResponseType::Yes),
-            ("No", gtk::ResponseType::No),
+            (&gettext("_Yes"), gtk::ResponseType::Yes),
+            (&gettext("_No"), gtk::ResponseType::No),
         ]);
     } else {
         dialog.add_buttons(&[
-            ("No", gtk::ResponseType::No),
-            ("Yes", gtk::ResponseType::Yes),
+            (&gettext("_No"), gtk::ResponseType::No),
+            (&gettext("_Yes"), gtk::ResponseType::Yes),
         ]);
     }
 
@@ -2575,13 +2598,13 @@ fn action_move_file_to_group(objects: &MainWindowObjectsPtr) {
     dialog.set_transient_for(Some(&objects.window));
     if cfg!(target_os = "windows") {
         dialog.add_buttons(&[
-            ("_Ok", gtk::ResponseType::Ok),
-            ("_Cancel", gtk::ResponseType::Cancel),
+            (&gettext("_Ok"), gtk::ResponseType::Ok),
+            (&gettext("_Cancel"), gtk::ResponseType::Cancel),
         ]);
     } else {
         dialog.add_buttons(&[
-            ("_Cancel", gtk::ResponseType::Cancel),
-            ("_Ok", gtk::ResponseType::Ok),
+            (&gettext("_Cancel"), gtk::ResponseType::Cancel),
+            (&gettext("_Ok"), gtk::ResponseType::Ok),
         ]);
     }
 
@@ -2713,9 +2736,13 @@ fn action_about(objects: &MainWindowObjectsPtr) {
     let image = builder.object::<gtk::Image>("image").unwrap();
     let btn_close = builder.object::<gtk::Button>("btn_close").unwrap();
     let l_version = builder.object::<gtk::Label>("l_version").unwrap();
+    let l_app_descr = builder.object::<gtk::Label>("l_app_descr").unwrap();
     let logo_image = gdk_pixbuf::Pixbuf::from_read(include_bytes!(
         r"ui/electra_128x128.png"
     ).as_slice()).unwrap();
+    if l_app_descr.label() == "APP_DESCRIPTION" {
+        l_app_descr.set_label(env!("CARGO_PKG_DESCRIPTION"))
+    }
     image.set_pixbuf(Some(&logo_image));
     l_version.set_label(&format!("v{}", env!("CARGO_PKG_VERSION")));
     dialog.set_transient_for(Some(&objects.window));

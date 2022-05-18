@@ -60,7 +60,7 @@
             </child>
             <child>
               <object class="GtkCheckButton" id="chb_stars_radius">
-                <property name="label" translatable="yes">Stars average radius</property>
+                <property name="label" translatable="yes">By stars average radius (FWHM)</property>
                 <property name="visible">True</property>
                 <property name="can-focus">True</property>
                 <property name="receives-default">False</property>
@@ -95,7 +95,7 @@
             </child>
             <child>
               <object class="GtkCheckButton" id="chb_img_sharpness">
-                <property name="label" translatable="yes">Image sharpness</property>
+                <property name="label" translatable="yes">By image sharpness</property>
                 <property name="visible">True</property>
                 <property name="can-focus">True</property>
                 <property name="receives-default">False</property>
@@ -141,7 +141,7 @@
             </child>
             <child>
               <object class="GtkCheckButton" id="chb_noise">
-                <property name="label" translatable="yes">Noise</property>
+                <property name="label" translatable="yes">By noise</property>
                 <property name="visible">True</property>
                 <property name="can-focus">True</property>
                 <property name="receives-default">False</property>
@@ -187,7 +187,7 @@
             </child>
             <child>
               <object class="GtkCheckButton" id="chb_bg">
-                <property name="label" translatable="yes">Background</property>
+                <property name="label" translatable="yes">By background</property>
                 <property name="visible">True</property>
                 <property name="can-focus">True</property>
                 <property name="receives-default">False</property>

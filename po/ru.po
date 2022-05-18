@@ -1,0 +1,440 @@
+###########################################################
+
+# Description
+
+msgid "APP_DESCRIPTION"
+msgstr "Программа для сложения серии астрофотографий"
+
+###########################################################
+
+# Project tree columns
+
+msgid "Project/File name"
+msgstr "Проект/Файл"
+
+msgid "File path"
+msgstr "Путь"
+
+msgid "File time"
+msgstr "Время"
+
+msgid "Dimensions"
+msgstr "Разрешение"
+
+msgid "Camera"
+msgstr "Камера"
+
+msgid "ISO"
+msgstr "ISO"
+
+msgid "Exposure"
+msgstr "Выдержка"
+
+msgid "FNumber"
+msgstr "Диафрагма"
+
+msgid "Noise"
+msgstr "Шум"
+
+msgid "Background"
+msgstr "Фон"
+
+msgid "Stars"
+msgstr "Кол. звёзд"
+
+msgid "FWHM"
+msgstr "Рад. звёзд"
+
+msgid "Stars R dev."
+msgstr "Stars R dev."
+
+msgid "Sharpness"
+msgstr "Резкость"
+
+# Project tree values
+
+msgid "Unnamed project"
+msgstr "Безымянный проект"
+
+msgid "Main group"
+msgstr "Главная группа"
+
+msgid "Group"
+msgstr "Группа"
+
+msgid "Light files"
+msgstr "Файлы изображения (light)"
+
+msgid "Dark files"
+msgstr "Темновые файлы (dark)"
+
+msgid "Flat files"
+msgstr "Файлы плоского поля (flat)"
+
+msgid "Bias files"
+msgstr "Файлы смещения (bias)"
+
+###########################################################
+
+# Standard dialog buttons and captions
+
+msgid "_Save"
+msgstr "_Сохранить"
+
+msgid "_Open"
+msgstr "Открыть"
+
+msgid "_Cancel"
+msgstr "Отменить"
+
+msgid "_Close"
+msgstr "Закрыть"
+
+msgid "_Yes"
+msgstr "Да"
+
+msgid "_No"
+msgstr "Нет"
+
+###########################################################
+
+# Main window menu
+
+msgid "Project"
+msgstr "Проект"
+
+msgid "New project"
+msgstr "Новый проект"
+
+msgid "Open project..."
+msgstr "Открыть проект..."
+
+msgid "Open recent"
+msgstr "Предыдущие проекты"
+
+msgid "Save project"
+msgstr "Сохранить проект"
+
+msgid "Save project as..."
+msgstr "Сохранить проект как..."
+
+msgid "Exit"
+msgstr "Выход"
+
+###
+
+msgid "Processing"
+msgstr "Обработка"
+
+msgid "Add light files..."
+msgstr "Добавить файлы изображения (light)..."
+
+msgid "Add dark files..."
+msgstr "Добавить темновые файлы (dark)..."
+
+msgid "Add flat files..."
+msgstr "Добавить файлы поля (flat)..."
+
+msgid "Add bias files..."
+msgstr "Добавить файлы смещения (bias)..."
+
+msgid "Add new group..."
+msgstr "Новая группа"
+
+msgid "Register light files"
+msgstr "Зарегистрировать файлы изображения"
+
+msgid "Cleanup light files..."
+msgstr "Отключить неудачные файлы изображения"
+
+msgid "Stack light files"
+msgstr "Сложить файлы изображения"
+
+###
+
+msgid "Configuration"
+msgstr "Настройки"
+
+msgid "Project configuration..."
+msgstr "Настройки проекта..."
+
+msgid "Theme"
+msgstr "Тема оформления"
+
+msgid "Dark theme"
+msgstr "Тёмная"
+
+msgid "Light theme"
+msgstr "Светлая"
+
+msgid "CPU load"
+msgstr "Нагрузка на ЦПУ"
+
+msgid "Minimal"
+msgstr "Минимальная"
+
+msgid "Half"
+msgstr "Средняя"
+
+msgid "Maximal"
+msgstr "Максимальная"
+
+###
+
+msgid "Help"
+msgstr "Помощь"
+
+msgid "About..."
+msgstr "О программе..."
+
+# Project popup menu
+
+msgid "Use as reference image"
+msgstr "Использовать как опорный кадр"
+
+msgid "Change file(s) type"
+msgstr "Сменить тип файлов"
+
+msgid "Into light file(s)"
+msgstr "На файлы изображения (light)"
+
+msgid "Into dark file(s)"
+msgstr "На темновые файлы (dark)"
+
+msgid "Into flat file(s)"
+msgstr "На кадры поля (light)"
+
+msgid "Into bias file(s)"
+msgstr "На кадры смещения (bias)"
+
+msgid "Move file(s) to group..."
+msgstr "Переместить файлы в группу"
+
+msgid "Check all file(s)"
+msgstr "Отметить все файлы"
+
+msgid "Uncheck all file(s)"
+msgstr "Снять отметку со всех файлов"
+
+msgid "Check selected file(s)"
+msgstr "Отметить выбранные файлы"
+
+msgid "Uncheck selected file(s)"
+msgstr "Убрать отметку с выбранных файлов"
+
+msgid "Remove item(s)..."
+msgstr "Убрать из проекта..."
+
+msgid "Item properties..."
+msgstr "Свойства..."
+
+# Main window widgets
+
+msgid "Scale:"
+msgstr "Размер:"
+
+msgid "Fit in window"
+msgstr "По размеру окна"
+
+msgid "Gamma:"
+msgstr "Гамма:"
+
+msgid "Auto minimum"
+msgstr "Авто минимум"
+
+msgid "Auto WB"
+msgstr "Авто ББ"
+
+msgid "Cancel"
+msgstr "Отмена"
+
+###########################################################
+
+# Messages
+
+msgid "Error"
+msgstr "Ошибка"
+
+msgid "Finished"
+msgstr "Завершено"
+
+msgid "Reference image is not defined"
+msgstr "Не задан опорный кадр"
+
+msgid "You have execute register light files first!"
+msgstr "Вы должны выполнить регистрацию файлов изображения вначале!"
+
+msgid "Loading reference image..."
+msgstr "Загружается опорное изображение..."
+
+msgid "Can't find group with reference image"
+msgstr "Не могу найти группу с опрным кадром"
+
+msgid "Termimated"
+msgstr "Прервано"
+
+msgid "No light files to stack"
+msgstr "Нету файлов изображения для сложения"
+
+msgid "Stacking all images into result image file..."
+msgstr "Складываю все изображения в конечный файл..."
+
+msgid "You have to save project before"
+msgstr "Вы должны сохранить проект вначале"
+
+msgid "Loading calibration master files..."
+msgstr "Загрузка калибровочных файлов..."
+
+msgid "Conditions are too strict"
+msgstr "Условия слишком жёсткие"
+
+###########################################################
+
+# Project options Dialog
+
+msgid "Project options"
+msgstr "Настройки проекта"
+
+msgid "Project name:"
+msgstr "Имя проекта:"
+
+msgid "Image size:"
+msgstr "Размер изображения:"
+
+msgid "Original"
+msgstr "Оригинальный"
+
+msgid "Result image type:"
+msgstr "Тип конечного изображения:"
+
+msgid "Repeats"
+msgstr "Повторов"
+
+msgid "Lights stacking mode:"
+msgstr "Режим сложения изображений (light):"
+
+msgid "Darks stacking mode:"
+msgstr "Режим сложения темновых кадров (dark)"
+
+msgid "Flats stacking mode:"
+msgstr "Режим сложения кадров поля (flat)"
+
+msgid "Bias stacking mode:"
+msgstr "Режим сложения кадров смещения (bias)"
+
+msgid "Median"
+msgstr "Медианное среднее"
+
+msgid "Mean"
+msgstr "Cреднее"
+
+###########################################################
+
+# Cleanup Dialog
+
+msgid "Cleanup bad light files"
+msgstr "Очистка от неудачных файлов изображения (light)"
+
+msgid "Check all light files before execute"
+msgstr "Отметить все файлы перед очисткой"
+
+msgid "By image sharpness"
+msgstr "По резкости изображения"
+
+msgid "By stars average radius (FWHM)"
+msgstr "По среднему радиусу звёзд (FWHM)"
+
+msgid "By noise"
+msgstr "По шуму изображения"
+
+msgid "By background"
+msgstr "По фону изображения"
+
+msgid "_Cleanup"
+msgstr "Очистка"
+
+msgid "Cleanup light files result"
+msgstr "Результат очистки"
+
+###########################################################
+
+# Select group dialog / add files
+
+msgid "Select group:"
+msgstr "Выберите группу:"
+
+msgid "Select LIGHT files"
+msgstr "Выберите файлы изображения (light)"
+
+msgid "Select DARK files"
+msgstr "Выберите темновые файлы (dark)"
+
+msgid "Select FLAT files"
+msgstr "Выберите файлы поля (flat)"
+
+msgid "Select BIAS files"
+msgstr "Выберите файлы смещения (bias)"
+
+msgid "Add light files"
+msgstr "Добавление файлов изображения (light)"
+
+msgid "Add dark files"
+msgstr "Добавление темновых файлов (dark)"
+
+msgid "Add flat files"
+msgstr "Добавление файлов поля (flat)"
+
+msgid "Add bias files"
+msgstr "Добавление файлов смещения (bias)"
+
+###########################################################
+
+# Group options dialog
+
+msgid "Add new group"
+msgstr "Добавление новой группы"
+
+msgid "Group properties"
+msgstr "Свойства группы"
+
+msgid "Group name"
+msgstr "Имя группы"
+
+msgid "Default"
+msgstr "По умолчанию"
+
+msgid "Custom:"
+msgstr "Задать:"
+
+###########################################################
+
+# Move to group dialog
+
+msgid "Move files to another group"
+msgstr "Перемещение файлов в другую группу"
+
+msgid "Select group to move selected file(s):"
+msgstr "Выберите группу в которую надо переместить файлы:"
+
+msgid "Existing group:"
+msgstr "Существующая группа"
+
+msgid "New group:"
+msgstr "Новая группа:"
+
+msgid "Leave empty for default"
+msgstr "Пустое - по умолчанию"
+
+###########################################################
+
+# About dialog
+
+msgid "About"
+msgstr "О программе"
+
+msgid "Web site"
+msgstr "Перейти на сайт"
+
+msgid "Discussion"
+msgstr "Обсуждение программы"
+

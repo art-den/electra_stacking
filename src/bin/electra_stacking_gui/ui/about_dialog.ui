@@ -4,7 +4,7 @@
   <requires lib="gtk+" version="3.24"/>
   <object class="GtkDialog" id="dialog">
     <property name="can-focus">False</property>
-    <property name="title" translatable="yes">About Electra</property>
+    <property name="title" translatable="yes">About</property>
     <property name="modal">True</property>
     <property name="type-hint">dialog</property>
     <child internal-child="vbox">
@@ -22,7 +22,7 @@
             <property name="layout-style">end</property>
             <child>
               <object class="GtkButton" id="btn_close">
-                <property name="label" translatable="yes">Close</property>
+                <property name="label" translatable="yes">_Close</property>
                 <property name="visible">True</property>
                 <property name="can-focus">True</property>
                 <property name="has-focus">True</property>
@@ -123,12 +123,11 @@
                   </packing>
                 </child>
                 <child>
-                  <object class="GtkLabel">
+                  <object class="GtkLabel" id="l_app_descr">
                     <property name="visible">True</property>
                     <property name="can-focus">False</property>
                     <property name="halign">start</property>
-                    <property name="label" translatable="yes">Software for stacking of 
-deep sky astronomical images</property>
+                    <property name="label" translatable="yes">APP_DESCRIPTION</property>
                     <attributes>
                       <attribute name="size" value="10240"/>
                     </attributes>
@@ -157,13 +156,13 @@ deep sky astronomical images</property>
                 </child>
                 <child>
                   <object class="GtkLinkButton">
-                    <property name="label" translatable="yes">Обсуждение программы на русском</property>
+                    <property name="label" translatable="yes">Discussion</property>
                     <property name="visible">True</property>
                     <property name="can-focus">True</property>
                     <property name="receives-default">True</property>
                     <property name="halign">start</property>
                     <property name="relief">none</property>
-                    <property name="uri">https://astronomy.ru/forum/index.php/board,8.0.html</property>
+                    <property name="uri">https://github.com/art-den/electra_stacking/issues</property>
                   </object>
                   <packing>
                     <property name="expand">False</property>

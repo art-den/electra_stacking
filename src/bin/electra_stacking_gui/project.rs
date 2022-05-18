@@ -2,6 +2,8 @@ use std::collections::HashMap;
 use std::{path::*, io::*, fs::*, collections::HashSet};
 use std::sync::{*, atomic::AtomicBool, atomic::Ordering};
 use serde::*;
+use gettextrs::*;
+use chrono::prelude::*;
 use electra_stacking::{
     calc::*,
     progress::*,
@@ -13,7 +15,6 @@ use electra_stacking::{
     image_formats::*,
     fs_utils::*
 };
-use chrono::prelude::*;
 use crate::config::*;
 
 const MASTER_DARK_FN: &str = "master-dark.es_raw";
@@ -209,11 +210,13 @@ impl Project {
 
         // Find and load reference files
 
-        progress.lock().unwrap().stage("Loading reference image...");
+        progress.lock().unwrap().stage(&gettext(
+            "Loading reference image..."
+        ));
 
         let group_with_ref_file = self
             .find_group_with_light_file(self.ref_image.as_ref().unwrap())
-            .ok_or_else(|| anyhow::anyhow!("Can't find group with reference image"))?;
+            .ok_or_else(|| anyhow::anyhow!(gettext("Can't find group with reference image")))?;
 
         let ref_cal = CalibrationData::load(
             &group_with_ref_file.flat_files.get_master_full_file_name(MASTER_FLAT_FN),
@@ -229,12 +232,12 @@ impl Project {
         let files_to_del_later = Mutex::new(FilesToDeleteLater::new());
 
         for (idx, group) in self.groups.iter().enumerate() {
-            if cancel_flag.load(Ordering::Relaxed) { anyhow::bail!("Termimated") }
+            if cancel_flag.load(Ordering::Relaxed) {
+                anyhow::bail!(gettext("Termimated"))
+            }
             if !group.used {
                 continue;
             }
-
-            progress.lock().unwrap().stage("Loading reference image...");
 
             progress.lock().unwrap().stage(&format!(
                 "Processing group {}",
@@ -257,15 +260,17 @@ impl Project {
         }
 
         if cancel_flag.load(Ordering::Relaxed) {
-            anyhow::bail!("Termimated")
+            anyhow::bail!(gettext("Termimated"))
         }
         if temp_file_names.lock().unwrap().is_empty() {
-            anyhow::bail!("No light files to stack");
+            anyhow::bail!(gettext("No light files to stack"));
         }
 
         // stacking all temporary light files into result image
 
-        progress.lock().unwrap().stage("Stacking all images into result image file...");
+        progress.lock().unwrap().stage(&gettext(
+            "Stacking all images into result image file..."
+        ));
 
         merge_temp_light_files(
             &progress,
@@ -278,7 +283,9 @@ impl Project {
             &cancel_flag
         )?;
 
-        if cancel_flag.load(Ordering::Relaxed) { anyhow::bail!("Termimated") }
+        if cancel_flag.load(Ordering::Relaxed) {
+            anyhow::bail!(gettext("Termimated"))
+        }
 
         Ok(StackLightsResult {
             file_name: result_file_name,
@@ -314,7 +321,7 @@ impl Project {
                 .with_extension(file_ext)
             )
         } else {
-            anyhow::bail!("You have to save project pefore");
+            anyhow::bail!(gettext("You have to save project before"));
         }
     }
 }
@@ -409,9 +416,9 @@ impl ProjectGroup {
             }
         }
         if group_index == 0 {
-            return "Main group".to_string()
+            return gettext("Main group")
         } else {
-            return format!("Group #{}", group_index+1)
+            return format!("{} #{}", gettext("Group"), group_index+1)
         }
     }
 
@@ -604,9 +611,14 @@ impl ProjectGroup {
         thread_pool: &rayon::ThreadPool,
         result:      &mut Mutex<HashMap<PathBuf, RegInfo>>,
     ) -> anyhow::Result<()> {
-        progress.lock().unwrap().stage(&format!("Registering files for group {}...", self.name(group_idx)));
+        progress.lock().unwrap().stage(&format!(
+            "Registering files for group {}...",
+            self.name(group_idx)
+        ));
         progress.lock().unwrap().set_total(self.light_files.list.len());
-        progress.lock().unwrap().progress(false, "Loading calibration master files...");
+        progress.lock().unwrap().progress(false, &gettext(
+            "Loading calibration master files..."
+        ));
 
         let cal_data = CalibrationData::load(
             &self.flat_files.get_master_full_file_name(MASTER_FLAT_FN),
@@ -667,7 +679,7 @@ impl ProjectGroup {
         });
 
         if cancel_flag.load(Ordering::Relaxed) {
-            anyhow::bail!("Terminated");
+            anyhow::bail!(gettext("Terminated"));
         }
 
         cur_result.into_inner()?
@@ -757,7 +769,7 @@ impl ProjectGroup {
             }
 
             if values.is_empty() {
-                anyhow::bail!("Conditions are too strict");
+                anyhow::bail!(gettext("Conditions are too strict"));
             }
 
             let (mean, dev) =

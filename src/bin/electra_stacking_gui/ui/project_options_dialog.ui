@@ -4,6 +4,7 @@
   <requires lib="gtk+" version="3.24"/>
   <object class="GtkDialog" id="project_options_dialog">
     <property name="can-focus">False</property>
+    <property name="title" translatable="yes">Project options</property>
     <property name="modal">True</property>
     <property name="type-hint">dialog</property>
     <child internal-child="vbox">
@@ -48,7 +49,7 @@
                 <property name="visible">True</property>
                 <property name="can-focus">False</property>
                 <property name="halign">end</property>
-                <property name="label" translatable="yes">Project name</property>
+                <property name="label" translatable="yes">Project name:</property>
               </object>
               <packing>
                 <property name="left-attach">0</property>
@@ -70,7 +71,7 @@
                 <property name="visible">True</property>
                 <property name="can-focus">False</property>
                 <property name="halign">end</property>
-                <property name="label" translatable="yes">Image size</property>
+                <property name="label" translatable="yes">Image size:</property>
               </object>
               <packing>
                 <property name="left-attach">0</property>
@@ -96,7 +97,7 @@
                 <property name="visible">True</property>
                 <property name="can-focus">False</property>
                 <property name="halign">end</property>
-                <property name="label" translatable="yes">Bias stacking mode</property>
+                <property name="label" translatable="yes">Bias stacking mode:</property>
               </object>
               <packing>
                 <property name="left-attach">0</property>
@@ -142,7 +143,7 @@
                 <property name="visible">True</property>
                 <property name="can-focus">False</property>
                 <property name="halign">end</property>
-                <property name="label" translatable="yes">Flats stacking mode</property>
+                <property name="label" translatable="yes">Flats stacking mode:</property>
               </object>
               <packing>
                 <property name="left-attach">0</property>
@@ -188,7 +189,7 @@
                 <property name="visible">True</property>
                 <property name="can-focus">False</property>
                 <property name="halign">end</property>
-                <property name="label" translatable="yes">Darks stacking mode</property>
+                <property name="label" translatable="yes">Darks stacking mode:</property>
               </object>
               <packing>
                 <property name="left-attach">0</property>
@@ -234,7 +235,7 @@
                 <property name="visible">True</property>
                 <property name="can-focus">False</property>
                 <property name="halign">end</property>
-                <property name="label" translatable="yes">Lights stacking mode</property>
+                <property name="label" translatable="yes">Lights stacking mode:</property>
               </object>
               <packing>
                 <property name="left-attach">0</property>
@@ -291,7 +292,7 @@
                 <property name="visible">True</property>
                 <property name="can-focus">False</property>
                 <property name="halign">end</property>
-                <property name="label" translatable="yes">Result image type</property>
+                <property name="label" translatable="yes">Result image type:</property>
               </object>
               <packing>
                 <property name="left-attach">0</property>
@@ -357,7 +358,7 @@
                   <object class="GtkLabel">
                     <property name="visible">True</property>
                     <property name="can-focus">False</property>
-                    <property name="label" translatable="yes">Steps</property>
+                    <property name="label" translatable="yes">Repeats</property>
                   </object>
                   <packing>
                     <property name="expand">False</property>

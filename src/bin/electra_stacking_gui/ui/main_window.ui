@@ -199,7 +199,7 @@
         <property name="visible">True</property>
         <property name="can-focus">False</property>
         <property name="action-name">win.item_properties</property>
-        <property name="label" translatable="yes">Iterm properties...</property>
+        <property name="label" translatable="yes">Item properties...</property>
         <property name="use-underline">True</property>
       </object>
     </child>
@@ -260,7 +260,7 @@
                       <object class="GtkMenuItem">
                         <property name="visible">True</property>
                         <property name="can-focus">False</property>
-                        <property name="label" translatable="yes">Open recent -&gt;</property>
+                        <property name="label" translatable="yes">Open recent</property>
                         <property name="use-underline">True</property>
                         <child type="submenu">
                           <object class="GtkRecentChooserMenu" id="recent_menu">
@@ -332,7 +332,7 @@
                         <property name="visible">True</property>
                         <property name="can-focus">False</property>
                         <property name="action-name">win.add_light_files</property>
-                        <property name="label" translatable="yes">1. Add light files...</property>
+                        <property name="label" translatable="yes">Add light files...</property>
                         <property name="use-underline">True</property>
                       </object>
                     </child>
@@ -341,7 +341,7 @@
                         <property name="visible">True</property>
                         <property name="can-focus">False</property>
                         <property name="action-name">win.add_dark_files</property>
-                        <property name="label" translatable="yes">Add black files</property>
+                        <property name="label" translatable="yes">Add dark files...</property>
                         <property name="use-underline">True</property>
                       </object>
                     </child>
@@ -389,7 +389,7 @@
                         <property name="visible">True</property>
                         <property name="can-focus">False</property>
                         <property name="action-name">win.register_light_files</property>
-                        <property name="label" translatable="yes">2. Register light files</property>
+                        <property name="label" translatable="yes">Register light files</property>
                         <property name="use-underline">True</property>
                       </object>
                     </child>
@@ -398,7 +398,7 @@
                         <property name="visible">True</property>
                         <property name="can-focus">False</property>
                         <property name="action-name">win.cleanup_light_files</property>
-                        <property name="label" translatable="yes">3. Cleanup light files...</property>
+                        <property name="label" translatable="yes">Cleanup light files...</property>
                         <property name="use-underline">True</property>
                       </object>
                     </child>
@@ -407,7 +407,7 @@
                         <property name="visible">True</property>
                         <property name="can-focus">False</property>
                         <property name="action-name">win.stack_light_files</property>
-                        <property name="label" translatable="yes">4. Stack light files</property>
+                        <property name="label" translatable="yes">Stack light files</property>
                         <property name="use-underline">True</property>
                       </object>
                     </child>
@@ -449,7 +449,7 @@
                                 <property name="visible">True</property>
                                 <property name="can-focus">False</property>
                                 <property name="action-name">win.dark_theme</property>
-                                <property name="label" translatable="yes">Dark</property>
+                                <property name="label" translatable="yes">Dark theme</property>
                                 <property name="use-underline">True</property>
                                 <property name="draw-as-radio">True</property>
                               </object>
@@ -458,7 +458,7 @@
                               <object class="GtkRadioMenuItem" id="light_theme_mi">
                                 <property name="visible">True</property>
                                 <property name="can-focus">False</property>
-                                <property name="label" translatable="yes">Light</property>
+                                <property name="label" translatable="yes">Light theme</property>
                                 <property name="use-underline">True</property>
                                 <property name="draw-as-radio">True</property>
                                 <property name="group">dark_theme_mi</property>
