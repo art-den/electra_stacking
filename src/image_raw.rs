@@ -281,8 +281,23 @@ impl RawImage {
         }
 
         let mut inf_overexposures = flags.contains(RawLoadFlags::INF_OVEREXPOSURES);
-        for i in 0..raw.whitelevels.len() {
-            if raw.whitelevels[i] < raw.blacklevels[i] {
+
+        let mut max_values = raw.whitelevels;
+        if inf_overexposures {
+            let max_image_value = data.iter()
+                .copied()
+                .max_by(cmp_f32)
+                .unwrap_or(0.0) as u16;
+
+            for v in &mut max_values {
+                if *v < max_image_value {
+                    *v = max_image_value;
+                }
+            }
+        }
+
+        for i in 0..max_values.len() {
+            if max_values[i] < raw.blacklevels[i] {
                 inf_overexposures = false;
             }
         }
@@ -303,21 +318,21 @@ impl RawImage {
             const MAX_K: f32 = 0.95;
 
             if let Cfa::Mono = &info.cfa {
-                correct_values(CfaColor::Mono, raw.blacklevels[0] as f32, raw.whitelevels[0] as f32 * MAX_K);
+                correct_values(CfaColor::Mono, raw.blacklevels[0] as f32, max_values[0] as f32 * MAX_K);
             } else {
-                correct_values(CfaColor::R, raw.blacklevels[0] as f32, raw.whitelevels[0] as f32 * MAX_K);
-                correct_values(CfaColor::G, raw.blacklevels[1] as f32, raw.whitelevels[1] as f32 * MAX_K);
-                correct_values(CfaColor::B, raw.blacklevels[2] as f32, raw.whitelevels[2] as f32 * MAX_K);
+                correct_values(CfaColor::R, raw.blacklevels[0] as f32, max_values[0] as f32 * MAX_K);
+                correct_values(CfaColor::G, raw.blacklevels[1] as f32, max_values[1] as f32 * MAX_K);
+                correct_values(CfaColor::B, raw.blacklevels[2] as f32, max_values[2] as f32 * MAX_K);
             }
         }
 
         for i in 0..4 {
             if extract_black {
                 info.black_values[i] = 0.0;
-                info.max_values[i] = raw.whitelevels[i] as f32 - raw.blacklevels[i] as f32;
+                info.max_values[i] = max_values[i] as f32 - raw.blacklevels[i] as f32;
             } else {
                 info.black_values[i] = raw.blacklevels[i] as f32;
-                info.max_values[i] = raw.whitelevels[i] as f32;
+                info.max_values[i] = max_values[i] as f32;
             }
             info.wb[i] = if !raw.wb_coeffs[i].is_nan() { raw.wb_coeffs[i] } else { 0.0 };
         }
