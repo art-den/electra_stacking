@@ -288,6 +288,24 @@ msgstr "Загрузка калибровочных файлов..."
 msgid "Conditions are too strict"
 msgstr "Условия слишком жёсткие"
 
+msgid "Close application"
+msgstr "Закрытие программы"
+
+msgid "Project changes. Save?"
+msgstr "Проект был изменён. Сохранить?"
+
+msgid "Select project file to open"
+msgstr "Выберите файл проекта чтобы открыть"
+
+msgid "Select project file to save"
+msgstr "Выберите файл проекта для сохранения"
+
+msgid "Confirmation"
+msgstr "Подтверждение"
+
+msgid "Change file types"
+msgstr "Изменение типа файлов"
+
 ###########################################################
 
 # Project options Dialog

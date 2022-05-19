@@ -441,23 +441,23 @@ fn ask_user_to_save_project(objects: &MainWindowObjectsPtr) -> bool {
 
     let dialog = gtk::MessageDialog::builder()
         .transient_for(&objects.window)
-        .title("Close application")
-        .text("Project changes. Save?")
+        .title(&gettext("Close application"))
+        .text(&gettext("Project changes. Save?"))
         .modal(true)
         .message_type(gtk::MessageType::Question)
         .build();
 
     if cfg!(target_os = "windows") {
         dialog.add_buttons(&[
-            ("Yes", gtk::ResponseType::Yes),
-            ("No", gtk::ResponseType::No),
-            ("Cancel", gtk::ResponseType::Cancel),
+            (&gettext("_Yes"), gtk::ResponseType::Yes),
+            (&gettext("_No"), gtk::ResponseType::No),
+            (&gettext("_Cancel"), gtk::ResponseType::Cancel),
         ]);
     } else {
         dialog.add_buttons(&[
-            ("Cancel", gtk::ResponseType::Cancel),
-            ("No", gtk::ResponseType::No),
-            ("Yes", gtk::ResponseType::Yes),
+            (&gettext("_Cancel"), gtk::ResponseType::Cancel),
+            (&gettext("_No"), gtk::ResponseType::No),
+            (&gettext("_Yes"), gtk::ResponseType::Yes),
         ]);
     }
 
@@ -739,7 +739,7 @@ fn action_open_project(objects: &MainWindowObjectsPtr) {
     let ff = create_file_filter_for_project();
     let fc = gtk::FileChooserDialog::builder()
         .action(gtk::FileChooserAction::Open)
-        .title("Select project file to open")
+        .title(&gettext("Select project file to open"))
         .filter(&ff)
         .modal(true)
         .transient_for(&objects.window)
@@ -749,13 +749,13 @@ fn action_open_project(objects: &MainWindowObjectsPtr) {
 
     if cfg!(target_os = "windows") {
         fc.add_buttons(&[
-            ("_Open", gtk::ResponseType::Accept),
-            ("_Cancel", gtk::ResponseType::Cancel),
+            (&gettext("_Open"), gtk::ResponseType::Accept),
+            (&gettext("_Cancel"), gtk::ResponseType::Cancel),
         ]);
     } else {
         fc.add_buttons(&[
-            ("_Cancel", gtk::ResponseType::Cancel),
-            ("_Open", gtk::ResponseType::Accept),
+            (&gettext("_Cancel"), gtk::ResponseType::Cancel),
+            (&gettext("_Open"), gtk::ResponseType::Accept),
         ]);
     }
 
@@ -802,7 +802,7 @@ fn action_save_project_as(objects: &MainWindowObjectsPtr) {
     let ff = create_file_filter_for_project();
     let fc = gtk::FileChooserDialog::builder()
         .action(gtk::FileChooserAction::Save)
-        .title("Select project file to save")
+        .title(&gettext("Select project file to save"))
         .filter(&ff)
         .modal(true)
         .transient_for(&objects.window)
@@ -1021,13 +1021,13 @@ fn create_src_file_select_dialog(
 
     if cfg!(target_os = "windows") {
         fc.add_buttons(&[
-            ("_Open", gtk::ResponseType::Accept),
-            ("_Cancel", gtk::ResponseType::Cancel),
+            (&gettext("_Open"), gtk::ResponseType::Accept),
+            (&gettext("_Cancel"), gtk::ResponseType::Cancel),
         ]);
     } else {
         fc.add_buttons(&[
-            ("_Cancel", gtk::ResponseType::Cancel),
-            ("_Open", gtk::ResponseType::Accept),
+            (&gettext("_Cancel"), gtk::ResponseType::Cancel),
+            (&gettext("_Open"), gtk::ResponseType::Accept),
         ]);
     }
 
@@ -1977,7 +1977,7 @@ fn confirm_dialog<F: Fn() + 'static>(
         .transient_for(&objects.window)
         .message_type(gtk::MessageType::Question)
         .buttons(gtk::ButtonsType::OkCancel)
-        .title("Confirmation")
+        .title(&gettext("Confirmation"))
         .text(&text)
         .build();
     dialog.connect_response(clone!(@strong objects => move |dialog, response| {
@@ -2542,7 +2542,7 @@ fn change_selected_files_type(
 
     let dialog = gtk::MessageDialog::builder()
         .transient_for(&objects.window)
-        .title("Change file types")
+        .title(&gettext("Change file types"))
         .text(&message)
         .modal(true)
         .message_type(gtk::MessageType::Question)
