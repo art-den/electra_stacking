@@ -1144,7 +1144,7 @@ fn update_project_name_and_time_in_gui(objects: &MainWindowObjectsPtr, title: bo
             }
         };
         objects.window.set_title(&format!(
-            "[{}] - Electra - {} v{}",
+            "[{}] - Electra Stacking - {} v{}",
             get_project_title(&objects.project.borrow()),
             app_descr_text,
             env!("CARGO_PKG_VERSION"),
