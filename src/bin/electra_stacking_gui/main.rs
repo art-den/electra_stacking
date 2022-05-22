@@ -1212,6 +1212,8 @@ fn get_prj_tree_store_columns() -> [(String, u32, u32, glib::Type); 25] {
         (gettext("FWHM"),              COLUMN_FWHM_STR,        COLUMN_FWHM,        String::static_type()),
         (gettext("Stars R dev."),      COLUMN_STARS_R_DEV_STR, COLUMN_STARS_R_DEV, String::static_type()),
         (gettext("Sharpness"),         COLUMN_SHARPNESS_STR,   COLUMN_SHARPNESS,   String::static_type()),
+
+        // columns below are used for sorting, icons and checkboxes
         (EMPT,                         COLUMN_ICON,            0,                  gdk_pixbuf::Pixbuf::static_type()),
         (EMPT,                         COLUMN_CHECKBOX,        0,                  bool::static_type()),
         (EMPT,                         COLUMN_CHECKBOX_VIS,    0,                  bool::static_type()),

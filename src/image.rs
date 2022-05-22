@@ -819,10 +819,26 @@ impl Image {
         result_height: Crd
     ) -> Image {
         Image {
-            l: self.l.rotated_and_translated(angle, transl_x, transl_y, default_value, result_width, result_height),
-            r: self.r.rotated_and_translated(angle, transl_x, transl_y, default_value, result_width, result_height),
-            g: self.g.rotated_and_translated(angle, transl_x, transl_y, default_value, result_width, result_height),
-            b: self.b.rotated_and_translated(angle, transl_x, transl_y, default_value, result_width, result_height),
+            l: self.l.rotated_and_translated(
+                angle, transl_x, transl_y,
+                default_value,
+                result_width, result_height
+            ),
+            r: self.r.rotated_and_translated(
+                angle, transl_x, transl_y,
+                default_value,
+                result_width, result_height
+            ),
+            g: self.g.rotated_and_translated(
+                angle, transl_x, transl_y,
+                default_value,
+                result_width, result_height
+            ),
+            b: self.b.rotated_and_translated(
+                angle, transl_x, transl_y,
+                default_value,
+                result_width, result_height
+            ),
         }
     }
 
@@ -897,7 +913,7 @@ impl Image {
     ) -> ToRgbBytesParams {
         let (l_min, r_min, g_min, b_min, range) = if self.is_rgb() {
             if auto_minimum || auto_wb {
-                let get_values = |img_values: &[f32]| -> Vec<f32> {
+                let get_thinned_out_values = |img_values: &[f32]| -> Vec<f32> {
                     img_values
                         .par_iter()
                         .step_by(42)
@@ -905,18 +921,18 @@ impl Image {
                         .copied()
                         .collect()
                 };
-                let mut r_values = get_values(self.r.as_slice());
-                let mut g_values = get_values(self.g.as_slice());
-                let mut b_values = get_values(self.b.as_slice());
+                let mut r_thinned_out = get_thinned_out_values(self.r.as_slice());
+                let mut g_thinned_out = get_thinned_out_values(self.g.as_slice());
+                let mut b_thinned_out = get_thinned_out_values(self.b.as_slice());
                 let get_min = |values: &mut [f32]| -> f32 {
                     let pos = values.len() / 100;
                     values.select_nth_unstable_by(pos, cmp_f32).1.max(0.0)
                 };
 
                 let min = [
-                    get_min(&mut r_values),
-                    get_min(&mut g_values),
-                    get_min(&mut b_values)
+                    get_min(&mut r_thinned_out),
+                    get_min(&mut g_thinned_out),
+                    get_min(&mut b_thinned_out)
                 ].into_iter()
                 .min_by(cmp_f32)
                 .unwrap_or(0.0);
@@ -930,9 +946,9 @@ impl Image {
                         let pos = values.len() / 4;
                         values.select_nth_unstable_by(pos, cmp_f32).1.max(0.0)
                     };
-                    let r_bg = get_bg(&mut r_values);
-                    let g_bg = get_bg(&mut g_values);
-                    let b_bg = get_bg(&mut b_values);
+                    let r_bg = get_bg(&mut r_thinned_out);
+                    let g_bg = get_bg(&mut g_thinned_out);
+                    let b_bg = get_bg(&mut b_thinned_out);
                     if auto_minimum {
                         let min_bg = [r_bg, g_bg, b_bg]
                             .into_iter()
@@ -954,14 +970,14 @@ impl Image {
             }
         } else {
             if auto_minimum {
-                let mut filtered: Vec<_> = self.l.as_slice()
+                let mut thinned_out_values: Vec<_> = self.l.as_slice()
                     .par_iter()
                     .step_by(42)
                     .filter(|v| !v.is_infinite())
                     .copied()
                     .collect();
-                let pos = filtered.len()/100;
-                let min = filtered.select_nth_unstable_by(pos, cmp_f32).1.max(0.0);
+                let pos = thinned_out_values.len()/100;
+                let min = thinned_out_values.select_nth_unstable_by(pos, cmp_f32).1.max(0.0);
                 (min, 0.0, 0.0, 0.0, 1.0/(1.0-min))
             } else {
                 (0.0, 0.0, 0.0, 0.0, 1.0)
@@ -978,25 +994,25 @@ impl Image {
     }
 
     pub fn to_rgb_bytes(&self, params: &ToRgbBytesParams, gamma: f32) -> Vec<u8> {
-        let mut tt = InterpolTable::new();
+        let mut gamma_table = InterpolTable::new();
         for i in 0..=10 {
             let x = (i as f32 / 10.0).powf(gamma);
-            tt.add(x, x.powf(1.0/gamma));
+            gamma_table.add(x, 256.0 * x.powf(1.0/gamma));
         }
-        tt.prepare();
+        gamma_table.prepare();
 
         if self.is_rgb() {
             self.r.as_slice().par_iter()
                 .zip_eq(self.g.as_slice().par_iter())
                 .zip_eq(self.b.as_slice().par_iter())
                 .map(|((&r, &g), &b)| {
-                    let mut r = (tt.get((r-params.r_min)*params.range) * 255.0) as i32;
+                    let mut r = gamma_table.get((r-params.r_min)*params.range) as i32;
                     if r < 0 { r = 0; }
                     if r > 255 { r = 255; }
-                    let mut g = (tt.get((g-params.g_min)*params.range) * 255.0) as i32;
+                    let mut g = gamma_table.get((g-params.g_min)*params.range) as i32;
                     if g < 0 { g = 0; }
                     if g > 255 { g = 255; }
-                    let mut b = (tt.get((b-params.b_min)*params.range) * 255.0) as i32;
+                    let mut b = gamma_table.get((b-params.b_min)*params.range) as i32;
                     if b < 0 { b = 0; }
                     if b > 255 { b = 255; }
                     [r as u8, g as u8, b as u8]
@@ -1006,7 +1022,7 @@ impl Image {
         } else {
             self.l.as_slice().par_iter()
                 .map(|l| {
-                    let mut l = (tt.get((l-params.l_min)*params.range) * 255.0) as i32;
+                    let mut l = gamma_table.get((l-params.l_min)*params.range) as i32;
                     if l < 0 { l = 0; }
                     if l > 255 { l = 255; }
                     let l = l as u8;
