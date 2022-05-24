@@ -268,7 +268,7 @@ msgid "Loading reference image..."
 msgstr "Загружается опорное изображение..."
 
 msgid "Can't find group with reference image"
-msgstr "Не могу найти группу с опрным кадром"
+msgstr "Не могу найти группу с опорным кадром"
 
 msgid "Termimated"
 msgstr "Прервано"
@@ -344,7 +344,7 @@ msgid "Median"
 msgstr "Медианное среднее"
 
 msgid "Mean"
-msgstr "Cреднее"
+msgstr "Среднее"
 
 ###########################################################
 
@@ -455,4 +455,3 @@ msgstr "Перейти на сайт"
 
 msgid "Discussion"
 msgstr "Обсуждение программы"
-
