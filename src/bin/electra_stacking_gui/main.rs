@@ -1451,7 +1451,7 @@ impl TreeViewFillHelper {
                         };
 
                         let (noise_str, noise, bg_str, bg, stars_cnt_str, stars_cnt,
-                             star_r_str, star_r, star_r_dev_str, star_r_dev, sharpness_str, sharpness)
+                             fwhm_str, fwhm, star_r_dev_str, star_r_dev, sharpness_str, sharpness)
                             = if let Some(reg_info) = &project_file.reg_info {(
                                 format!("{:.3e}", reg_info.noise),
                                 reg_info.noise,
@@ -1459,8 +1459,8 @@ impl TreeViewFillHelper {
                                 reg_info.background,
                                 if reg_info.stars != 0 { format!("{}", reg_info.stars) } else { String::new() },
                                 reg_info.stars as u32,
-                                format!("{:.3}", reg_info.stars_r),
-                                reg_info.stars_r,
+                                format!("{:.1}", reg_info.fwhm),
+                                reg_info.fwhm,
                                 format!("{:.3}", reg_info.stars_r_dev),
                                 reg_info.stars_r_dev,
                                 format!("{:.3}", reg_info.sharpness),
@@ -1503,8 +1503,8 @@ impl TreeViewFillHelper {
                             (COLUMN_BG,              &bg),
                             (COLUMN_STARS_STR,       &stars_cnt_str),
                             (COLUMN_STARS,           &stars_cnt),
-                            (COLUMN_FWHM_STR,        &star_r_str),
-                            (COLUMN_FWHM,            &star_r),
+                            (COLUMN_FWHM_STR,        &fwhm_str),
+                            (COLUMN_FWHM,            &fwhm),
                             (COLUMN_STARS_R_DEV_STR, &star_r_dev_str),
                             (COLUMN_STARS_R_DEV,     &star_r_dev),
                             (COLUMN_SHARPNESS_STR,   &sharpness_str),
@@ -1773,9 +1773,14 @@ fn preview_image_file(objects: &MainWindowObjectsPtr, file_name: &PathBuf) {
                     for star in &light_file.stars {
                         for pt in &star.points {
                             if light_file.image.is_rgb() {
-                                light_file.image.r.set(pt.x, pt.y, 0.0);
-                                light_file.image.g.set(pt.x, pt.y, 1.0);
-                                light_file.image.b.set(pt.x, pt.y, 0.0);
+                                let (r, g, b) = if star.overexposured {
+                                    (1.0, 0.0, 0.0)
+                                } else {
+                                    (0.0, 1.0, 0.0)
+                                };
+                                light_file.image.r.set(pt.x, pt.y, r);
+                                light_file.image.g.set(pt.x, pt.y, g);
+                                light_file.image.b.set(pt.x, pt.y, b);
                             } else if light_file.image.is_greyscale() {
                                 light_file.image.l.set(pt.x, pt.y, 0.5);
                             }

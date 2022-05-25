@@ -117,6 +117,15 @@ impl Project {
         cancel_flag: &Arc<AtomicBool>,
         cpu_load:    CpuLoad,
     ) -> anyhow::Result<HashMap<PathBuf, RegInfo>> {
+        let total_files_cnt: usize =
+            self.groups.iter()
+            .map(|g| g.light_files.list.len())
+            .sum();
+
+        if total_files_cnt == 0 {
+            anyhow::bail!(gettext("No files to register"));
+        }
+
         let thread_pool = rayon::ThreadPoolBuilder::new()
             .num_threads(cpu_load.to_threads_count())
             .build()?;
@@ -649,26 +658,35 @@ impl ProjectGroup {
                         Ok(light_file) => light_file,
                         Err(err) => {
                             *cur_result.lock().unwrap() = Err(anyhow::anyhow!(
-                                r#"Error "{}" during processing of file "{}""#,
+                                r#"Error "{}" during loading of file "{}""#,
                                 err.to_string(),
                                 file.file_name.to_str().unwrap_or("")
                             ));
                             return;
                         },
                     };
+
+                    let stars_stat_res = calc_stars_stat(&light_file.stars,&light_file.grey);
+                    let stars_stat = match stars_stat_res {
+                        Ok(stars_stat) => stars_stat,
+                        Err(err) => {
+                            *cur_result.lock().unwrap() = Err(anyhow::anyhow!(
+                                r#"Error "{}" during stars statistics calculation for file "{}""#,
+                                err.to_string(),
+                                file.file_name.to_str().unwrap_or("")
+                            ));
+                            return;
+                        }
+                    };
+
                     progress.lock().unwrap().progress(true, file.file_name.to_str().unwrap_or(""));
-                    let stars_stat = calc_stars_stat(
-                        &light_file.stars,
-                        light_file.image.width(),
-                        light_file.image.height(),
-                    );
                     result.lock().unwrap().insert(
                         file.file_name.clone(),
                         RegInfo {
                             noise:       light_file.noise,
                             background:  light_file.background,
                             sharpness:   light_file.sharpness,
-                            stars_r:     stars_stat.aver_r,
+                            fwhm:        stars_stat.fwhm,
                             stars:       light_file.stars.len(),
                             stars_r_dev: stars_stat.aver_r_dev,
                         }
@@ -707,7 +725,7 @@ impl ProjectGroup {
             &conf.stars_radius,
             false,
             true,
-            |reg_info: &RegInfo| reg_info.stars_r
+            |reg_info: &RegInfo| reg_info.fwhm
         )?;
 
         self.cleanup_by_sigma_clipping(
@@ -948,7 +966,7 @@ impl ProjectFiles {
 pub struct RegInfo {
     pub noise: f32,
     pub background: f32,
-    pub stars_r: f32,
+    pub fwhm: f32,
     pub stars: usize,
     pub stars_r_dev: f32,
     pub sharpness: f32,
@@ -959,7 +977,7 @@ impl Default for RegInfo {
         Self {
             noise: 0.0,
             background: 0.0,
-            stars_r: 0.0,
+            fwhm: 0.0,
             stars: 0,
             stars_r_dev: 0.0,
             sharpness: 0.0

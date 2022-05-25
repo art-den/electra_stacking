@@ -65,15 +65,14 @@ pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
 
                 let stars_stat = calc_stars_stat(
                     &light_file.stars,
-                    light_file.image.width(),
-                    light_file.image.height()
-                );
+                    &light_file.grey
+                ).expect("Can't calculate stars statistics");
 
                 let file_data = LightFileRegInfo {
                     file_name:   extract_file_name(file_name).to_string(),
                     noise:       light_file.noise,
                     background:  light_file.background,
-                    stars_r:     stars_stat.aver_r,
+                    stars_r:     stars_stat.fwhm,
                     stars_r_dev: stars_stat.aver_r_dev,
                 };
 

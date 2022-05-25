@@ -86,7 +86,12 @@ impl LightFile {
 
         let stars = if stars_flag {
             let stars_log = TimeLogger::start();
-            let result = find_stars_on_image(&grey_image, &src_data.image, Some(noise))?;
+            let result = find_stars_on_image(
+                &grey_image,
+                Some(&src_data.image),
+                Some(noise),
+                true
+            )?;
             stars_log.log("looking for stars on image");
             log::info!("stars count = {}", result.len());
             result

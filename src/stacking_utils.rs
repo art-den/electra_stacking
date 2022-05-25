@@ -14,6 +14,8 @@ use crate::{
     log_utils::*,
 };
 
+use std::f64::consts::PI;
+
 ///////////////////////////////////////////////////////////////////////////////
 
 /* Stacking bias, darks and flat files */
@@ -401,7 +403,7 @@ fn create_temp_file_from_light_file(
             "offset = x:{:.3}, y:{:.3}; rotation = {:.3}°",
             img_offset.offset_x,
             img_offset.offset_y,
-            180.0 * img_offset.angle / std::f64::consts::PI
+            180.0 * img_offset.angle / PI
         );
 
         let rot_log = TimeLogger::start();
@@ -490,7 +492,7 @@ pub fn merge_temp_light_files(
             "| {:7.1} | {:7.1} | {:6.2} | {:6.3} | {:6.3} | {:9.7} | {:6} | {:8.1} | {:7.1} | {:7} | {}",
             temp_file.img_offset.offset_x,
             temp_file.img_offset.offset_y,
-            180.0 * temp_file.img_offset.angle / std::f64::consts::PI,
+            180.0 * temp_file.img_offset.angle / PI,
             weight,
             temp_file.range_factor,
             temp_file.noise,

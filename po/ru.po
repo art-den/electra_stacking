@@ -43,7 +43,7 @@ msgid "Stars"
 msgstr "Кол. звёзд"
 
 msgid "FWHM"
-msgstr "Рад. звёзд"
+msgstr "FWHM"
 
 msgid "Stars R dev."
 msgstr "Stars R dev."
@@ -305,6 +305,9 @@ msgstr "Подтверждение"
 
 msgid "Change file types"
 msgstr "Изменение типа файлов"
+
+msgid "No files to register"
+msgstr "Отсутствуют light-файлы для регистрации"
 
 ###########################################################
 
