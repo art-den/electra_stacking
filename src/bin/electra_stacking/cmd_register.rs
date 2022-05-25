@@ -51,12 +51,10 @@ pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
     thread_pool.scope(|s| {
         for file_name in file_names_list.iter() {
             s.spawn(|_| {
-                let file_name = file_name.clone();
-
-                progress.lock().unwrap().progress(true, extract_file_name(&file_name));
+                progress.lock().unwrap().progress(true, extract_file_name(file_name));
 
                 let light_file = LightFile::load(
-                    &file_name,
+                    file_name,
                     &cal_data,
                     Some(&disk_access_mutex),
                     LoadLightFlags::STARS
@@ -72,7 +70,7 @@ pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
                 );
 
                 let file_data = LightFileRegInfo {
-                    file_name:   extract_file_name(&file_name).to_string(),
+                    file_name:   extract_file_name(file_name).to_string(),
                     noise:       light_file.noise,
                     background:  light_file.background,
                     stars_r:     stars_stat.aver_r,
@@ -80,7 +78,7 @@ pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
                 };
 
                 let file_data_str = serde_json::to_string_pretty(&file_data).expect("Can't serialize");
-                let info_file_name = get_light_info_file_name(&file_name);
+                let info_file_name = get_light_info_file_name(file_name);
                 std::fs::write(info_file_name, &file_data_str).expect("Can't write file registration info");
             });
         }

@@ -194,13 +194,12 @@ where
     thread_pool.scope(|s| {
         for file_path in files_list.iter() {
             s.spawn(|_| {
-                let file_path = file_path.clone();
                 if cancel_flag.load(Ordering::Relaxed)
                 || cur_result.lock().unwrap().is_err() {
                     return;
                 }
                 let raw_res = RawImage::load_camera_raw_file(
-                    &file_path,
+                    file_path,
                     load_raw_flags,
                     Some(&disk_access_mutex)
                 );
@@ -225,7 +224,7 @@ where
                     *cur_result.lock().unwrap() = Err(save_res);
                     return;
                 }
-                progress.lock().unwrap().progress(true, extract_file_name(&file_path));
+                progress.lock().unwrap().progress(true, extract_file_name(file_path));
                 files_to_process.lock().unwrap().push(temp_fn);
             });
         }
@@ -338,9 +337,8 @@ pub fn create_temp_light_files(
                 || cur_result.lock().unwrap().is_err() {
                     return;
                 }
-                let file = file.clone();
                 let res = create_temp_file_from_light_file(
-                    &file,
+                    file,
                     &cal_data,
                     ref_data,
                     bin,
@@ -356,7 +354,7 @@ pub fn create_temp_light_files(
                     ));
                     return;
                 }
-                progress.lock().unwrap().progress(true, extract_file_name(&file));
+                progress.lock().unwrap().progress(true, extract_file_name(file));
             });
         }
     });

@@ -635,9 +635,8 @@ impl ProjectGroup {
                     || cur_result.lock().unwrap().is_err() {
                         return;
                     }
-                    let file_name = file.file_name.clone();
                     let load_light_file_res = LightFile::load(
-                        &file_name,
+                        &file.file_name,
                         &cal_data,
                         None,
                         LoadLightFlags::STARS
@@ -652,19 +651,19 @@ impl ProjectGroup {
                             *cur_result.lock().unwrap() = Err(anyhow::anyhow!(
                                 r#"Error "{}" during processing of file "{}""#,
                                 err.to_string(),
-                                file_name.to_str().unwrap_or("")
+                                file.file_name.to_str().unwrap_or("")
                             ));
                             return;
                         },
                     };
-                    progress.lock().unwrap().progress(true, file_name.to_str().unwrap_or(""));
+                    progress.lock().unwrap().progress(true, file.file_name.to_str().unwrap_or(""));
                     let stars_stat = calc_stars_stat(
                         &light_file.stars,
                         light_file.image.width(),
                         light_file.image.height(),
                     );
                     result.lock().unwrap().insert(
-                        file_name.clone(),
+                        file.file_name.clone(),
                         RegInfo {
                             noise:       light_file.noise,
                             background:  light_file.background,
