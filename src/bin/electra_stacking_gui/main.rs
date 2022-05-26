@@ -1453,7 +1453,7 @@ impl TreeViewFillHelper {
                         let (noise_str, noise, bg_str, bg, stars_cnt_str, stars_cnt,
                              fwhm_str, fwhm, star_r_dev_str, star_r_dev, sharpness_str, sharpness)
                             = if let Some(reg_info) = &project_file.reg_info {(
-                                format!("{:.3e}", reg_info.noise),
+                                format!("{:.2}%", reg_info.noise * 100.0),
                                 reg_info.noise,
                                 format!("{:.1}%", 100.0 * reg_info.background),
                                 reg_info.background,
