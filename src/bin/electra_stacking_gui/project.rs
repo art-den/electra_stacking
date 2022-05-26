@@ -719,6 +719,7 @@ impl ProjectGroup {
         if conf.check_before_execute {
             for file in &mut self.light_files.list {
                 file.used = true;
+                file.flags = 0;
             }
         }
 
@@ -731,6 +732,7 @@ impl ProjectGroup {
             &conf.stars_r_dev,
             false,
             true,
+            FILE_FLAG_CLEANUP_R_DEV,
             |reg_info: &RegInfo| reg_info.stars_r_dev
         )?;
 
@@ -738,6 +740,7 @@ impl ProjectGroup {
             &conf.stars_fwhm,
             false,
             true,
+            FILE_FLAG_CLEANUP_FWHM,
             |reg_info: &RegInfo| reg_info.fwhm
         )?;
 
@@ -745,6 +748,7 @@ impl ProjectGroup {
             &conf.stars_count,
             true,
             true,
+            FILE_FLAG_CLEANUP_STARS,
             |reg_info: &RegInfo| reg_info.stars as f32
         )?;
 
@@ -752,6 +756,7 @@ impl ProjectGroup {
             &conf.img_sharpness,
             true,
             false,
+            FILE_FLAG_CLEANUP_SHARPNESS,
             |reg_info: &RegInfo| reg_info.sharpness
         )?;
 
@@ -759,6 +764,7 @@ impl ProjectGroup {
             &conf.noise,
             false,
             true,
+            FILE_FLAG_CLEANUP_NOISE,
             |reg_info: &RegInfo| reg_info.noise
         )?;
 
@@ -766,6 +772,7 @@ impl ProjectGroup {
             &conf.background,
             false,
             true,
+            FILE_FLAG_CLEANUP_BG,
             |reg_info: &RegInfo| reg_info.background
         )?;
 
@@ -783,22 +790,23 @@ impl ProjectGroup {
         conf: &ClenupConfItem,
         remove_min: bool,
         remove_max: bool,
+        flags: FileFlags,
         fun: F,
     )  -> anyhow::Result<()> {
         match conf.mode {
             CleanupMode::SigmaClipping =>
-                self.cleanup_by_sigma_clipping(conf, remove_min, remove_max, fun),
+                self.cleanup_by_sigma_clipping(conf, remove_min, remove_max, flags, fun),
             CleanupMode::Percent =>
-                self.cleanup_by_percent(conf, remove_min, remove_max, fun),
+                self.cleanup_by_percent(conf, remove_min, remove_max, flags, fun),
         }
     }
-
 
     fn cleanup_by_sigma_clipping<F: Fn(&RegInfo) -> f32>(
         &mut self,
         conf: &ClenupConfItem,
         remove_min: bool,
         remove_max: bool,
+        flags: FileFlags,
         fun: F,
     ) -> anyhow::Result<()> {
         if !conf.used { return Ok(()); }
@@ -839,6 +847,7 @@ impl ProjectGroup {
 
                 if (remove_min && value < min) || (remove_max && value > max) {
                     item.used = false;
+                    item.flags |= flags;
                     *to_exclude = true;
                 }
             }
@@ -852,6 +861,7 @@ impl ProjectGroup {
         conf: &ClenupConfItem,
         remove_min: bool,
         remove_max: bool,
+        flags: FileFlags,
         fun: F,
     ) -> anyhow::Result<()> {
         if !conf.used { return Ok(()); }
@@ -877,7 +887,9 @@ impl ProjectGroup {
 
         if remove_max {
             for (idx, _) in &items[items.len()-percent_cnt..] {
-                self.light_files.list[*idx].used = false;
+                let item = &mut self.light_files.list[*idx];
+                item.used = false;
+                item.flags |= flags;
             }
         }
 
@@ -967,6 +979,7 @@ impl ProjectFiles {
         for file in &mut self.list {
             if let Some(info) = reg_info.get(&file.file_name) {
                 file.reg_info = Some(info.clone());
+                file.flags = 0;
             }
         }
     }
@@ -1021,6 +1034,14 @@ impl Default for RegInfo {
     }
 }
 
+pub type FileFlags = u8;
+pub const FILE_FLAG_CLEANUP_R_DEV:     FileFlags = 1 << 0;
+pub const FILE_FLAG_CLEANUP_FWHM:      FileFlags = 1 << 1;
+pub const FILE_FLAG_CLEANUP_STARS:     FileFlags = 1 << 2;
+pub const FILE_FLAG_CLEANUP_SHARPNESS: FileFlags = 1 << 3;
+pub const FILE_FLAG_CLEANUP_NOISE:     FileFlags = 1 << 4;
+pub const FILE_FLAG_CLEANUP_BG:        FileFlags = 1 << 5;
+
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(default)]
 pub struct ProjectFile {
@@ -1035,6 +1056,7 @@ pub struct ProjectFile {
     pub fnumber: Option<f32>,
     pub camera: Option<String>,
     pub reg_info: Option<RegInfo>,
+    pub flags: FileFlags,
 }
 
 impl Default for ProjectFile {
@@ -1051,6 +1073,7 @@ impl Default for ProjectFile {
             fnumber: None,
             camera: None,
             reg_info: None,
+            flags: 0,
         }
     }
 }
@@ -1058,7 +1081,6 @@ impl Default for ProjectFile {
 impl ProjectFile {
     fn new_from_info(info: SrcFileInfo) -> ProjectFile {
         ProjectFile {
-            used: true,
             file_name: info.file_name,
             file_time: info.file_time,
             cfa_type: info.cfa_type,
@@ -1068,7 +1090,7 @@ impl ProjectFile {
             height: Some(info.height),
             fnumber: info.fnumber,
             camera: info.camera,
-            reg_info: None,
+            .. Default::default()
         }
     }
 }
@@ -1125,7 +1147,7 @@ impl Default for ClenupConf {
             check_before_execute: true,
             stars_r_dev: Default::default(),
             stars_fwhm: Default::default(),
-            stars_count: Default::default(),
+            stars_count: ClenupConfItem{ kappa: 2.0, .. ClenupConfItem::default() },
             img_sharpness: ClenupConfItem::new(false, CleanupMode::Percent),
             noise: ClenupConfItem::new(false, CleanupMode::Percent),
             background: ClenupConfItem::new(false, CleanupMode::Percent),

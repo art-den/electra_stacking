@@ -145,7 +145,7 @@ fn build_ui(application: &gtk::Application) {
 
         if idx != COLUMN_FILE_NAME {
             col.pack_start(&cell_text, true);
-            col.add_attribute(&cell_text, "text", idx as i32);
+            col.add_attribute(&cell_text, "markup", idx as i32);
         } else {
             let cell_img = gtk::CellRendererPixbuf::new();
 
@@ -1482,6 +1482,21 @@ impl TreeViewFillHelper {
 
                         let is_ref_file = Some(&project_file.file_name) == project.ref_image.as_ref();
                         let icon = if is_ref_file { &objects.icon_ref_image } else { &objects.icon_image };
+
+                        let make_important = |s, flag: FileFlags, mask: FileFlags| -> String {
+                            if flag & mask == 0 {
+                                s
+                            } else {
+                                format!(r##"<span color="#FF4040"><b>{}</b></span>"##, s)
+                            }
+                        };
+
+                        let star_r_dev_str = make_important(star_r_dev_str, project_file.flags, FILE_FLAG_CLEANUP_R_DEV);
+                        let fwhm_str = make_important(fwhm_str, project_file.flags, FILE_FLAG_CLEANUP_FWHM);
+                        let stars_cnt_str = make_important(stars_cnt_str, project_file.flags, FILE_FLAG_CLEANUP_STARS);
+                        let noise_str = make_important(noise_str, project_file.flags, FILE_FLAG_CLEANUP_NOISE);
+                        let sharpness_str = make_important(sharpness_str, project_file.flags, FILE_FLAG_CLEANUP_SHARPNESS);
+                        let bg_str = make_important(bg_str, project_file.flags, FILE_FLAG_CLEANUP_BG);
 
                         tree_store.set(&file_iter, &[
                             (COLUMN_ICON,            icon),
