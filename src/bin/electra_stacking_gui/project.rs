@@ -1147,7 +1147,7 @@ impl Default for ClenupConf {
             check_before_execute: true,
             stars_r_dev: Default::default(),
             stars_fwhm: Default::default(),
-            stars_count: ClenupConfItem{ kappa: 2.0, .. ClenupConfItem::default() },
+            stars_count: ClenupConfItem{ kappa: 3.0, .. ClenupConfItem::default() },
             img_sharpness: ClenupConfItem::new(false, CleanupMode::Percent),
             noise: ClenupConfItem::new(false, CleanupMode::Percent),
             background: ClenupConfItem::new(false, CleanupMode::Percent),
