@@ -331,7 +331,8 @@ impl ImageLayer<f32> {
         } else if !p11.is_some() && !p21.is_some() && !p12.is_some() && !p22.is_some() {
             return None;
         } else {
-            Some(sum / (s11 + s21 + s12 + s22))
+            let result = sum / (s11 + s21 + s12 + s22);
+            if !result.is_nan() { Some(result) } else { None }
         }
     }
 
@@ -442,10 +443,19 @@ impl ImageLayer<f32> {
         }
     }
 
-    pub fn check_contains_inf_or_nan(&self) -> anyhow::Result<()> {
+    pub fn check_contains_inf_or_nan(
+        &self,
+        check_inf: bool,
+        check_nan: bool,
+        name:      &str
+    ) -> anyhow::Result<()> {
         for v in self.data.iter() {
-            if v.is_infinite() { anyhow::bail!("Image contain INF"); }
-            if v.is_nan() { anyhow::bail!("Image contain NAN"); }
+            if check_inf && v.is_infinite() {
+                anyhow::bail!("Image contain INF in {} layer", name);
+            }
+            if check_nan && v.is_nan() {
+                anyhow::bail!("Image contain NAN in {} layer", name);
+            }
         }
         Ok(())
     }
@@ -875,11 +885,14 @@ impl Image {
         do_norm(k, &mut self.b);
     }
 
-    pub fn check_contains_inf_or_nan(&self) -> anyhow::Result<()> {
-        self.l.check_contains_inf_or_nan()?;
-        self.r.check_contains_inf_or_nan()?;
-        self.g.check_contains_inf_or_nan()?;
-        self.b.check_contains_inf_or_nan()?;
+    pub fn check_contains_inf_or_nan(&self,
+        check_inf: bool,
+        check_nan: bool,
+    ) -> anyhow::Result<()> {
+        self.l.check_contains_inf_or_nan(check_inf, check_nan, "L")?;
+        self.r.check_contains_inf_or_nan(check_inf, check_nan, "R")?;
+        self.g.check_contains_inf_or_nan(check_inf, check_nan, "G")?;
+        self.b.check_contains_inf_or_nan(check_inf, check_nan, "B")?;
         Ok(())
     }
 
@@ -917,7 +930,7 @@ impl Image {
                     img_values
                         .par_iter()
                         .step_by(42)
-                        .filter(|v| !v.is_infinite())
+                        .filter(|&v| *v > 0.0 && !v.is_infinite())
                         .copied()
                         .collect()
                 };
@@ -973,7 +986,7 @@ impl Image {
                 let mut thinned_out_values: Vec<_> = self.l.as_slice()
                     .par_iter()
                     .step_by(42)
-                    .filter(|v| !v.is_infinite())
+                    .filter(|&v| *v > 0.0 && !v.is_infinite())
                     .copied()
                     .collect();
                 let pos = thinned_out_values.len()/100;

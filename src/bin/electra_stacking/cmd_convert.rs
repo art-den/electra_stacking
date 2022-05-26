@@ -15,7 +15,7 @@ pub struct CmdOptions {
 
 pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
     let mut image = load_image_from_file(&options.src_file)?;
-    image.image.check_contains_inf_or_nan()?;
+    image.image.check_contains_inf_or_nan(true, true)?;
     image.image.normalize_if_greater_1();
     save_image_to_file(&image.image, &image.exif, &options.dst_file)?;
     Ok(())

@@ -422,6 +422,10 @@ fn create_temp_file_from_light_file(
         let norm_res = normalize(&ref_data, &mut light_file)?;
         norm_log.log("bg normalization TOTAL");
 
+        let nan_log = TimeLogger::start();
+        light_file.image.check_contains_inf_or_nan(false, true)?;
+        nan_log.log("check_contains_nan");
+
         let temp_file_name = file.with_extension("temp_light_data");
         let save_lock = disk_access_mutex.lock();
         let save_log = TimeLogger::start();
@@ -536,7 +540,7 @@ pub fn merge_temp_light_files(
         let mut g_values = Vec::new();
         let mut b_values = Vec::new();
         let mut prev_y = -1;
-        for (_, y, r, g, b) in result_image.iter_rgb_crd_mut() {
+        for (x, y, r, g, b) in result_image.iter_rgb_crd_mut() {
             if y != prev_y {
                 if cancel_flag.load(Ordering::Relaxed) { return Ok(()); }
                 progress.lock().unwrap().percent(
@@ -566,6 +570,14 @@ pub fn merge_temp_light_files(
             *r = calc_for_values(&mut r_values);
             *g = calc_for_values(&mut g_values);
             *b = calc_for_values(&mut b_values);
+
+            if r.is_nan() || g.is_nan() || b.is_nan() {
+                log::error!("NAN result in merge_temp_light_files!");
+                log::error!("r_values = {:#?}", r_values);
+                log::error!("g_values = {:#?}", g_values);
+                log::error!("b_values = {:#?}", b_values);
+                anyhow::bail!("r = {}, g = {}, b = {} at ({}, {})", *r, *g, *b, x, y);
+            }
         }
     } else {
         result_image.make_grey(ref_width, ref_height);
@@ -598,10 +610,14 @@ pub fn merge_temp_light_files(
 
     progress.lock().unwrap().percent(100, 100, "Saving result...");
 
+    log::info!("Chacking NAN before fill_inf_areas...");
+    result_image.check_contains_inf_or_nan(false, true)?;
     result_image.fill_inf_areas();
-    result_image.check_contains_inf_or_nan()?;
+    log::info!("Chacking INF or NAN after fill_inf_areas");
+    result_image.check_contains_inf_or_nan(true, true)?;
     result_image.normalize_if_greater_1();
 
+    log::info!("Saving image into file {}", result_file.to_str().unwrap_or(""));
     let mut dst_exif = Exif::new_empty();
     dst_exif.exp_time = Some(weighted_time as f32);
     save_image_to_file(&result_image, &dst_exif, result_file)?;

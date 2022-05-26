@@ -55,6 +55,7 @@ pub fn cmp_f64(v1: &f64, v2: &f64) -> core::cmp::Ordering {
     else { core::cmp::Ordering::Equal }
 }
 
+#[derive(Debug)]
 pub struct CalcValue {
     pub value: f64,
     pub weight: f64,
