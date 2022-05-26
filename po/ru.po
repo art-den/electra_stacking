@@ -45,8 +45,8 @@ msgstr "Кол. звёзд"
 msgid "FWHM"
 msgstr "FWHM"
 
-msgid "Stars R dev."
-msgstr "Stars R dev."
+msgid "Ovality"
+msgstr "Овальность"
 
 msgid "Sharpness"
 msgstr "Резкость"
@@ -359,11 +359,23 @@ msgstr "Очистка от неудачных файлов изображени
 msgid "Check all light files before execute"
 msgstr "Отметить все файлы перед очисткой"
 
+msgid "Cleanup mode"
+msgstr "Режим очистки"
+
+msgid "Percent"
+msgstr "Процент"
+
+msgid "By stars FWHM"
+msgstr "По площади звёзд (FWHM)"
+
+msgid "By stars ovality"
+msgstr "По овальности звёзд"
+
+msgid "By stars count"
+msgstr "По количеству звёзд"
+
 msgid "By image sharpness"
 msgstr "По резкости изображения"
-
-msgid "By stars average radius (FWHM)"
-msgstr "По среднему радиусу звёзд (FWHM)"
 
 msgid "By noise"
 msgstr "По шуму изображения"

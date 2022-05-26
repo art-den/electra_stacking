@@ -333,6 +333,12 @@ impl Project {
             anyhow::bail!(gettext("You have to save project before"));
         }
     }
+
+    pub fn get_total_light_files_count(&self) -> usize {
+        self.groups.iter()
+            .map(|g| g.light_files.list.len())
+            .sum()
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
@@ -721,28 +727,42 @@ impl ProjectGroup {
             .filter(|f| f.used)
             .count();
 
-        self.cleanup_by_sigma_clipping(
-            &conf.stars_radius,
+        self.cleanup_by_conf(
+            &conf.stars_r_dev,
+            false,
+            true,
+            |reg_info: &RegInfo| reg_info.stars_r_dev
+        )?;
+
+        self.cleanup_by_conf(
+            &conf.stars_fwhm,
             false,
             true,
             |reg_info: &RegInfo| reg_info.fwhm
         )?;
 
-        self.cleanup_by_sigma_clipping(
+        self.cleanup_by_conf(
+            &conf.stars_count,
+            true,
+            true,
+            |reg_info: &RegInfo| reg_info.stars as f32
+        )?;
+
+        self.cleanup_by_conf(
             &conf.img_sharpness,
             true,
             false,
             |reg_info: &RegInfo| reg_info.sharpness
         )?;
 
-        self.cleanup_by_percent(
+        self.cleanup_by_conf(
             &conf.noise,
             false,
             true,
             |reg_info: &RegInfo| reg_info.noise
         )?;
 
-        self.cleanup_by_percent(
+        self.cleanup_by_conf(
             &conf.background,
             false,
             true,
@@ -757,6 +777,22 @@ impl ProjectGroup {
 
         Ok(before_checked_cnt-after_checked_cnt)
     }
+
+    fn cleanup_by_conf<F: Fn(&RegInfo) -> f32>(
+        &mut self,
+        conf: &ClenupConfItem,
+        remove_min: bool,
+        remove_max: bool,
+        fun: F,
+    )  -> anyhow::Result<()> {
+        match conf.mode {
+            CleanupMode::SigmaClipping =>
+                self.cleanup_by_sigma_clipping(conf, remove_min, remove_max, fun),
+            CleanupMode::Percent =>
+                self.cleanup_by_percent(conf, remove_min, remove_max, fun),
+        }
+    }
+
 
     fn cleanup_by_sigma_clipping<F: Fn(&RegInfo) -> f32>(
         &mut self,
@@ -1038,17 +1074,24 @@ impl ProjectFile {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
+pub enum CleanupMode {
+    SigmaClipping,
+    Percent,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(default)]
 pub struct ClenupConfItem {
     pub used: bool,
+    pub mode: CleanupMode,
     pub kappa: f32,
     pub repeats: u32,
     pub percent: u32,
 }
 
 impl ClenupConfItem {
-    fn new(used: bool) -> Self {
-        Self { used, .. ClenupConfItem::default() }
+    fn new(used: bool, mode: CleanupMode) -> Self {
+        Self { used, mode, .. ClenupConfItem::default() }
     }
 }
 
@@ -1056,6 +1099,7 @@ impl Default for ClenupConfItem {
     fn default() -> Self {
         Self {
             used: true,
+            mode: CleanupMode::SigmaClipping,
             kappa: 1.8,
             repeats: 10,
             percent: 5,
@@ -1067,8 +1111,10 @@ impl Default for ClenupConfItem {
 #[serde(default)]
 pub struct ClenupConf {
     pub check_before_execute: bool,
+    pub stars_r_dev: ClenupConfItem,
+    pub stars_fwhm: ClenupConfItem,
+    pub stars_count: ClenupConfItem,
     pub img_sharpness: ClenupConfItem,
-    pub stars_radius: ClenupConfItem,
     pub noise: ClenupConfItem,
     pub background: ClenupConfItem,
 }
@@ -1077,10 +1123,12 @@ impl Default for ClenupConf {
     fn default() -> Self {
         Self {
             check_before_execute: true,
-            img_sharpness: Default::default(),
-            stars_radius: Default::default(),
-            noise: ClenupConfItem::new(false),
-            background: ClenupConfItem::new(false),
+            stars_r_dev: Default::default(),
+            stars_fwhm: Default::default(),
+            stars_count: Default::default(),
+            img_sharpness: ClenupConfItem::new(false, CleanupMode::Percent),
+            noise: ClenupConfItem::new(false, CleanupMode::Percent),
+            background: ClenupConfItem::new(false, CleanupMode::Percent),
         }
     }
 }

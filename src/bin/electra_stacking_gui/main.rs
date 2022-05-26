@@ -1210,7 +1210,7 @@ fn get_prj_tree_store_columns() -> [(String, u32, u32, glib::Type); 25] {
         (gettext("Background"),        COLUMN_BG_STR,          COLUMN_BG,          String::static_type()),
         (gettext("Stars"),             COLUMN_STARS_STR,       COLUMN_STARS,       String::static_type()),
         (gettext("FWHM"),              COLUMN_FWHM_STR,        COLUMN_FWHM,        String::static_type()),
-        (gettext("Stars R dev."),      COLUMN_STARS_R_DEV_STR, COLUMN_STARS_R_DEV, String::static_type()),
+        (gettext("Ovality"),           COLUMN_STARS_R_DEV_STR, COLUMN_STARS_R_DEV, String::static_type()),
         (gettext("Sharpness"),         COLUMN_SHARPNESS_STR,   COLUMN_SHARPNESS,   String::static_type()),
 
         // columns below are used for sorting, icons and checkboxes
@@ -2277,45 +2277,77 @@ fn action_cleanup_light_files(objects: &MainWindowObjectsPtr) {
     let builder = gtk::Builder::from_string(include_str!("ui/cleanup_dialog.ui"));
     let dialog = builder.object::<gtk::Dialog>("cleanup_dialog").unwrap();
     let chbt_check_before = builder.object::<gtk::CheckButton>("check_before").unwrap();
-    let chbt_img_sharp = builder.object::<gtk::CheckButton>("chb_img_sharpness").unwrap();
-    let e_img_sharp_kappa = builder.object::<gtk::Entry>("e_img_sharpness_kappa").unwrap();
-    let e_img_sharp_repeats = builder.object::<gtk::Entry>("e_img_sharpness_repeats").unwrap();
-    let chbt_stars_radius = builder.object::<gtk::CheckButton>("chb_stars_radius").unwrap();
-    let e_stars_r_kappa = builder.object::<gtk::Entry>("e_stars_radius_kappa").unwrap();
-    let e_stars_r_repeats = builder.object::<gtk::Entry>("e_stars_radius_repeats").unwrap();
-    let chbt_noise = builder.object::<gtk::CheckButton>("chb_noise").unwrap();
-    let e_noise = builder.object::<gtk::Entry>("e_noise").unwrap();
-    let chbt_background = builder.object::<gtk::CheckButton>("chb_bg").unwrap();
-    let e_background = builder.object::<gtk::Entry>("e_bg").unwrap();
 
-    {
-        let conf = &objects.project.borrow().cleanup_conf;
-        chbt_check_before.set_active(conf.check_before_execute);
-        let show_kappa = |
-            item:      &ClenupConfItem,
-            chb:       &gtk::CheckButton,
-            e_kappa:   &gtk::Entry,
-            e_repeats: &gtk::Entry
-        |{
-            chb.set_active(item.used);
-            e_kappa.set_text(&format!("{:.1}", item.kappa));
-            e_repeats.set_text(&format!("{}", item.repeats));
-        };
-        show_kappa(&conf.img_sharpness, &chbt_img_sharp, &e_img_sharp_kappa, &e_img_sharp_repeats);
-        show_kappa(&conf.stars_radius, &chbt_stars_radius, &e_stars_r_kappa, &e_stars_r_repeats);
+    let project = objects.project.borrow();
+    chbt_check_before.set_active(project.cleanup_conf.check_before_execute);
 
-        let show_percent = |
-            item:      &ClenupConfItem,
-            chb:       &gtk::CheckButton,
-            e_percent: &gtk::Entry
-        |{
-            chb.set_active(item.used);
-            e_percent.set_text(&format!("{}", item.percent));
+    let show_line = |
+        item: &ClenupConfItem,
+        chk_name: &str,
+        mode_name: &str,
+        kappa_name: &str,
+        repeats_name: &str,
+        percent_name: &str
+    | -> (gtk::CheckButton, gtk::ComboBoxText, gtk::Entry, gtk::Entry, gtk::Entry) {
+        let chk_w = builder.object::<gtk::CheckButton>(chk_name).unwrap();
+        let mode_w = builder.object::<gtk::ComboBoxText>(mode_name).unwrap();
+        let kappa_w = builder.object::<gtk::Entry>(kappa_name).unwrap();
+        let repeats_w = builder.object::<gtk::Entry>(repeats_name).unwrap();
+        let percent_w = builder.object::<gtk::Entry>(percent_name).unwrap();
+
+        let correct_sensivity = |
+            chk_w: &gtk::CheckButton,
+            mode_w: &gtk::ComboBoxText,
+            kappa_w: &gtk::Entry,
+            repeats_w: &gtk::Entry,
+            percent_w: &gtk::Entry,
+        | {
+            let is_used = chk_w.is_active();
+            let sigma_clip = mode_w.active() == Some(0);
+
+            mode_w.set_sensitive(is_used);
+            kappa_w.set_sensitive(is_used && sigma_clip);
+            repeats_w.set_sensitive(is_used && sigma_clip);
+            percent_w.set_sensitive(is_used && !sigma_clip);
         };
 
-        show_percent(&conf.noise, &chbt_noise, &e_noise);
-        show_percent(&conf.background, &chbt_background, &e_background);
-    }
+        chk_w.connect_active_notify(clone!(@weak mode_w, @weak kappa_w, @weak repeats_w, @weak percent_w => move |chk| {
+            correct_sensivity(&chk, &mode_w, &kappa_w, &repeats_w, &percent_w);
+        }));
+        chk_w.set_active(!item.used);
+        chk_w.set_active(item.used);
+
+        mode_w.connect_changed(clone!(@weak chk_w, @weak kappa_w, @weak repeats_w, @weak percent_w => move |cbt| {
+            correct_sensivity(&chk_w, &cbt, &kappa_w, &repeats_w, &percent_w);
+        }));
+        mode_w.append_text(&gettext("Sigma clipping"));
+        mode_w.append_text(&gettext("Percent"));
+        match item.mode {
+            CleanupMode::SigmaClipping => mode_w.set_active(Some(0)),
+            CleanupMode::Percent => mode_w.set_active(Some(1)),
+        }
+
+        kappa_w.set_text(&format!("{:.1}", item.kappa));
+        repeats_w.set_text(&format!("{}", item.repeats));
+        percent_w.set_text(&format!("{}", item.percent));
+
+        (chk_w, mode_w, kappa_w, repeats_w, percent_w)
+    };
+
+    let (chb_rdev, cbt_rdev, e_rdev_kappa, e_rdev_repeats, e_rdev_percent) =
+        show_line(&project.cleanup_conf.stars_r_dev, "chb_rdev", "cbt_rdev", "e_rdev_kappa", "e_rdev_repeats", "e_rdev_percent");
+    let (chb_fwhm, cbt_fwhm, e_fwhm_kappa, e_fwhm_repeats, e_fwhm_percent) =
+        show_line(&project.cleanup_conf.stars_fwhm, "chb_fwhm", "cbt_fwhm", "e_fwhm_kappa", "e_fwhm_repeats", "e_fwhm_percent");
+    let (chb_stars, cbt_stars, e_stars_kappa, e_stars_repeats, e_stars_percent) =
+        show_line(&project.cleanup_conf.stars_count, "chb_stars", "cbt_stars", "e_stars_kappa", "e_stars_repeats", "e_stars_percent");
+    let (chb_sharp, cbt_sharp, e_sharp_kappa, e_sharp_repeats, e_sharp_percent) =
+        show_line(&project.cleanup_conf.img_sharpness, "chb_sharp", "cbt_sharp", "e_sharp_kappa", "e_sharp_repeats", "e_sharp_percent");
+    let (chb_noise, cbt_noise, e_noise_kappa, e_noise_repeats, e_noise_percent) =
+        show_line(&project.cleanup_conf.noise, "chb_noise", "cbt_noise", "e_noise_kappa", "e_noise_repeats", "e_noise_percent");
+    let (chb_bg, cbt_bg, e_bg_kappa, e_bg_repeats, e_bg_percent) =
+        show_line(&project.cleanup_conf.background, "chb_bg", "cbt_bg", "e_bg_kappa", "e_bg_repeats", "e_bg_percent");
+
+    drop(project);
 
     dialog.set_transient_for(Some(&objects.window));
     if cfg!(target_os = "windows") {
@@ -2332,45 +2364,51 @@ fn action_cleanup_light_files(objects: &MainWindowObjectsPtr) {
 
     dialog.connect_response(clone!(@strong objects => move |dialog, response| {
         if response == gtk::ResponseType::Ok {
-            {
-                let conf = &mut objects.project.borrow_mut().cleanup_conf;
-                conf.check_before_execute = chbt_check_before.is_active();
-                let get_kappa = |
-                    item:      &mut ClenupConfItem,
-                    chb:       &gtk::CheckButton,
-                    e_kappa:   &gtk::Entry,
-                    e_repeats: &gtk::Entry
-                |{
-                    item.used = chb.is_active();
-                    item.kappa = e_kappa.text().as_str().parse().unwrap_or(item.kappa);
-                    item.repeats = e_repeats.text().as_str().parse().unwrap_or(item.repeats);
+            let mut project = objects.project.borrow_mut();
+            project.cleanup_conf.check_before_execute = chbt_check_before.is_active();
+
+            let get_line = |
+                item:      &mut ClenupConfItem,
+                chb_use:   &gtk::CheckButton,
+                cbt_mode:  &gtk::ComboBoxText,
+                e_kappa:   &gtk::Entry,
+                e_repeats: &gtk::Entry,
+                e_percent: &gtk::Entry
+            | {
+                item.used = chb_use.is_active();
+                item.mode = match cbt_mode.active() {
+                    Some(0) => CleanupMode::SigmaClipping,
+                    Some(1) => CleanupMode::Percent,
+                    _       => panic!("Wrong cbt_mode.active(): {:?}", cbt_mode.active()),
                 };
-                get_kappa(&mut conf.img_sharpness, &chbt_img_sharp, &e_img_sharp_kappa, &e_img_sharp_repeats);
-                get_kappa(&mut conf.stars_radius, &chbt_stars_radius, &e_stars_r_kappa, &e_stars_r_repeats);
+                item.kappa = e_kappa.text().as_str().parse().unwrap_or(item.kappa);
+                item.repeats = e_repeats.text().as_str().parse().unwrap_or(item.repeats);
+                item.percent = e_percent.text().as_str().parse().unwrap_or(item.percent);
+            };
 
-                let get_percent = |
-                    item:      &mut ClenupConfItem,
-                    chb:       &gtk::CheckButton,
-                    e_percent: &gtk::Entry
-                |{
-                    item.used = chb.is_active();
-                    item.percent = e_percent.text().as_str().parse().unwrap_or(item.percent);
-                };
+            get_line(&mut project.cleanup_conf.stars_r_dev,   &chb_rdev,  &cbt_rdev,  &e_rdev_kappa,  &e_rdev_repeats,  &e_rdev_percent);
+            get_line(&mut project.cleanup_conf.stars_fwhm,    &chb_fwhm,  &cbt_fwhm,  &e_fwhm_kappa,  &e_fwhm_repeats,  &e_fwhm_percent);
+            get_line(&mut project.cleanup_conf.stars_count,   &chb_stars, &cbt_stars, &e_stars_kappa, &e_stars_repeats, &e_stars_percent);
+            get_line(&mut project.cleanup_conf.img_sharpness, &chb_sharp, &cbt_sharp, &e_sharp_kappa, &e_sharp_repeats, &e_sharp_percent);
+            get_line(&mut project.cleanup_conf.noise,         &chb_noise, &cbt_noise, &e_noise_kappa, &e_noise_repeats, &e_noise_percent);
+            get_line(&mut project.cleanup_conf.background,    &chb_bg,    &cbt_bg,    &e_bg_kappa,    &e_bg_repeats,    &e_bg_percent);
 
-                get_percent(&mut conf.noise, &chbt_noise, &e_noise);
-                get_percent(&mut conf.background, &chbt_background, &e_background);
-
-                log::info!("Executing cleanup light files:\n{:#?}", conf);
-            }
+            drop(project);
 
             let helper = TreeViewFillHelper::new(&objects.project.borrow());
             let result = objects.project.borrow_mut().cleanup_light_files();
             match result {
                 Ok(cleaned_up_count) => {
+                    let total_files = objects.project.borrow().get_total_light_files_count();
                     show_message(
                         &objects,
                         &gettext("Cleanup light files result"),
-                        &format!("Cleaned up {} files", cleaned_up_count),
+                        &format!(
+                            "Cleaned up {0} files of {1} ({2:.1}%)",
+                            cleaned_up_count,
+                            total_files,
+                            100.0 * cleaned_up_count as f64 / total_files as f64
+                        ),
                         gtk::MessageType::Info,
                     );
                 },
@@ -2380,6 +2418,7 @@ fn action_cleanup_light_files(objects: &MainWindowObjectsPtr) {
             helper.apply_changes(&objects, true);
             update_project_name_and_time_in_gui(&objects, true, false);
         }
+
         dialog.close();
     }));
 

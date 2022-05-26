@@ -22,8 +22,8 @@ pub struct Star {
     pub width:          Crd,
     pub height:         Crd,
     pub brightness:     f64,
-    pub radius:         f64,
-    pub radius_std_dev: f64,
+    pub radius:         f32,
+    pub radius_std_dev: f32,
     pub overexposured:  bool,
     pub points:         StarPoints,
 }
@@ -249,8 +249,8 @@ pub fn find_stars_on_image(
             width:          max_x - min_x + 1,
             height:         max_y - min_y + 1,
             brightness:     br,
-            radius:         radius,
-            radius_std_dev: radius_dev,
+            radius:         radius as f32,
+            radius_std_dev: radius_dev as f32,
             overexposured:  star_is_overexposured,
             points,
         });
@@ -260,7 +260,7 @@ pub fn find_stars_on_image(
         // remove strange stars by radius
         stars.retain(|s| {
             let by_area_r = f64::sqrt(s.points.len() as f64 / PI);
-            let ratio = by_area_r / s.radius;
+            let ratio = by_area_r / s.radius as f64;
             ratio < 1.2 && ratio > 0.8
         });
 
@@ -269,11 +269,11 @@ pub fn find_stars_on_image(
         for _ in 0..10 {
             star_r_devs.clear();
             for star in &stars {
-                star_r_devs.push(CalcValue::new(star.radius_std_dev));
+                star_r_devs.push(CalcValue::new(star.radius_std_dev as f64));
             }
             if let Some((mean, dev)) = mean_and_std_dev(&star_r_devs) {
                 let max = mean + dev*2.5;
-                stars.retain(|s| s.radius_std_dev < max);
+                stars.retain(|s| (s.radius_std_dev as f64) < max);
             } else {
                 anyhow::bail!("No stars");
             }

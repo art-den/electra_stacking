@@ -5,6 +5,7 @@
   <object class="GtkDialog" id="cleanup_dialog">
     <property name="can-focus">False</property>
     <property name="title" translatable="yes">Cleanup bad light files</property>
+    <property name="resizable">False</property>
     <property name="modal">True</property>
     <property name="type-hint">dialog</property>
     <child internal-child="vbox">
@@ -34,7 +35,7 @@
           </packing>
         </child>
         <child>
-          <!-- n-columns=3 n-rows=10 -->
+          <!-- n-columns=5 n-rows=9 -->
           <object class="GtkGrid">
             <property name="visible">True</property>
             <property name="can-focus">False</property>
@@ -59,8 +60,8 @@
               </packing>
             </child>
             <child>
-              <object class="GtkCheckButton" id="chb_stars_radius">
-                <property name="label" translatable="yes">By stars average radius (FWHM)</property>
+              <object class="GtkCheckButton" id="chb_fwhm">
+                <property name="label" translatable="yes">By stars FWHM</property>
                 <property name="visible">True</property>
                 <property name="can-focus">True</property>
                 <property name="receives-default">False</property>
@@ -69,63 +70,6 @@
               <packing>
                 <property name="left-attach">0</property>
                 <property name="top-attach">4</property>
-              </packing>
-            </child>
-            <child>
-              <object class="GtkEntry" id="e_stars_radius_kappa">
-                <property name="visible">True</property>
-                <property name="can-focus">True</property>
-                <property name="width-chars">5</property>
-              </object>
-              <packing>
-                <property name="left-attach">1</property>
-                <property name="top-attach">4</property>
-              </packing>
-            </child>
-            <child>
-              <object class="GtkEntry" id="e_stars_radius_repeats">
-                <property name="visible">True</property>
-                <property name="can-focus">True</property>
-                <property name="width-chars">5</property>
-              </object>
-              <packing>
-                <property name="left-attach">2</property>
-                <property name="top-attach">4</property>
-              </packing>
-            </child>
-            <child>
-              <object class="GtkCheckButton" id="chb_img_sharpness">
-                <property name="label" translatable="yes">By image sharpness</property>
-                <property name="visible">True</property>
-                <property name="can-focus">True</property>
-                <property name="receives-default">False</property>
-                <property name="draw-indicator">True</property>
-              </object>
-              <packing>
-                <property name="left-attach">0</property>
-                <property name="top-attach">3</property>
-              </packing>
-            </child>
-            <child>
-              <object class="GtkEntry" id="e_img_sharpness_kappa">
-                <property name="visible">True</property>
-                <property name="can-focus">True</property>
-                <property name="width-chars">5</property>
-              </object>
-              <packing>
-                <property name="left-attach">1</property>
-                <property name="top-attach">3</property>
-              </packing>
-            </child>
-            <child>
-              <object class="GtkEntry" id="e_img_sharpness_repeats">
-                <property name="visible">True</property>
-                <property name="can-focus">True</property>
-                <property name="width-chars">5</property>
-              </object>
-              <packing>
-                <property name="left-attach">2</property>
-                <property name="top-attach">3</property>
               </packing>
             </child>
             <child>
@@ -136,7 +80,7 @@
               <packing>
                 <property name="left-attach">0</property>
                 <property name="top-attach">1</property>
-                <property name="width">3</property>
+                <property name="width">5</property>
               </packing>
             </child>
             <child>
@@ -153,39 +97,6 @@
               </packing>
             </child>
             <child>
-              <object class="GtkEntry" id="e_noise">
-                <property name="visible">True</property>
-                <property name="can-focus">True</property>
-                <property name="width-chars">5</property>
-              </object>
-              <packing>
-                <property name="left-attach">1</property>
-                <property name="top-attach">7</property>
-              </packing>
-            </child>
-            <child>
-              <object class="GtkSeparator">
-                <property name="visible">True</property>
-                <property name="can-focus">False</property>
-              </object>
-              <packing>
-                <property name="left-attach">0</property>
-                <property name="top-attach">5</property>
-                <property name="width">3</property>
-              </packing>
-            </child>
-            <child>
-              <object class="GtkLabel">
-                <property name="visible">True</property>
-                <property name="can-focus">False</property>
-                <property name="label" translatable="yes">%</property>
-              </object>
-              <packing>
-                <property name="left-attach">1</property>
-                <property name="top-attach">6</property>
-              </packing>
-            </child>
-            <child>
               <object class="GtkCheckButton" id="chb_bg">
                 <property name="label" translatable="yes">By background</property>
                 <property name="visible">True</property>
@@ -196,65 +107,6 @@
               <packing>
                 <property name="left-attach">0</property>
                 <property name="top-attach">8</property>
-              </packing>
-            </child>
-            <child>
-              <object class="GtkEntry" id="e_bg">
-                <property name="visible">True</property>
-                <property name="can-focus">True</property>
-                <property name="width-chars">5</property>
-              </object>
-              <packing>
-                <property name="left-attach">1</property>
-                <property name="top-attach">8</property>
-              </packing>
-            </child>
-            <child>
-              <object class="GtkSeparator">
-                <property name="visible">True</property>
-                <property name="can-focus">False</property>
-              </object>
-              <packing>
-                <property name="left-attach">0</property>
-                <property name="top-attach">9</property>
-                <property name="width">3</property>
-              </packing>
-            </child>
-            <child>
-              <object class="GtkBox">
-                <property name="visible">True</property>
-                <property name="can-focus">False</property>
-                <property name="orientation">vertical</property>
-                <child>
-                  <object class="GtkLabel">
-                    <property name="visible">True</property>
-                    <property name="can-focus">False</property>
-                    <property name="label" translatable="yes">Kappa</property>
-                    <property name="justify">center</property>
-                  </object>
-                  <packing>
-                    <property name="expand">False</property>
-                    <property name="fill">True</property>
-                    <property name="position">0</property>
-                  </packing>
-                </child>
-                <child>
-                  <object class="GtkLabel">
-                    <property name="visible">True</property>
-                    <property name="can-focus">False</property>
-                    <property name="opacity">0.5</property>
-                    <property name="label" translatable="yes">1.3-3.0</property>
-                  </object>
-                  <packing>
-                    <property name="expand">False</property>
-                    <property name="fill">True</property>
-                    <property name="position">1</property>
-                  </packing>
-                </child>
-              </object>
-              <packing>
-                <property name="left-attach">1</property>
-                <property name="top-attach">2</property>
               </packing>
             </child>
             <child>
@@ -290,15 +142,367 @@
                 </child>
               </object>
               <packing>
+                <property name="left-attach">3</property>
+                <property name="top-attach">2</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkEntry" id="e_fwhm_repeats">
+                <property name="visible">True</property>
+                <property name="can-focus">True</property>
+                <property name="width-chars">5</property>
+              </object>
+              <packing>
+                <property name="left-attach">3</property>
+                <property name="top-attach">4</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkBox">
+                <property name="visible">True</property>
+                <property name="can-focus">False</property>
+                <property name="orientation">vertical</property>
+                <child>
+                  <object class="GtkLabel">
+                    <property name="visible">True</property>
+                    <property name="can-focus">False</property>
+                    <property name="label" translatable="yes">Kappa</property>
+                    <property name="justify">center</property>
+                  </object>
+                  <packing>
+                    <property name="expand">False</property>
+                    <property name="fill">True</property>
+                    <property name="position">0</property>
+                  </packing>
+                </child>
+                <child>
+                  <object class="GtkLabel">
+                    <property name="visible">True</property>
+                    <property name="can-focus">False</property>
+                    <property name="opacity">0.5</property>
+                    <property name="label" translatable="yes">1.3-3.0</property>
+                  </object>
+                  <packing>
+                    <property name="expand">False</property>
+                    <property name="fill">True</property>
+                    <property name="position">1</property>
+                  </packing>
+                </child>
+              </object>
+              <packing>
                 <property name="left-attach">2</property>
                 <property name="top-attach">2</property>
               </packing>
             </child>
             <child>
-              <placeholder/>
+              <object class="GtkEntry" id="e_fwhm_kappa">
+                <property name="visible">True</property>
+                <property name="can-focus">True</property>
+                <property name="width-chars">5</property>
+              </object>
+              <packing>
+                <property name="left-attach">2</property>
+                <property name="top-attach">4</property>
+              </packing>
             </child>
             <child>
-              <placeholder/>
+              <object class="GtkLabel">
+                <property name="visible">True</property>
+                <property name="can-focus">False</property>
+                <property name="valign">start</property>
+                <property name="label" translatable="yes">%</property>
+              </object>
+              <packing>
+                <property name="left-attach">4</property>
+                <property name="top-attach">2</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkEntry" id="e_noise_percent">
+                <property name="visible">True</property>
+                <property name="can-focus">True</property>
+                <property name="width-chars">5</property>
+              </object>
+              <packing>
+                <property name="left-attach">4</property>
+                <property name="top-attach">7</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkEntry" id="e_bg_percent">
+                <property name="visible">True</property>
+                <property name="can-focus">True</property>
+                <property name="width-chars">5</property>
+              </object>
+              <packing>
+                <property name="left-attach">4</property>
+                <property name="top-attach">8</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkComboBoxText" id="cbt_fwhm">
+                <property name="visible">True</property>
+                <property name="can-focus">False</property>
+              </object>
+              <packing>
+                <property name="left-attach">1</property>
+                <property name="top-attach">4</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkComboBoxText" id="cbt_noise">
+                <property name="visible">True</property>
+                <property name="can-focus">False</property>
+              </object>
+              <packing>
+                <property name="left-attach">1</property>
+                <property name="top-attach">7</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkComboBoxText" id="cbt_bg">
+                <property name="visible">True</property>
+                <property name="can-focus">False</property>
+              </object>
+              <packing>
+                <property name="left-attach">1</property>
+                <property name="top-attach">8</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkLabel">
+                <property name="visible">True</property>
+                <property name="can-focus">False</property>
+                <property name="valign">start</property>
+                <property name="label" translatable="yes">Cleanup mode</property>
+              </object>
+              <packing>
+                <property name="left-attach">1</property>
+                <property name="top-attach">2</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkCheckButton" id="chb_rdev">
+                <property name="label" translatable="yes">By stars ovality</property>
+                <property name="visible">True</property>
+                <property name="can-focus">True</property>
+                <property name="receives-default">False</property>
+                <property name="draw-indicator">True</property>
+              </object>
+              <packing>
+                <property name="left-attach">0</property>
+                <property name="top-attach">3</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkComboBoxText" id="cbt_rdev">
+                <property name="visible">True</property>
+                <property name="can-focus">False</property>
+              </object>
+              <packing>
+                <property name="left-attach">1</property>
+                <property name="top-attach">3</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkEntry" id="e_rdev_kappa">
+                <property name="visible">True</property>
+                <property name="can-focus">True</property>
+                <property name="width-chars">5</property>
+              </object>
+              <packing>
+                <property name="left-attach">2</property>
+                <property name="top-attach">3</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkEntry" id="e_rdev_repeats">
+                <property name="visible">True</property>
+                <property name="can-focus">True</property>
+                <property name="width-chars">5</property>
+              </object>
+              <packing>
+                <property name="left-attach">3</property>
+                <property name="top-attach">3</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkEntry" id="e_rdev_percent">
+                <property name="visible">True</property>
+                <property name="can-focus">True</property>
+                <property name="width-chars">5</property>
+              </object>
+              <packing>
+                <property name="left-attach">4</property>
+                <property name="top-attach">3</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkCheckButton" id="chb_sharp">
+                <property name="label" translatable="yes">By image sharpness</property>
+                <property name="visible">True</property>
+                <property name="can-focus">True</property>
+                <property name="receives-default">False</property>
+                <property name="draw-indicator">True</property>
+              </object>
+              <packing>
+                <property name="left-attach">0</property>
+                <property name="top-attach">6</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkComboBoxText" id="cbt_sharp">
+                <property name="visible">True</property>
+                <property name="can-focus">False</property>
+              </object>
+              <packing>
+                <property name="left-attach">1</property>
+                <property name="top-attach">6</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkEntry" id="e_sharp_kappa">
+                <property name="visible">True</property>
+                <property name="can-focus">True</property>
+                <property name="width-chars">5</property>
+              </object>
+              <packing>
+                <property name="left-attach">2</property>
+                <property name="top-attach">6</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkEntry" id="e_sharp_repeats">
+                <property name="visible">True</property>
+                <property name="can-focus">True</property>
+                <property name="width-chars">5</property>
+              </object>
+              <packing>
+                <property name="left-attach">3</property>
+                <property name="top-attach">6</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkCheckButton" id="chb_stars">
+                <property name="label" translatable="yes">By stars count</property>
+                <property name="visible">True</property>
+                <property name="can-focus">True</property>
+                <property name="receives-default">False</property>
+                <property name="draw-indicator">True</property>
+              </object>
+              <packing>
+                <property name="left-attach">0</property>
+                <property name="top-attach">5</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkComboBoxText" id="cbt_stars">
+                <property name="visible">True</property>
+                <property name="can-focus">False</property>
+              </object>
+              <packing>
+                <property name="left-attach">1</property>
+                <property name="top-attach">5</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkEntry" id="e_stars_kappa">
+                <property name="visible">True</property>
+                <property name="can-focus">True</property>
+                <property name="width-chars">5</property>
+              </object>
+              <packing>
+                <property name="left-attach">2</property>
+                <property name="top-attach">5</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkEntry" id="e_stars_repeats">
+                <property name="visible">True</property>
+                <property name="can-focus">True</property>
+                <property name="width-chars">5</property>
+              </object>
+              <packing>
+                <property name="left-attach">3</property>
+                <property name="top-attach">5</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkEntry" id="e_stars_percent">
+                <property name="visible">True</property>
+                <property name="can-focus">True</property>
+                <property name="width-chars">5</property>
+              </object>
+              <packing>
+                <property name="left-attach">4</property>
+                <property name="top-attach">5</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkEntry" id="e_sharp_percent">
+                <property name="visible">True</property>
+                <property name="can-focus">True</property>
+                <property name="width-chars">5</property>
+              </object>
+              <packing>
+                <property name="left-attach">4</property>
+                <property name="top-attach">6</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkEntry" id="e_fwhm_percent">
+                <property name="visible">True</property>
+                <property name="can-focus">True</property>
+                <property name="width-chars">5</property>
+              </object>
+              <packing>
+                <property name="left-attach">4</property>
+                <property name="top-attach">4</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkEntry" id="e_noise_kappa">
+                <property name="visible">True</property>
+                <property name="can-focus">True</property>
+                <property name="width-chars">5</property>
+              </object>
+              <packing>
+                <property name="left-attach">2</property>
+                <property name="top-attach">7</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkEntry" id="e_noise_repeats">
+                <property name="visible">True</property>
+                <property name="can-focus">True</property>
+                <property name="width-chars">5</property>
+              </object>
+              <packing>
+                <property name="left-attach">3</property>
+                <property name="top-attach">7</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkEntry" id="e_bg_kappa">
+                <property name="visible">True</property>
+                <property name="can-focus">True</property>
+                <property name="width-chars">5</property>
+              </object>
+              <packing>
+                <property name="left-attach">2</property>
+                <property name="top-attach">8</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkEntry" id="e_bg_repeats">
+                <property name="visible">True</property>
+                <property name="can-focus">True</property>
+                <property name="width-chars">5</property>
+              </object>
+              <packing>
+                <property name="left-attach">3</property>
+                <property name="top-attach">8</property>
+              </packing>
             </child>
             <child>
               <placeholder/>
