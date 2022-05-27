@@ -23,7 +23,7 @@ pub struct LightFile {
 
 impl LightFile {
     pub fn load(
-        file_name:  &PathBuf,
+        file_name:  &Path,
         cal_data:   &CalibrationData,
         disk_mutex: Option<&std::sync::Mutex<()>>,
         flags:      LoadLightFlags,
@@ -106,7 +106,7 @@ impl LightFile {
             } else {
                 &src_data.image.g
             };
-            let result = calc_sharpness(&img);
+            let result = calc_sharpness(img);
             f_log.log("freq calculation");
             result
         } else {
@@ -143,8 +143,8 @@ fn check_raw_data(
 
     compare("Width", &raw_info.width, &cal_info.width)?;
     compare("Height", &raw_info.height, &cal_info.height)?;
-    let raw_cam = raw_info.exif.camera.as_ref().and_then(|v| Some(&v[..])).unwrap_or("");
-    let cal_cam = cal_info.exif.camera.as_ref().and_then(|v| Some(&v[..])).unwrap_or("");
+    let raw_cam = raw_info.exif.camera.as_ref().map(|v| &v[..]).unwrap_or("");
+    let cal_cam = cal_info.exif.camera.as_ref().map(|v| &v[..]).unwrap_or("");
     compare("Camera model", &raw_cam, &cal_cam)?;
     compare("Color pattern", &raw_info.cfa, &cal_info.cfa)?;
 
@@ -159,7 +159,7 @@ fn check_raw_data(
 }
 
 fn load_raw_light_file(
-    file_name:     &PathBuf,
+    file_name:     &Path,
     cal_data:      &CalibrationData,
     disk_mutex:    Option<&std::sync::Mutex<()>>,
     fast_demosaic: bool,

@@ -38,9 +38,9 @@ pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
     progress.lock().unwrap().set_total(file_names_list.len());
 
     let cal_data = Arc::new(CalibrationData::load(
-        &options.master_flat,
-        &options.master_dark,
-        &options.master_bias
+        options.master_flat.as_deref(),
+        options.master_dark.as_deref(),
+        options.master_bias.as_deref()
     )?);
 
     let disk_access_mutex = Arc::new(Mutex::new(()));

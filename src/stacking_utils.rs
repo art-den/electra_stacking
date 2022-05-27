@@ -88,7 +88,7 @@ fn postprocess_single_flat_image_color(
 
     for (x, y, v) in raw_image.data.iter_crd_mut() {
         if raw_image.info.cfa.get_pixel_color(x, y) != cc { continue; }
-        *v = *v / norm_value;
+        *v /= norm_value;
     }
 
     true
@@ -175,16 +175,14 @@ where
     let disk_access_mutex = Mutex::new(());
 
     let this_info = MasterFileInfo {
-        files: files_list.iter().cloned().collect(),
+        files: files_list.to_vec(),
         calc_opts: calc_opts.clone(),
     };
 
-    if !force_even_if_exist {
-        if result_file.exists() {
-            let from_disk_info = MasterFileInfo::read_fro(&result_file);
-            if let Ok(from_disk_info) = from_disk_info {
-                if from_disk_info == this_info { return Ok(false); }
-            }
+    if !force_even_if_exist && result_file.exists() {
+        let from_disk_info = MasterFileInfo::read_fro(result_file);
+        if let Ok(from_disk_info) = from_disk_info {
+            if from_disk_info == this_info { return Ok(false); }
         }
     }
 
@@ -258,7 +256,7 @@ where
             first_image_info = Some(image_info.clone());
         }
         opened_files.push(FileData{ file, image_info });
-        temp_file_list.add(&file_path);
+        temp_file_list.add(file_path);
     }
 
     if opened_files.is_empty() { bail!("Nothing to merge") }
@@ -282,7 +280,7 @@ where
             data_to_calc.push(CalcValue::new(value as f64));
         }
         *v = calc(&mut data_to_calc, calc_opts)
-            .and_then(|v| Some(v.result))
+            .map(|v| v.result)
             .unwrap_or(NO_VALUE_F32 as f64) as f32;
     }
 
@@ -312,9 +310,9 @@ pub struct TempFileData {
 pub fn create_temp_light_files(
     progress:           &ProgressTs,
     files_list:         Vec<PathBuf>,
-    master_flat:        &Option<PathBuf>,
-    master_dark:        &Option<PathBuf>,
-    master_bias:        &Option<PathBuf>,
+    master_flat:        Option<&Path>,
+    master_dark:        Option<&Path>,
+    master_bias:        Option<&Path>,
     ref_data:           &RefBgData,
     bin:                usize,
     result_list:        &Mutex<Vec<TempFileData>>,
@@ -365,7 +363,7 @@ pub fn create_temp_light_files(
 }
 
 fn create_temp_file_from_light_file(
-    file:               &PathBuf,
+    file:               &Path,
     cal_data:           &CalibrationData,
     ref_data:           &RefBgData,
     bin:                usize,
@@ -378,8 +376,8 @@ fn create_temp_file_from_light_file(
     let load_log = TimeLogger::start();
     let mut light_file = LightFile::load(
         file,
-        &cal_data,
-        Some(&disk_access_mutex),
+        cal_data,
+        Some(disk_access_mutex),
           LoadLightFlags::STARS
         | LoadLightFlags::NOISE,
         bin
@@ -419,7 +417,7 @@ fn create_temp_file_from_light_file(
         light_file.grey = light_file.image.create_greyscale_layer();
 
         let norm_log = TimeLogger::start();
-        let norm_res = normalize(&ref_data, &mut light_file)?;
+        let norm_res = normalize(ref_data, &mut light_file)?;
         norm_log.log("bg normalization TOTAL");
 
         let nan_log = TimeLogger::start();
@@ -435,7 +433,7 @@ fn create_temp_file_from_light_file(
 
         files_to_del_later.lock().unwrap().add(&temp_file_name);
         result_list.lock().unwrap().push(TempFileData{
-            orig_file:    file.clone(),
+            orig_file:    file.to_path_buf(),
             file_name:    temp_file_name,
             range_factor: norm_res.range_factor,
             noise:        light_file.noise * norm_res.range_factor,
@@ -463,12 +461,12 @@ pub fn seconds_to_total_time_str(seconds: f64) -> String {
 
 pub fn merge_temp_light_files(
     progress:        &ProgressTs,
-    temp_file_names: &Vec<TempFileData>,
+    temp_file_names: &[TempFileData],
     calc_opts:       &CalcOpts,
     is_rgb_image:    bool,
     ref_width:       Crd,
     ref_height:      Crd,
-    result_file:     &PathBuf,
+    result_file:     &Path,
     cancel_flag:     &Arc<AtomicBool>,
 ) -> anyhow::Result<()> {
     let min_noise = temp_file_names.iter().map(|v| v.noise).min_by(cmp_f32).unwrap();
@@ -520,15 +518,15 @@ pub fn merge_temp_light_files(
 
     let calc_for_values = |values: &mut Vec<CalcValue>| -> f32 {
         if values.is_empty() { return 0.0; }
-        let contains_inf = values.iter().position(|v| v.value.is_infinite()).is_some();
-        let contains_values = values.iter().position(|v| !v.value.is_infinite()).is_some();
+        let contains_inf = values.iter().any(|v| v.value.is_infinite());
+        let contains_values = values.iter().any(|v| !v.value.is_infinite());
         if contains_inf && !contains_values {
             return f32::INFINITY;
         } else if contains_inf && contains_values {
             values.retain(|v| !v.value.is_infinite());
         }
         calc(values, calc_opts)
-            .and_then(|v| Some(v.result as f32))
+            .map(|v| v.result as f32)
             .unwrap_or(NO_VALUE_F32)
     };
 

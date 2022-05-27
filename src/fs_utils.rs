@@ -28,10 +28,10 @@ pub fn file_mask_to_regex_str(text: &str) -> String {
 pub fn create_regex_for_masks(masks: &str) -> anyhow::Result<regex::Regex> {
     let masks = masks.trim();
     if masks.is_empty() {
-        return Ok(regex::Regex::new(&".*")?);
+        return Ok(regex::Regex::new(".*")?);
     }
     let regex_str = masks
-        .split(";")
+        .split(';')
         .map(|s| file_mask_to_regex_str(s.trim()))
         .map(|s| format!("(?:{}$)", s))
         .join("|");
@@ -68,7 +68,7 @@ pub fn get_light_info_file_name(file_name: &Path) -> PathBuf {
     file_name.with_extension("light_info")
 }
 
-pub fn get_temp_light_tif_file_name(file_name: &PathBuf) -> PathBuf {
+pub fn get_temp_light_tif_file_name(file_name: &Path) -> PathBuf {
     file_name.with_extension("tif")
 }
 
@@ -100,8 +100,8 @@ impl FilesToDeleteLater {
         FilesToDeleteLater { files: Vec::new() }
     }
 
-    pub fn add(&mut self, file: &PathBuf) {
-        self.files.push(file.clone());
+    pub fn add(&mut self, file: &Path) {
+        self.files.push(file.to_path_buf());
     }
 }
 

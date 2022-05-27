@@ -112,9 +112,9 @@ pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
     progress.lock().unwrap().percent(0, 100, "Loading reference file...");
 
     let ref_cal = CalibrationData::load(
-        &dir_data[0].master_flat,
-        &dir_data[0].master_dark,
-        &dir_data[0].master_bias
+        dir_data[0].master_flat.as_deref(),
+        dir_data[0].master_dark.as_deref(),
+        dir_data[0].master_bias.as_deref()
     )?;
 
     let ref_bg_data = RefBgData::new(
@@ -138,9 +138,9 @@ pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
         create_temp_light_files(
             &progress,
             file_names_list,
-            &item.master_flat,
-            &item.master_dark,
-            &item.master_bias,
+            item.master_flat.as_deref(),
+            item.master_dark.as_deref(),
+            item.master_bias.as_deref(),
             &ref_bg_data,
             options.bin.unwrap_or(1),
             &temp_file_names,

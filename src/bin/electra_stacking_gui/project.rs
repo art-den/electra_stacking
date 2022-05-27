@@ -21,7 +21,7 @@ const MASTER_DARK_FN: &str = "master-dark.es_raw";
 const MASTER_FLAT_FN: &str = "master-flat.es_raw";
 const MASTER_BIAS_FN: &str = "master-bias.es_raw";
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Default)]
 #[serde(default)]
 pub struct Project {
     pub config: ProjectConfig,
@@ -41,19 +41,6 @@ pub enum CanExecStackLightsRes {
     NoRefFile,
 }
 
-impl Default for Project {
-    fn default() -> Self {
-        Project {
-            config: Default::default(),
-            cleanup_conf: Default::default(),
-            groups: Vec::new(),
-            file_name: None,
-            ref_image: None,
-            changed: false,
-        }
-    }
-}
-
 impl Project {
     pub fn load(&mut self, file_name: &Path) -> anyhow::Result<()> {
         let reader = BufReader::new(File::open(file_name)?);
@@ -70,9 +57,7 @@ impl Project {
 
     pub fn make_default(&mut self) {
         self.groups.clear();
-        let mut group = ProjectGroup::default();
-        group.options = GroupOptions::default();
-        self.groups.push(group);
+        self.groups.push(ProjectGroup::default());
     }
 
     pub fn add_default_group_if_empty(&mut self) {
@@ -83,8 +68,7 @@ impl Project {
     pub fn group_exists(&self, uuid: &str) -> bool {
         self.groups
             .iter()
-            .position(|g| g.uuid == uuid)
-            .is_some()
+            .any(|g| g.uuid == uuid)
     }
 
     pub fn find_group_by_uuid_mut(&mut self, uuid: &str) -> Option<&mut ProjectGroup> {
@@ -94,8 +78,10 @@ impl Project {
     }
 
     pub fn add_new_group(&mut self, options: GroupOptions) {
-        let mut group = ProjectGroup::default();
-        group.options = options;
+        let group = ProjectGroup {
+            options,
+            .. Default::default()
+        };
         self.groups.push(group);
         self.changed = true;
     }
@@ -142,7 +128,7 @@ impl Project {
             )?;
         }
 
-        let mut result = Mutex::new(HashMap::new());
+        let result = Mutex::new(HashMap::new());
         for (idx, group) in self.groups.iter().enumerate() {
             if cancel_flag.load(Ordering::Relaxed) { return Ok(HashMap::new()); }
             group.register_light_files(
@@ -150,7 +136,7 @@ impl Project {
                 progress,
                 cancel_flag,
                 &thread_pool,
-                &mut result
+                &result
             )?;
         }
 
@@ -228,9 +214,9 @@ impl Project {
             .ok_or_else(|| anyhow::anyhow!(gettext("Can't find group with reference image")))?;
 
         let ref_cal = CalibrationData::load(
-            &group_with_ref_file.flat_files.get_master_full_file_name(MASTER_FLAT_FN),
-            &group_with_ref_file.dark_files.get_master_full_file_name(MASTER_DARK_FN),
-            &group_with_ref_file.bias_files.get_master_full_file_name(MASTER_BIAS_FN),
+            group_with_ref_file.flat_files.get_master_full_file_name(MASTER_FLAT_FN).as_deref(),
+            group_with_ref_file.dark_files.get_master_full_file_name(MASTER_DARK_FN).as_deref(),
+            group_with_ref_file.bias_files.get_master_full_file_name(MASTER_BIAS_FN).as_deref(),
         )?;
 
         let ref_data = RefBgData::new(self.ref_image.as_ref().unwrap(), &ref_cal, bin)?;
@@ -254,11 +240,11 @@ impl Project {
             ));
 
             create_temp_light_files(
-                &progress,
+                progress,
                 group.light_files.get_selected_file_names(),
-                &group.flat_files.get_master_full_file_name(MASTER_FLAT_FN),
-                &group.dark_files.get_master_full_file_name(MASTER_DARK_FN),
-                &group.bias_files.get_master_full_file_name(MASTER_BIAS_FN),
+                group.flat_files.get_master_full_file_name(MASTER_FLAT_FN).as_deref(),
+                group.dark_files.get_master_full_file_name(MASTER_DARK_FN).as_deref(),
+                group.bias_files.get_master_full_file_name(MASTER_BIAS_FN).as_deref(),
                 &ref_data,
                 bin,
                 &temp_file_names,
@@ -282,14 +268,14 @@ impl Project {
         ));
 
         merge_temp_light_files(
-            &progress,
+            progress,
             &temp_file_names.lock().unwrap(),
             &self.config.light_calc_opts,
             ref_data.image.image.is_rgb(),
             ref_data.image.image.width(),
             ref_data.image.image.height(),
             &result_file_name,
-            &cancel_flag
+            cancel_flag
         )?;
 
         if cancel_flag.load(Ordering::Relaxed) {
@@ -431,9 +417,9 @@ impl ProjectGroup {
             }
         }
         if group_index == 0 {
-            return gettext("Main group")
+            gettext("Main group")
         } else {
-            return format!("{} #{}", gettext("Group"), group_index+1)
+            format!("{} #{}", gettext("Group"), group_index+1)
         }
     }
 
@@ -482,7 +468,7 @@ impl ProjectGroup {
             progress,
             cancel_flag,
             &config.bias_calc_opts,
-            &thread_pool
+            thread_pool
         )?;
 
         self.create_master_dark(
@@ -490,7 +476,7 @@ impl ProjectGroup {
             progress,
             cancel_flag,
             &config.dark_calc_opts,
-            &thread_pool
+            thread_pool
         )?;
 
         self.create_master_flat(
@@ -499,7 +485,7 @@ impl ProjectGroup {
             cancel_flag,
             &config.flat_calc_opts,
             &self.bias_files.get_master_full_file_name(MASTER_BIAS_FN),
-            &thread_pool,
+            thread_pool,
             bias_recreated
         )?;
 
@@ -609,7 +595,7 @@ impl ProjectGroup {
         file_name:    &str,
         create_fun:   F,
     ) -> anyhow::Result<bool>
-        where F: FnOnce(&[PathBuf], &PathBuf) -> anyhow::Result<bool>
+        where F: FnOnce(&[PathBuf], &Path) -> anyhow::Result<bool>
     {
         if cancel_flag.load(Ordering::Relaxed) { return Ok(false); }
         let file_names = calibr_files.get_selected_file_names();
@@ -624,7 +610,7 @@ impl ProjectGroup {
         progress:    &ProgressTs,
         cancel_flag: &Arc<AtomicBool>,
         thread_pool: &rayon::ThreadPool,
-        result:      &mut Mutex<HashMap<PathBuf, RegInfo>>,
+        result:      &Mutex<HashMap<PathBuf, RegInfo>>,
     ) -> anyhow::Result<()> {
         progress.lock().unwrap().stage(&format!(
             "Registering files for group {}...",
@@ -636,9 +622,9 @@ impl ProjectGroup {
         ));
 
         let cal_data = CalibrationData::load(
-            &self.flat_files.get_master_full_file_name(MASTER_FLAT_FN),
-            &self.dark_files.get_master_full_file_name(MASTER_DARK_FN),
-            &self.bias_files.get_master_full_file_name(MASTER_BIAS_FN),
+            self.flat_files.get_master_full_file_name(MASTER_FLAT_FN).as_deref(),
+            self.dark_files.get_master_full_file_name(MASTER_DARK_FN).as_deref(),
+            self.bias_files.get_master_full_file_name(MASTER_BIAS_FN).as_deref(),
         )?;
 
         let cur_result = Mutex::new(anyhow::Result::<()>::Ok(()));
@@ -897,32 +883,16 @@ impl ProjectGroup {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
 #[serde(default)]
 pub struct GroupOptions {
     pub name: Option<String>,
 }
 
-impl Default for GroupOptions {
-    fn default() -> Self {
-        Self {
-            name: None,
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Default)]
 #[serde(default)]
 pub struct ProjectFiles {
     pub list: Vec<ProjectFile>,
-}
-
-impl Default for ProjectFiles {
-    fn default() -> Self {
-        ProjectFiles {
-            list: Vec::new(),
-        }
-    }
 }
 
 impl ProjectFiles {
@@ -1001,7 +971,7 @@ impl ProjectFiles {
     }
 
     pub fn remove_files_by_idx(&mut self, mut indices: Vec<usize>) -> Vec<ProjectFile> {
-        indices.sort();
+        indices.sort_unstable();
         indices
             .into_iter()
             .rev()

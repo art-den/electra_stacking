@@ -91,8 +91,7 @@ pub fn find_stars_on_image(
     let mut star_bg_values = Vec::new();
     let mut flood_filler = FloodFiller::new();
 
-    for &(x, y, posibble_max_value) in possible_stars.iter() {
-        let (mut x, mut y) = (x, y);
+    for &(mut x, mut y, posibble_max_value) in possible_stars.iter() {
         if all_stars_points.contains(&(x, y)) { continue };
 
         // goto maximum
@@ -106,16 +105,17 @@ pub fn find_stars_on_image(
                 new_value > cur_value
             };
 
-            'outer:
-            for dy in -1..=1 { for dx in -1..=1 {
+            let mut found = false;
+            'outer: for dy in -1..=1 { for dx in -1..=1 {
                 if try_maximum(x, y, dx, dy) {
                     x += dx;
                     y += dy;
-                    continue 'outer;
+                    found = true;
+                    break 'outer;
                 }
             }}
 
-            break;
+            if !found { break; }
         }
 
         // calculate star background
@@ -304,8 +304,8 @@ pub fn calc_image_offset_by_stars(
     let image_size = (img_width + img_height) / 2.0;
 
     const MAX_STARS: usize = 100;
-    let ref_stars = if ref_stars.len() < MAX_STARS { &ref_stars } else { &ref_stars[..MAX_STARS] };
-    let stars     = if stars.len()     < MAX_STARS { &stars }     else { &stars[..MAX_STARS] };
+    let ref_stars = if ref_stars.len() < MAX_STARS { ref_stars } else { &ref_stars[..MAX_STARS] };
+    let stars     = if stars.len()     < MAX_STARS { stars }     else { &stars[..MAX_STARS] };
 
     let ref_triangles = get_stars_triangles(ref_stars, image_size / 5.0);
     let triangles = get_stars_triangles(stars, image_size / 5.0);
@@ -403,7 +403,7 @@ impl<'a> StarsTriangle<'a> {
 
         StarsTriangle {
             stars: [sorted[0].1, sorted[1].1, sorted[2].1 ],
-            len:   star1.dist(&star2) + star2.dist(&star3) + star3.dist(&star1)
+            len:   star1.dist(star2) + star2.dist(star3) + star3.dist(star1)
         }
     }
 
@@ -451,7 +451,7 @@ impl<'a> StarsTriangle<'a> {
 
 type StarsTriangles<'a> = Vec<StarsTriangle<'a>>;
 
-fn get_stars_triangles<'a>(stars: &'a [Star], min_len: f64) -> StarsTriangles<'a> {
+fn get_stars_triangles(stars: &[Star], min_len: f64) -> StarsTriangles {
     let mut result = StarsTriangles::new();
     let mut full_max = stars.len() / 20;
     if full_max > 20 { full_max = 20; }

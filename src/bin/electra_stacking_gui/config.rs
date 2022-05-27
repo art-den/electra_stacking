@@ -34,12 +34,12 @@ pub enum CpuLoad {
 }
 
 impl CpuLoad {
-    pub fn to_threads_count(&self) -> usize {
+    pub fn to_threads_count(self) -> usize {
         match self {
             CpuLoad::OneThread     => 1,
             CpuLoad::HalfCPUs      => (num_cpus::get()/2).max(1),
             CpuLoad::AllCPUs       => num_cpus::get(),
-            CpuLoad::CustomCPUs(v) => *v,
+            CpuLoad::CustomCPUs(v) => v,
         }
     }
 }

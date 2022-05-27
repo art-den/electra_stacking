@@ -9,8 +9,8 @@ pub struct ValuesCompressor {
 }
 
 impl ValuesCompressor {
-    pub fn new() -> ValuesCompressor {
-        ValuesCompressor {
+    pub fn new() -> Self {
+        Self {
             data: [0_u32; F32_COMPR_BUF_SIZE],
             data_ptr: 0,
             prev: 0,
@@ -59,8 +59,8 @@ pub struct ValuesDecompressor {
 }
 
 impl ValuesDecompressor {
-    pub fn new() -> ValuesDecompressor {
-        ValuesDecompressor {
+    pub fn new() -> Self {
+        Self {
             values: [0_u32; F32_COMPR_BUF_SIZE],
             values_ptr: F32_COMPR_BUF_SIZE,
             prev_value: 0,

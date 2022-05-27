@@ -1,5 +1,4 @@
 use itertools::izip;
-use num;
 use fitrs::{Fits, FitsData, Hdu};
 use std::path::PathBuf;
 use structopt::StructOpt;
@@ -75,16 +74,16 @@ fn find_mono_data(fits: &Fits) -> anyhow::Result<FitsData> {
         }
     }
 
-    return Ok(hdu.unwrap().read_data());
+    Ok(hdu.unwrap().read_data())
 }
 
 fn create_fits_rgb_data_opt<T: Copy + num::Num>(
     width:    usize,
     height:   usize,
-    l_arr:    &Vec<Option<T>>,
-    r_arr:    &Vec<Option<T>>,
-    g_arr:    &Vec<Option<T>>,
-    b_arr:    &Vec<Option<T>>,
+    l_arr:    &[Option<T>],
+    r_arr:    &[Option<T>],
+    g_arr:    &[Option<T>],
+    b_arr:    &[Option<T>],
     t_to_f64: fn(T) -> f64,
     f64_to_t: fn(f64) -> T
 ) -> Vec<T> {
@@ -116,10 +115,10 @@ fn create_fits_rgb_data_opt<T: Copy + num::Num>(
 fn create_fits_rgb_data<T: Copy + num::Num>(
     width:  usize,
     height: usize,
-    l_arr:  &Vec<T>,
-    r_arr:  &Vec<T>,
-    g_arr:  &Vec<T>,
-    b_arr:  &Vec<T>
+    l_arr:  &[T],
+    r_arr:  &[T],
+    g_arr:  &[T],
+    b_arr:  &[T]
 ) -> Vec<T> {
     let mut result: Vec<T> = Vec::new();
     let total = width * height;

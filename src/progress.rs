@@ -36,16 +36,16 @@ impl ProgressConsole {
         const MAX_WIDTH: usize = 42;
         let width = (MAX_WIDTH * self.pos / self.total).min(MAX_WIDTH);
         let percent = (100 * self.pos / self.total).min(100);
-        if percent == self.prev_percent && text == &self.prev_text {
+        if percent == self.prev_percent && text == self.prev_text {
             return;
         }
-        if self.prev_percent > percent { println!("");}
+        if self.prev_percent > percent { println!();}
         print!("{:3}% [", percent);
         for _ in 0..width { print!("#"); }
         for _ in width..MAX_WIDTH { print!("-"); }
         print!("] {}                   \r", text);
         stdout().flush().unwrap();
-        if text != &self.prev_text { log::info!("{}", text); }
+        if text != self.prev_text { log::info!("{}", text); }
         self.prev_text = text.to_string();
         self.prev_percent = percent;
     }
@@ -54,7 +54,7 @@ impl ProgressConsole {
 impl Progress for ProgressConsole {
     fn stage(&mut self, text: &str) {
         if self.pos != 0 {
-            println!("");
+            println!();
             self.pos = 0;
         }
         println!("{}", text);
@@ -104,7 +104,7 @@ impl ProgressCallBack {
 
     fn show_progress(&mut self, text: &str) {
         let percent = (100 * self.pos / self.total).min(100);
-        if percent == self.prev_percent && text == &self.prev_text {
+        if percent == self.prev_percent && text == self.prev_text {
             return;
         }
         self.prev_percent = percent;

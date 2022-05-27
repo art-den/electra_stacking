@@ -1,4 +1,6 @@
 #![allow(dead_code)]
+#![allow(clippy::too_many_arguments)]
+#![allow(clippy::new_without_default)]
 
 use std::path::*;
 use structopt::StructOpt;
@@ -59,7 +61,7 @@ fn main() -> anyhow::Result<()> {
         log::info!("Program started. Options = {:#?}", opt.cmd);
     }
 
-    let result = match opt.cmd {
+    match opt.cmd {
         SubCommands::MergeLRGB(opts) =>
             cmd_merge_lrgb::execute(opts),
 
@@ -83,7 +85,5 @@ fn main() -> anyhow::Result<()> {
 
         SubCommands::Convert(opts) =>
             cmd_convert::execute(opts),
-    };
-
-    result
+    }
 }

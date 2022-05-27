@@ -117,44 +117,44 @@ where T: Copy + Clone + ImgLayerDefValue<Type = T> {
         self.data[(y*self.width+x) as usize] = value;
     }
 
-    pub fn iter<'a>(&'a self) -> std::slice::Iter<'a, T> {
+    pub fn iter(&self) -> std::slice::Iter<T> {
         self.data.iter()
     }
 
-    pub fn iter_mut<'a>(&'a mut self) -> std::slice::IterMut<'a, T> {
+    pub fn iter_mut(&mut self) -> std::slice::IterMut<T> {
         self.data.iter_mut()
     }
 
-    pub fn row<'a>(&'a self, y: Crd) -> &'a [T]{
+    pub fn row(&self, y: Crd) -> &[T]{
         let pos = (y*self.width) as usize;
         &self.data[pos..pos + self.width as usize]
     }
 
-    pub fn row_mut<'a>(&'a mut self, y: Crd) -> &'a mut [T]{
+    pub fn row_mut(&mut self, y: Crd) -> &mut [T]{
         let pos = (y*self.width) as usize;
         &mut self.data[pos..pos + self.width as usize]
     }
 
-    pub fn iter_row<'a>(&'a self, y: Crd) -> std::slice::Iter<'a, T> {
+    pub fn iter_row(&self, y: Crd) -> std::slice::Iter<T> {
         let pos = (y*self.width) as usize;
         self.data[pos..pos + self.width as usize].iter()
     }
 
-    pub fn iter_row_mut<'a>(&'a mut self, y: Crd) -> std::slice::IterMut<'a, T> {
+    pub fn iter_row_mut(&mut self, y: Crd) -> std::slice::IterMut<T> {
         let pos = (y*self.width) as usize;
         self.data[pos..pos + self.width as usize].iter_mut()
     }
 
-    pub fn iter_col<'a>(&'a self, x: Crd) -> std::iter::StepBy<std::slice::Iter<'a, T>> {
+    pub fn iter_col(&self, x: Crd) -> std::iter::StepBy<std::slice::Iter<T>> {
         self.data[x as usize..].iter().step_by(self.width as usize)
     }
 
-    pub fn iter_col_mut<'a>(&'a mut self, x: Crd) -> std::iter::StepBy<std::slice::IterMut<'a, T>> {
+    pub fn iter_col_mut(&mut self, x: Crd) -> std::iter::StepBy<std::slice::IterMut<T>> {
         self.data[x as usize..].iter_mut().step_by(self.width as usize)
     }
 
-    pub fn iter_crd<'a>(&'a self) -> ImageLayerIter1::<'a, T> {
-        ImageLayerIter1::<'a> {
+    pub fn iter_crd(&self) -> ImageLayerIter1::<T> {
+        ImageLayerIter1 {
             iter1: self.data.iter(),
             x: 0,
             y: 0,
@@ -162,8 +162,8 @@ where T: Copy + Clone + ImgLayerDefValue<Type = T> {
         }
     }
 
-    pub fn iter_crd_mut<'a>(&'a mut self) -> ImageLayerMutIter1::<'a, T> {
-        ImageLayerMutIter1::<'a> {
+    pub fn iter_crd_mut(&mut self) -> ImageLayerMutIter1::<T> {
+        ImageLayerMutIter1 {
             iter1: self.data.iter_mut(),
             x: 0,
             y: 0,
@@ -328,8 +328,8 @@ impl ImageLayer<f32> {
 
         if p11.is_some() && p21.is_some() && p12.is_some() && p22.is_some() {
             Some(sum)
-        } else if !p11.is_some() && !p21.is_some() && !p12.is_some() && !p22.is_some() {
-            return None;
+        } else if p11.is_none() && p21.is_none() && p12.is_none() && p22.is_none() {
+            None
         } else {
             let result = sum / (s11 + s21 + s12 + s22);
             if !result.is_nan() { Some(result) } else { None }
@@ -803,19 +803,19 @@ impl Image {
         }
     }
 
-    pub fn iter_l_crd<'a>(&'a self) -> ImageLayerIter1<'a, f32> {
+    pub fn iter_l_crd(&self) -> ImageLayerIter1<f32> {
         self.l.iter_crd()
     }
 
-    pub fn iter_l_crd_mut<'a>(&'a mut self) -> ImageLayerMutIter1<'a, f32> {
+    pub fn iter_l_crd_mut(&mut self) -> ImageLayerMutIter1<f32> {
         self.l.iter_crd_mut()
     }
 
-    pub fn iter_rgb_crd<'a>(&'a self) -> ImageLayerIter3<'a, f32> {
+    pub fn iter_rgb_crd(&self) -> ImageLayerIter3<f32> {
         ImageLayerF32::iter_crd3(&self.r, &self.g, &self.b)
     }
 
-    pub fn iter_rgb_crd_mut<'a>(&'a mut self) -> ImageLayerMutIter3<'a, f32> {
+    pub fn iter_rgb_crd_mut(&mut self) -> ImageLayerMutIter3<f32> {
         ImageLayerF32::iter_crd_mut3(&mut self.r, &mut self.g, &mut self.b)
     }
 
@@ -981,20 +981,18 @@ impl Image {
             } else {
                 (0.0, 0.0, 0.0, 0.0, 1.0)
             }
+        } else if auto_minimum {
+            let mut thinned_out_values: Vec<_> = self.l.as_slice()
+                .par_iter()
+                .step_by(42)
+                .filter(|&v| *v > 0.0 && !v.is_infinite())
+                .copied()
+                .collect();
+            let pos = thinned_out_values.len()/100;
+            let min = thinned_out_values.select_nth_unstable_by(pos, cmp_f32).1.max(0.0);
+            (min, 0.0, 0.0, 0.0, 1.0/(1.0-min))
         } else {
-            if auto_minimum {
-                let mut thinned_out_values: Vec<_> = self.l.as_slice()
-                    .par_iter()
-                    .step_by(42)
-                    .filter(|&v| *v > 0.0 && !v.is_infinite())
-                    .copied()
-                    .collect();
-                let pos = thinned_out_values.len()/100;
-                let min = thinned_out_values.select_nth_unstable_by(pos, cmp_f32).1.max(0.0);
-                (min, 0.0, 0.0, 0.0, 1.0/(1.0-min))
-            } else {
-                (0.0, 0.0, 0.0, 0.0, 1.0)
-            }
+            (0.0, 0.0, 0.0, 0.0, 1.0)
         };
 
         ToRgbBytesParams {

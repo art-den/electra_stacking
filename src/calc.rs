@@ -199,7 +199,7 @@ impl IirFilter {
     pub fn new_gauss(sigma: f32) -> IirFilter {
         let q = if sigma >= 2.5 {
             0.98711 * sigma - 0.96330
-        } else if sigma >= 0.5 && sigma < 2.5 {
+        } else if (0.5..2.5).contains(&sigma) {
             3.97156 - 4.14554 * (1.0 - 0.26891 * sigma).sqrt()
         } else {
             0.1147705018520355224609375
@@ -211,7 +211,7 @@ impl IirFilter {
         let  b0 = 1.0 / (1.57825 + (2.44413 * q) + (1.4281 * q2) + (0.422205 * q3));
         let  b1 = ((2.44413 * q) + (2.85619 * q2) + (1.26661 * q3)) * b0;
         let  b2 = (-((1.4281 * q2) + (1.26661 * q3))) * b0;
-        let  b3 = ((0.422205 * q3)) * b0;
+        let  b3 = (0.422205 * q3) * b0;
         let  a = 1.0 - (b1 + b2 + b3);
 
         IirFilter {
@@ -292,35 +292,35 @@ fn linear_solve3(
     a21: f64, a22: f64, a23: f64, b2: f64,
     a31: f64, a32: f64, a33: f64, b3: f64
 ) -> Option<(f64, f64, f64)> {
-	let det = det3(
-		a11, a12, a13,
-		a21, a22, a23,
-		a31, a32, a33
-	);
+    let det = det3(
+        a11, a12, a13,
+        a21, a22, a23,
+        a31, a32, a33
+    );
 
-	if det == 0.0 {
+    if det == 0.0 {
         return None;
     }
 
-	let det1 = det3(
-		b1, a12, a13,
-		b2, a22, a23,
-		b3, a32, a33
-	);
+    let det1 = det3(
+        b1, a12, a13,
+        b2, a22, a23,
+        b3, a32, a33
+    );
 
-	let det2 = det3(
-		a11, b1, a13,
-		a21, b2, a23,
-		a31, b3, a33
-	);
+    let det2 = det3(
+        a11, b1, a13,
+        a21, b2, a23,
+        a31, b3, a33
+    );
 
-	let det3 = det3(
-		a11, a12, b1,
-		a21, a22, b2,
-		a31, a32, b3
-	);
+    let det3 = det3(
+        a11, a12, b1,
+        a21, a22, b2,
+        a31, a32, b3
+    );
 
-	Some((det1/det, det2/det, det3/det))
+    Some((det1/det, det2/det, det3/det))
 }
 
 pub struct Cubic {
@@ -339,40 +339,35 @@ pub fn cubic_ls(x_values: &[f64], y_values: &[f64]) -> Option<Cubic> {
     assert!(x_values.len() == y_values.len());
     if x_values.len() < 3 { return None; }
 
-	let mut sum_x = 0_f64;
-	let mut sum_x2 = 0_f64;
-	let mut sum_x3 = 0_f64;
-	let mut sum_x4 = 0_f64;
-	let mut sum_y = 0_f64;
-	let mut sum_xy = 0_f64;
-	let mut sum_x2y = 0_f64;
+    let mut sum_x = 0_f64;
+    let mut sum_x2 = 0_f64;
+    let mut sum_x3 = 0_f64;
+    let mut sum_x4 = 0_f64;
+    let mut sum_y = 0_f64;
+    let mut sum_xy = 0_f64;
+    let mut sum_x2y = 0_f64;
 
     for (&x, &y) in x_values.iter().zip(y_values) {
-		let x2 = x * x;
-		let x3 = x2 * x;
-		let x4 = x3 * x;
+        let x2 = x * x;
+        let x3 = x2 * x;
+        let x4 = x3 * x;
 
-		sum_x += x;
-		sum_x2 += x2;
-		sum_x3 += x3;
-		sum_x4 += x4;
-		sum_y += y;
-		sum_xy += x * y;
-		sum_x2y += x2 * y;
+        sum_x += x;
+        sum_x2 += x2;
+        sum_x3 += x3;
+        sum_x4 += x4;
+        sum_y += y;
+        sum_xy += x * y;
+        sum_x2y += x2 * y;
     }
 
-    let coeffs = linear_solve3(
-		x_values.len() as f64, sum_x,  sum_x2, sum_y,
-		sum_x,                 sum_x2, sum_x3, sum_xy,
-		sum_x2,                sum_x3, sum_x4, sum_x2y,
-	);
-
-    match coeffs {
-        Some(coeffs) =>
-            Some(Cubic {a0: coeffs.0, a1: coeffs.1, a2: coeffs.2,}),
-        None =>
-            None,
-    }
+    linear_solve3(
+        x_values.len() as f64, sum_x,  sum_x2, sum_y,
+        sum_x,                 sum_x2, sum_x3, sum_xy,
+        sum_x2,                sum_x3, sum_x4, sum_x2y,
+    ).map(|coeffs| {
+        Cubic {a0: coeffs.0, a1: coeffs.1, a2: coeffs.2,}
+    })
 }
 
 pub fn linear_interpol(x: f64, x1: f64, x2: f64, y1: f64, y2: f64) -> f64 {
@@ -439,6 +434,6 @@ impl InterpolTable {
                 return item.get(x);
             }
         }
-        return self.items[self.items.len()-1].get(x);
+        self.items[self.items.len()-1].get(x)
     }
 }

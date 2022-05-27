@@ -1,4 +1,4 @@
-use std::{collections::HashMap, path::PathBuf};
+use std::{collections::HashMap, path::*};
 use crate::{image::*, image_raw::*, calc::*, light_file::*, stars::*, log_utils::*};
 
 pub struct NormResult {
@@ -265,10 +265,10 @@ impl ImageBg {
             match cols {
                 Some(cols) if !layer.is_empty() => {
                     cols.apply_to_image(layer, neg)?;
-                    return Ok(())
+                    Ok(())
                 },
                 None if layer.is_empty() => {
-                    return Ok(())
+                    Ok(())
                 },
                 _ =>
                     anyhow::bail!("Internal error"),
@@ -292,13 +292,13 @@ pub struct RefBgData {
 
 impl RefBgData {
     pub fn new(
-        ref_file_name: &PathBuf,
+        ref_file_name: &Path,
         cal_data:      &CalibrationData,
         bin:           usize
     ) -> anyhow::Result<RefBgData> {
         let image = LightFile::load(
-            &ref_file_name,
-            &cal_data,
+            ref_file_name,
+            cal_data,
             None,
             LoadLightFlags::STARS,
             bin

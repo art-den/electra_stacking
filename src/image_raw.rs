@@ -113,7 +113,7 @@ impl RawImageInfo {
         let mut sig = Vec::<u8>::new();
         sig.resize(sig_len, 0);
         src.read_exact(&mut sig)?;
-        if &sig != CALIBR_FILE_SIG { anyhow::bail!("Wrong file format"); }
+        if sig != CALIBR_FILE_SIG { anyhow::bail!("Wrong file format"); }
         let header_len = leb128::read::unsigned(src)? as usize;
         let mut buf = Vec::<u8>::new();
         buf.resize(header_len, 0);
@@ -124,10 +124,10 @@ impl RawImageInfo {
 
     pub fn write_to<W: Write>(&self, dst: &mut W) -> anyhow::Result<()> {
         leb128::write::unsigned(dst, CALIBR_FILE_SIG.len() as u64)?;
-        dst.write(CALIBR_FILE_SIG)?;
+        dst.write_all(CALIBR_FILE_SIG)?;
         let header = serde_json::to_string(&self).unwrap();
         leb128::write::unsigned(dst, header.len() as u64)?;
-        dst.write(&header.as_bytes())?;
+        dst.write_all(header.as_bytes())?;
         Ok(())
     }
 
@@ -152,7 +152,7 @@ impl MasterFileInfo {
         let mut sig = Vec::<u8>::new();
         sig.resize(sig_len, 0);
         file.read_exact(&mut sig)?;
-        if &sig != MASTER_FILE_SIG { anyhow::bail!("Wrong file format"); }
+        if sig != MASTER_FILE_SIG { anyhow::bail!("Wrong file format"); }
         let header_len = leb128::read::unsigned(&mut file)? as usize;
         let mut buf = Vec::<u8>::new();
         buf.resize(header_len, 0);
@@ -163,10 +163,10 @@ impl MasterFileInfo {
 
     pub fn write_to<W: Write>(&self, dst: &mut W) -> anyhow::Result<()> {
         leb128::write::unsigned(dst, MASTER_FILE_SIG.len() as u64)?;
-        dst.write(MASTER_FILE_SIG)?;
+        dst.write_all(MASTER_FILE_SIG)?;
         let header = serde_json::to_string(&self).unwrap();
         leb128::write::unsigned(dst, header.len() as u64)?;
-        dst.write(&header.as_bytes())?;
+        dst.write_all(header.as_bytes())?;
         Ok(())
     }
 }
@@ -195,7 +195,7 @@ impl RawImage {
     }
 
     pub fn load_camera_raw_file(
-        file_name:  &PathBuf,
+        file_name:  &Path,
         flags:      RawLoadFlags,
         disk_mutex: Option<&std::sync::Mutex<()>>
     ) -> anyhow::Result<RawImage> {
@@ -221,7 +221,7 @@ impl RawImage {
             exif.fnumber = raw_exif.get_rational(rawloader::Tag::FNumber);
             exif.iso = raw_exif.get_uint(rawloader::Tag::ISOSpeed);
             exif.focal_len = raw_exif.get_rational(rawloader::Tag::FocalLength);
-            exif.camera = raw_exif.get_str(rawloader::Tag::Model).and_then(|v| Some(v.to_string()));
+            exif.camera = raw_exif.get_str(rawloader::Tag::Model).map(|v| v.to_string());
         }
 
         let mut info = RawImageInfo {
@@ -524,7 +524,7 @@ impl RawImage {
                 }}
                 if cnt >= 2 {
                     self.data.set(hp.x, hp.y, sum / cnt as f32);
-                    top_pixels_index.remove(&hp);
+                    top_pixels_index.remove(hp);
                     break;
                 }
             }
@@ -568,9 +568,9 @@ impl CalibrationData {
     }
 
     pub fn load(
-        master_flat: &Option<PathBuf>,
-        master_dark: &Option<PathBuf>,
-        master_bias: &Option<PathBuf>,
+        master_flat: Option<&Path>,
+        master_dark: Option<&Path>,
+        master_bias: Option<&Path>,
     ) -> anyhow::Result<CalibrationData> {
         let bias_image = match master_bias {
             Some(file_name) => {

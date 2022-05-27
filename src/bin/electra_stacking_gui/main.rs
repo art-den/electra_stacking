@@ -1,4 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+#![allow(clippy::too_many_arguments)]
+#![allow(clippy::new_without_default)]
 
 mod config;
 mod project;
@@ -202,7 +204,7 @@ fn build_ui(application: &gtk::Application) {
         icon_folder,
         icon_image,
         icon_ref_image,
-        preview_image: preview_image.clone(),
+        preview_image,
         last_preview_file: RefCell::new(PathBuf::new()),
         cancel_flag: Arc::new(AtomicBool::new(false)),
         preview_img_scale: preview_img_scale.clone(),
@@ -776,15 +778,15 @@ fn action_open_project(objects: &MainWindowObjectsPtr) {
     fc.show();
 }
 
-fn open_project(objects: &MainWindowObjectsPtr, path: &PathBuf) {
-    let res = objects.project.borrow_mut().load(&path);
+fn open_project(objects: &MainWindowObjectsPtr, path: &Path) {
+    let res = objects.project.borrow_mut().load(path);
     if let Err(err) = res {
-        show_error_message(&err.to_string(), &objects);
+        show_error_message(&err.to_string(), objects);
         log::error!("'{}' during opening project", err.to_string());
     } else {
-        objects.project.borrow_mut().file_name = Some(path.clone());
-        fill_project_tree(&objects);
-        update_project_name_and_time_in_gui(&objects, true, true);
+        objects.project.borrow_mut().file_name = Some(path.to_path_buf());
+        fill_project_tree(objects);
+        update_project_name_and_time_in_gui(objects, true, true);
         log::info!("Project {} opened", path.to_str().unwrap_or(""));
     }
 }
@@ -847,21 +849,21 @@ fn action_save_project_as(objects: &MainWindowObjectsPtr) {
 
         objects.project.borrow_mut().config.name = Some(project_name);
 
-        let ok = save_project(&objects, &path);
+        let ok = save_project(objects, &path);
         if !ok { return; }
 
-        update_project_name_and_time_in_gui(&objects, true, true);
+        update_project_name_and_time_in_gui(objects, true, true);
     }
 }
 
-fn save_project(objects: &MainWindowObjectsPtr, file_name: &PathBuf) -> bool {
-    let res = objects.project.borrow_mut().save(&file_name);
+fn save_project(objects: &MainWindowObjectsPtr, file_name: &Path) -> bool {
+    let res = objects.project.borrow_mut().save(file_name);
     if let Err(err) = res {
-        show_error_message(&err.to_string(), &objects);
+        show_error_message(&err.to_string(), objects);
         log::error!("'{}' during saving project", err.to_string());
         false
     } else {
-        objects.project.borrow_mut().file_name = Some(file_name.clone());
+        objects.project.borrow_mut().file_name = Some(file_name.to_path_buf());
         log::info!("Project {} saved", file_name.to_str().unwrap_or(""));
         true
     }
@@ -962,7 +964,7 @@ fn select_and_add_files_into_project(
         exec_and_show_progress(
             objects,
             move |progress, cancel_flag| {
-                load_src_file_info_for_files(&file_names, &cancel_flag, &progress)
+                load_src_file_info_for_files(&file_names, cancel_flag, progress)
             },
             move |objects, result| {
                 let helper = TreeViewFillHelper::new(&objects.project.borrow());
@@ -1053,7 +1055,7 @@ fn action_register(objects: &MainWindowObjectsPtr) {
         move |objects, result| {
             let helper = TreeViewFillHelper::new(&objects.project.borrow());
             objects.project.borrow_mut().update_light_files_reg_info(result);
-            helper.apply_changes(&objects, true);
+            helper.apply_changes(objects, true);
         }
     );
 }
@@ -1116,7 +1118,7 @@ fn fill_project_tree(objects: &MainWindowObjectsPtr) {
 fn get_project_title(project: &Project) -> String {
     let mut result = project.config.name
         .clone()
-        .unwrap_or(gettext("Unnamed project"));
+        .unwrap_or_else(|| gettext("Unnamed project"));
 
     if project.config.image_size == ImageSize::Bin2x2 {
         result.push_str(" - bin 2x2");
@@ -1300,8 +1302,7 @@ impl TreeViewFillHelper {
         let tree_store = match objects.prj_tree.model() {
             Some(model) => {
                 let sorted_model = model.downcast::<gtk::TreeModelSort>().unwrap();
-                let tree_store = sorted_model.model().downcast::<gtk::TreeStore>().unwrap();
-                tree_store
+                sorted_model.model().downcast::<gtk::TreeStore>().unwrap()
             }
             None => {
                 let col_types = get_prj_tree_store_columns()
@@ -1355,7 +1356,7 @@ impl TreeViewFillHelper {
             ]);
 
             let prev_group = if let Some(prev_group) = prev_group {
-                &prev_group
+                prev_group
             } else {
                 &dummy_group
             };
@@ -1703,7 +1704,7 @@ fn preview_image_after_change_view_opts(
     );
 }
 
-fn preview_image_file(objects: &MainWindowObjectsPtr, file_name: &PathBuf) {
+fn preview_image_file(objects: &MainWindowObjectsPtr, file_name: &Path) {
     enum UiMessage {
         Image{ image: image::Image, file_name: PathBuf },
         Error(String),
@@ -1737,7 +1738,7 @@ fn preview_image_file(objects: &MainWindowObjectsPtr, file_name: &PathBuf) {
                     );
 
                     objects.preview_file_name.set_label(file_name.to_str().unwrap_or(""));
-                    *objects.last_preview_file.borrow_mut() = file_name.clone();
+                    *objects.last_preview_file.borrow_mut() = file_name;
                     *objects.prev_preview_img.borrow_mut() = image;
                     *objects.prev_preview_params.borrow_mut() = params;
                     objects.preview_ctrls_box.set_sensitive(true);
@@ -1760,7 +1761,8 @@ fn preview_image_file(objects: &MainWindowObjectsPtr, file_name: &PathBuf) {
     objects.preview_file_name.set_label("???");
     objects.preview_ctrls_box.set_sensitive(false);
 
-    objects.preview_tp.spawn(clone!(@strong file_name, @strong cancel_flag => move  || {
+    let file_name = file_name.to_path_buf();
+    objects.preview_tp.spawn(clone!(@strong cancel_flag => move || {
         if cancel_flag.load(Ordering::Relaxed) { return; }
         let calibr_data = CalibrationData::new_empty();
 
@@ -1804,8 +1806,8 @@ fn preview_image_file(objects: &MainWindowObjectsPtr, file_name: &PathBuf) {
                 }
 
                 sender.send(UiMessage::Image {
-                    image: light_file.image,
-                    file_name
+                    image:     light_file.image,
+                    file_name,
                 }).unwrap();
             },
             Err(error) => {
@@ -1953,7 +1955,7 @@ fn action_delete_item(objects: &MainWindowObjectsPtr) {
             mut files,
             ..
         } => {
-            files.sort();
+            files.sort_unstable();
             let project = objects.project.borrow();
             let dialog_text = if files.len() == 1 {
                 let group = &project.groups[group_idx];
@@ -2327,13 +2329,13 @@ fn action_cleanup_light_files(objects: &MainWindowObjectsPtr) {
         };
 
         chk_w.connect_active_notify(clone!(@weak mode_w, @weak kappa_w, @weak repeats_w, @weak percent_w => move |chk| {
-            correct_sensivity(&chk, &mode_w, &kappa_w, &repeats_w, &percent_w);
+            correct_sensivity(chk, &mode_w, &kappa_w, &repeats_w, &percent_w);
         }));
         chk_w.set_active(!item.used);
         chk_w.set_active(item.used);
 
         mode_w.connect_changed(clone!(@weak chk_w, @weak kappa_w, @weak repeats_w, @weak percent_w => move |cbt| {
-            correct_sensivity(&chk_w, &cbt, &kappa_w, &repeats_w, &percent_w);
+            correct_sensivity(&chk_w, cbt, &kappa_w, &repeats_w, &percent_w);
         }));
         mode_w.append_text(&gettext("Sigma clipping"));
         mode_w.append_text(&gettext("Percent"));
@@ -2462,7 +2464,7 @@ fn action_stack(objects: &MainWindowObjectsPtr) {
             project.stack_light_files(progress, cancel_flag, cpu_load)
         },
         move |objects, result| {
-            preview_image_file(&objects, &result.file_name);
+            preview_image_file(objects, &result.file_name);
             show_message(
                 objects,
                 &gettext("Finished"),
@@ -2538,7 +2540,7 @@ fn exec_and_show_progress<R, ExecFun, OkFun> (
     });
 
     /* Ui events */
-    enable_progress_bar(&objects, true);
+    enable_progress_bar(objects, true);
     receiver.attach(
         None,
         clone!(@strong objects => move |message| {
@@ -2709,7 +2711,7 @@ fn action_move_file_to_group(objects: &MainWindowObjectsPtr) {
                     let mut group_options = GroupOptions::default();
                     let new_group_name = e_new_group.text().to_string().trim().to_string();
                     if !new_group_name.is_empty() {
-                        group_options.name = Some(new_group_name.to_string());
+                        group_options.name = Some(new_group_name);
                     }
                     project.add_new_group(group_options);
                     project.groups.last().unwrap().uuid.clone()
@@ -2761,8 +2763,8 @@ fn check_all_files(objects: &MainWindowObjectsPtr, value: bool) {
         .groups[group_idx]
         .get_file_list_by_type_mut(file_type)
         .check_all(value);
-    helper.apply_changes(&objects, true);
-    update_project_name_and_time_in_gui(&objects, true, false);
+    helper.apply_changes(objects, true);
+    update_project_name_and_time_in_gui(objects, true, false);
 }
 
 fn action_check_selected_files(objects: &MainWindowObjectsPtr) {
@@ -2787,8 +2789,8 @@ fn check_selected_files(objects: &MainWindowObjectsPtr, value: bool) {
         .groups[group_idx]
         .get_file_list_by_type_mut(file_type)
         .check_by_indices(&files, value);
-    helper.apply_changes(&objects, true);
-    update_project_name_and_time_in_gui(&objects, true, false);
+    helper.apply_changes(objects, true);
+    update_project_name_and_time_in_gui(objects, true, false);
 }
 
 fn action_about(objects: &MainWindowObjectsPtr) {

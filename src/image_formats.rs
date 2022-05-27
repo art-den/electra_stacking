@@ -16,7 +16,7 @@ pub const RAW_EXTS: &[&str] = &[
     "pef", // Pentax
 ];
 
-pub fn load_image_from_file(file_name: &PathBuf) -> anyhow::Result<SrcImageData> {
+pub fn load_image_from_file(file_name: &Path) -> anyhow::Result<SrcImageData> {
     let ext = extract_extension(file_name);
     if is_tiff_ext(ext) {
         load_image_from_tiff_file(file_name)
@@ -27,7 +27,7 @@ pub fn load_image_from_file(file_name: &PathBuf) -> anyhow::Result<SrcImageData>
     }
 }
 
-pub fn save_image_to_file(image: &Image, exif: &Exif, file_name: &PathBuf) -> anyhow::Result<()> {
+pub fn save_image_to_file(image: &Image, exif: &Exif, file_name: &Path) -> anyhow::Result<()> {
     assert!(!image.is_empty());
 
     let ext = extract_extension(file_name);
@@ -41,24 +41,18 @@ pub fn save_image_to_file(image: &Image, exif: &Exif, file_name: &PathBuf) -> an
 }
 
 pub fn is_raw_ext(ext: &str) -> bool {
-    RAW_EXTS.iter()
-        .position(|e| ext.eq_ignore_ascii_case(e))
-        .is_some()
+    RAW_EXTS.iter().any(|e| ext.eq_ignore_ascii_case(e))
 }
 
 pub fn is_tiff_ext(ext: &str) -> bool {
-    TIF_EXTS.iter()
-        .position(|e| ext.eq_ignore_ascii_case(e))
-        .is_some()
+    TIF_EXTS.iter().any(|e| ext.eq_ignore_ascii_case(e))
 }
 
 pub fn is_fits_ext(ext: &str) -> bool {
-    FIT_EXTS.iter()
-        .position(|e| ext.eq_ignore_ascii_case(e))
-        .is_some()
+    FIT_EXTS.iter().any(|e| ext.eq_ignore_ascii_case(e))
 }
 
-pub fn is_image_file_name(file_name: &PathBuf) -> bool {
+pub fn is_image_file_name(file_name: &Path) -> bool {
     let ext = extract_extension(file_name);
     is_tiff_ext(ext) |
     is_fits_ext(ext)
@@ -85,7 +79,7 @@ pub struct SrcFileInfo {
     pub camera:    Option<String>,
 }
 
-pub fn load_src_file_info(file_name: &PathBuf) -> anyhow::Result<SrcFileInfo> {
+pub fn load_src_file_info(file_name: &Path) -> anyhow::Result<SrcFileInfo> {
     let ext = extract_extension(file_name);
     if is_raw_ext(ext) {
         load_src_file_info_raw(file_name)
@@ -108,8 +102,8 @@ pub fn load_src_file_info_for_files(
     progress.lock().unwrap().set_total(file_names.len());
     for file_name in file_names {
         if cancel_flag.load(Ordering::Relaxed) { break; }
-        let item = load_src_file_info(&file_name)?;
-        progress.lock().unwrap().progress(true, &file_name.to_str().unwrap_or(""));
+        let item = load_src_file_info(file_name)?;
+        progress.lock().unwrap().progress(true, file_name.to_str().unwrap_or(""));
         result.push(item);
     }
     Ok(result)
@@ -119,7 +113,7 @@ pub fn load_src_file_info_for_files(
 
 // RAW format
 
-pub fn load_src_file_info_raw(file_name: &PathBuf) -> anyhow::Result<SrcFileInfo> {
+pub fn load_src_file_info_raw(file_name: &Path) -> anyhow::Result<SrcFileInfo> {
     let mut file = std::fs::File::open(&file_name)?;
     let raw_data = rawloader::decode_exif_only(&mut file)?;
     let mut iso = None;
@@ -131,7 +125,7 @@ pub fn load_src_file_info_raw(file_name: &PathBuf) -> anyhow::Result<SrcFileInfo
         iso = exif.get_uint(rawloader::Tag::ISOSpeed);
         exp = exif.get_rational(rawloader::Tag::ExposureTime);
         fnumber = exif.get_rational(rawloader::Tag::FNumber);
-        camera = exif.get_str(rawloader::Tag::Model).and_then(|v| Some(v.to_string()));
+        camera = exif.get_str(rawloader::Tag::Model).map(|v| v.to_string());
         if let Some(time_str) = exif.get_str(rawloader::Tag::DateTimeOriginal) {
             file_time = Local.datetime_from_str(time_str, "%Y:%m:%d %H:%M:%S").ok();
         }
@@ -157,7 +151,7 @@ pub fn load_src_file_info_raw(file_name: &PathBuf) -> anyhow::Result<SrcFileInfo
     };
 
     Ok(SrcFileInfo {
-        file_name: file_name.clone(),
+        file_name: file_name.to_path_buf(),
         file_time,
         width: raw_data.width,
         height: raw_data.height,
@@ -174,7 +168,7 @@ pub fn load_src_file_info_raw(file_name: &PathBuf) -> anyhow::Result<SrcFileInfo
 
 // TIFF format
 
-pub fn load_src_file_info_tiff(file_name: &PathBuf) -> anyhow::Result<SrcFileInfo> {
+pub fn load_src_file_info_tiff(file_name: &Path) -> anyhow::Result<SrcFileInfo> {
     let mut reader = BufReader::new(File::open(file_name)?);
     let mut decoder = Decoder::new(&mut reader)?;
 
@@ -202,7 +196,7 @@ pub fn load_src_file_info_tiff(file_name: &PathBuf) -> anyhow::Result<SrcFileInf
     }
 
     Ok(SrcFileInfo {
-        file_name: file_name.clone(),
+        file_name: file_name.to_path_buf(),
         file_time,
         width: width as usize,
         height: height as usize,
@@ -214,9 +208,9 @@ pub fn load_src_file_info_tiff(file_name: &PathBuf) -> anyhow::Result<SrcFileInf
     })
 }
 
-pub fn load_image_from_tiff_file(file_name: &PathBuf) -> anyhow::Result<SrcImageData> {
+pub fn load_image_from_tiff_file(file_name: &Path) -> anyhow::Result<SrcImageData> {
     fn assign_img_data<S: Copy>(
-        src:    &Vec<S>,
+        src:    &[S],
         img:    &mut Image,
         is_rgb: bool,
         cvt:    fn (from: S) -> f32
@@ -308,7 +302,7 @@ pub fn load_image_from_tiff_file(file_name: &PathBuf) -> anyhow::Result<SrcImage
 pub fn save_image_to_tiff_file(
     image:     &Image,
     exif:      &Exif,
-    file_name: &PathBuf
+    file_name: &Path
 ) -> anyhow::Result<()> {
     assert!(!image.is_empty());
 
@@ -364,7 +358,7 @@ fn write_exif_into_tiff<W: Write + Seek, K: TiffKind>(
 
 // FITS format
 
-pub fn load_src_file_info_fits(file_name: &PathBuf) -> anyhow::Result<SrcFileInfo> {
+pub fn load_src_file_info_fits(file_name: &Path) -> anyhow::Result<SrcFileInfo> {
     let fits = Fits::open(file_name)?;
 
     for h in fits.iter() {
@@ -380,8 +374,8 @@ pub fn load_src_file_info_fits(file_name: &PathBuf) -> anyhow::Result<SrcFileInf
             if depth == 1 || depth == 3 {
                 drop(fits);
                 return Ok(SrcFileInfo {
-                    file_name: file_name.clone(),
-                    file_time: get_file_time(&file_name).ok(),
+                    file_name: file_name.to_path_buf(),
+                    file_time: get_file_time(file_name).ok(),
                     width: width as usize,
                     height: height as usize,
                     iso: None,
@@ -397,7 +391,7 @@ pub fn load_src_file_info_fits(file_name: &PathBuf) -> anyhow::Result<SrcFileInf
     anyhow::bail!("This FITS file is not supported")
 }
 
-pub fn load_image_from_fits_file(file_name: &PathBuf) -> anyhow::Result<SrcImageData> {
+pub fn load_image_from_fits_file(file_name: &Path) -> anyhow::Result<SrcImageData> {
     let fits = Fits::open(file_name)?;
 
     let is_mono_shape = |shape: &Vec<usize>| -> bool {
@@ -499,7 +493,7 @@ fn read_fits_data<T: num::Num + Copy>(
     } else {
         if data.len() != page_size { return None; }
         let mut image = Image::new_grey(width as Crd, height as Crd);
-        read_page(&mut image.l, &data);
+        read_page(&mut image.l, data);
         Some(image)
     }
 }
@@ -559,7 +553,7 @@ fn read_fits_data_int<T: Copy + IntInfo + Into::<f64>>(
     } else {
         if data.len() != page_size { return None; }
         let mut image = Image::new_grey(width as Crd, height as Crd);
-        read_page(&mut image.l, &data);
+        read_page(&mut image.l, data);
         Some(image)
     }
 }
@@ -567,7 +561,7 @@ fn read_fits_data_int<T: Copy + IntInfo + Into::<f64>>(
 pub fn save_image_to_fits_file(
     image:     &Image,
     _exif:     &Exif, // TODO: implement exif support
-    file_name: &PathBuf
+    file_name: &Path
 ) -> anyhow::Result<()> {
     assert!(!image.is_empty());
     let data: Vec<_> = if image.is_rgb() {
@@ -598,7 +592,7 @@ pub fn save_image_to_fits_file(
 
 pub fn save_image_into_internal_format(
     image:     &Image,
-    file_name: &PathBuf
+    file_name: &Path
 ) -> anyhow::Result<()> {
     assert!(!image.is_empty());
 
@@ -642,7 +636,7 @@ pub struct InternalFormatReader {
 }
 
 impl InternalFormatReader {
-    pub fn new(file_name: &PathBuf) -> anyhow::Result<InternalFormatReader> {
+    pub fn new(file_name: &Path) -> anyhow::Result<InternalFormatReader> {
         let file = BufReader::with_capacity(1024*256, File::open(file_name)?);
         let reader = BitReader::endian(file, BigEndian);
         Ok(InternalFormatReader {
