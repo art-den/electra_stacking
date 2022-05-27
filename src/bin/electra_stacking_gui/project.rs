@@ -372,7 +372,7 @@ impl Default for ProjectConfig {
             image_size: ImageSize::Original,
             light_calc_opts: CalcOpts::default(),
             dark_calc_opts: CalcOpts::default(),
-            flat_calc_opts: CalcOpts::default(),
+            flat_calc_opts: CalcOpts{ mode: CalcMode::Mean, .. CalcOpts::default() },
             bias_calc_opts: CalcOpts::default(),
             res_img_type: ResFileType::Fit,
         }
