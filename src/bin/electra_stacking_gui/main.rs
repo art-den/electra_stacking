@@ -1640,7 +1640,7 @@ fn handler_project_tree_selection_changed(objects: &MainWindowObjectsPtr) {
 }
 
 fn preview_selected_file(objects: &MainWindowObjectsPtr) {
-    let file_name = {
+    let (file_name, is_result_file) = {
         match get_current_selection(objects) {
             SelectedItem {
                 item_type: SelItemType::File,
@@ -1652,7 +1652,7 @@ fn preview_selected_file(objects: &MainWindowObjectsPtr) {
                 let project = objects.project.borrow();
                 let file_list = project.groups[group_idx].get_file_list_by_type(file_type);
                 let project_file = &file_list.list[files[0]];
-                project_file.file_name.clone()
+                (project_file.file_name.clone(), false)
             },
 
             SelectedItem {
@@ -1661,7 +1661,7 @@ fn preview_selected_file(objects: &MainWindowObjectsPtr) {
             } => {
                 let project = objects.project.borrow();
                 match project.get_result_file_name() {
-                    Ok(file_name) => file_name,
+                    Ok(file_name) => (file_name, true),
                     Err(_) => return,
                 }
             },
@@ -1674,7 +1674,7 @@ fn preview_selected_file(objects: &MainWindowObjectsPtr) {
         return;
     }
 
-    preview_image_file(objects, &file_name);
+    preview_image_file(objects, &file_name, is_result_file);
 }
 
 fn preview_image_after_change_view_opts(
@@ -1704,7 +1704,11 @@ fn preview_image_after_change_view_opts(
     );
 }
 
-fn preview_image_file(objects: &MainWindowObjectsPtr, file_name: &Path) {
+fn preview_image_file(
+    objects:        &MainWindowObjectsPtr,
+    file_name:      &Path,
+    is_result_file: bool
+) {
     enum UiMessage {
         Image{ image: image::Image, file_name: PathBuf },
         Error(String),
@@ -1762,6 +1766,10 @@ fn preview_image_file(objects: &MainWindowObjectsPtr, file_name: &Path) {
     objects.preview_ctrls_box.set_sensitive(false);
 
     let file_name = file_name.to_path_buf();
+    let bin = match objects.project.borrow().config.image_size {
+        ImageSize::Bin2x2 => if is_result_file {1} else {2},
+        ImageSize::Original => 1,
+    };
     objects.preview_tp.spawn(clone!(@strong cancel_flag => move || {
         if cancel_flag.load(Ordering::Relaxed) { return; }
         let calibr_data = CalibrationData::new_empty();
@@ -1778,7 +1786,7 @@ fn preview_image_file(objects: &MainWindowObjectsPtr, file_name: &Path) {
             &calibr_data,
             None,
             load_flags,
-            1
+            bin
         );
 
         match light_file {
@@ -1787,14 +1795,21 @@ fn preview_image_file(objects: &MainWindowObjectsPtr, file_name: &Path) {
 
                 // fill stars with green for debug purposes
                 if cfg!(debug_assertions) {
-                    for star in &light_file.stars {
+                    const COLORS: &[(f32, f32, f32)] = &[
+                        (0.0, 1.0, 0.0),
+                        (0.0, 0.0, 1.0),
+                        (0.0, 1.0, 1.0),
+                        (1.0, 0.0, 1.0),
+                    ];
+
+                    for (idx, star) in light_file.stars.iter().enumerate() {
+                        let (r, g, b) = if star.overexposured {
+                            (1.0, 0.0, 0.0)
+                        } else {
+                            COLORS[idx % COLORS.len()]
+                        };
                         for pt in &star.points {
                             if light_file.image.is_rgb() {
-                                let (r, g, b) = if star.overexposured {
-                                    (1.0, 0.0, 0.0)
-                                } else {
-                                    (0.0, 1.0, 0.0)
-                                };
                                 light_file.image.r.set(pt.x, pt.y, r);
                                 light_file.image.g.set(pt.x, pt.y, g);
                                 light_file.image.b.set(pt.x, pt.y, b);
@@ -2464,7 +2479,7 @@ fn action_stack(objects: &MainWindowObjectsPtr) {
             project.stack_light_files(progress, cancel_flag, cpu_load)
         },
         move |objects, result| {
-            preview_image_file(objects, &result.file_name);
+            preview_image_file(objects, &result.file_name, true);
             show_message(
                 objects,
                 &gettext("Finished"),

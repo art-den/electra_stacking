@@ -1,5 +1,4 @@
 use std::collections::HashSet;
-use delaunator::*;
 use itertools::*;
 use crate::{image::*, calc::*};
 use std::f64::consts::PI;
@@ -278,6 +277,21 @@ pub fn find_stars_on_image(
                 anyhow::bail!("No stars");
             }
         }
+
+        // remove strange stars by area
+        for _ in 0..10 {
+            star_r_devs.clear();
+            for star in &stars {
+                star_r_devs.push(CalcValue::new((star.points.len() as f64).sqrt()));
+            }
+            if let Some((mean, dev)) = mean_and_std_dev(&star_r_devs) {
+                let max = mean + dev * 8.0;
+                stars.retain(|s| (s.points.len() as f64).sqrt() < max);
+            } else {
+                anyhow::bail!("No stars");
+            }
+        }
+
     }
 
     stars.sort_by(|s1, s2| cmp_f64(&s1.brightness, &s2.brightness).reverse());
@@ -303,12 +317,16 @@ pub fn calc_image_offset_by_stars(
 ) -> Option<ImageOffset> {
     let image_size = (img_width + img_height) / 2.0;
 
-    const MAX_STARS: usize = 100;
+    const MAX_STARS: usize = 50;
     let ref_stars = if ref_stars.len() < MAX_STARS { ref_stars } else { &ref_stars[..MAX_STARS] };
     let stars     = if stars.len()     < MAX_STARS { stars }     else { &stars[..MAX_STARS] };
 
     let ref_triangles = get_stars_triangles(ref_stars, image_size / 5.0);
     let triangles = get_stars_triangles(stars, image_size / 5.0);
+
+    log::info!("Align parameters calculation");
+    log::info!("ref_triangles.len() = {}", ref_triangles.len());
+    log::info!("triangles.len() = {}", triangles.len());
 
     struct Corr<'a> {
         ref_triangle: &'a StarsTriangle<'a>,
@@ -330,6 +348,9 @@ pub fn calc_image_offset_by_stars(
             });
         }
     }
+
+    log::info!("corr_items.len() = {}", corr_items.len());
+
     let mut angles = Vec::new();
     let mut x_offsets = Vec::new();
     let mut y_offsets = Vec::new();
@@ -338,7 +359,7 @@ pub fn calc_image_offset_by_stars(
     let mut offset_x = 0_f64;
     let mut offset_y = 0_f64;
 
-    for _ in 0..3 {
+    for _ in 0..30 {
         angles.clear();
         for item in corr_items.iter() {
             angles.push(CalcValue::new_weighted(item.angle, item.len));
@@ -348,6 +369,8 @@ pub fn calc_image_offset_by_stars(
         for (i, a) in angles.iter().enumerate() {
             if !a.used { corr_items[i].used = false; }
         }
+
+        let size_before_retain = corr_items.len();
         corr_items.retain(|v| v.used);
 
         let center_x = (img_width - 1.0) / 2.0;
@@ -373,7 +396,13 @@ pub fn calc_image_offset_by_stars(
             if !x.used || !y.used { corr_items[i].used = false; }
         }
         corr_items.retain(|v| v.used);
+
+        if size_before_retain == corr_items.len() {
+            break;
+        }
     }
+
+    log::info!("(used for calculatiuon) corr_items.len() = {}", corr_items.len());
 
     Some(ImageOffset { angle, offset_x, offset_y, })
 }
@@ -453,35 +482,19 @@ type StarsTriangles<'a> = Vec<StarsTriangle<'a>>;
 
 fn get_stars_triangles(stars: &[Star], min_len: f64) -> StarsTriangles {
     let mut result = StarsTriangles::new();
-    let mut full_max = stars.len() / 20;
-    if full_max > 20 { full_max = 20; }
-    for i in 0..full_max { for j in i+1..full_max { for k in j+1..full_max {
+    for i in 0..stars.len() { for j in i+1..stars.len() { for k in j+1..stars.len() {
         let tr = StarsTriangle::new(&stars[i], &stars[j], &stars[k]);
         if tr.len > min_len { result.push(tr); }
     }}}
-
-    let other_stars = &stars[full_max..];
-    let points_to_triangulate: Vec<_> = other_stars
-        .iter()
-        .map(|s| Point {x: s.x as f64, y: s.y as f64})
-        .collect();
-
-    let triagulation = triangulate(&points_to_triangulate);
-    for (&i, &j, &k) in triagulation.triangles.iter().tuples() {
-        let tr = StarsTriangle::new(&other_stars[i], &other_stars[j], &other_stars[k]);
-        if tr.len > min_len { result.push(tr); }
-    }
-
     result.sort_by(|t1, t2| cmp_f64(&t1.len, &t2.len));
-
     result
 }
 
 fn find_same_triangle<'a>(
     triangles: &'a StarsTriangles,
-    triangle:  &StarsTriangle) -> Option<StarsTriangle<'a>>
-{
-    const ERR_RANGE: f64 = 2.0;
+    triangle:  &StarsTriangle
+) -> Option<StarsTriangle<'a>> {
+    const ERR_RANGE: f64 = 3.0;
 
     let lower_res = triangles.binary_search_by(|t| cmp_f64(&t.len, &(triangle.len-ERR_RANGE)));
     let upper_res = triangles.binary_search_by(|t| cmp_f64(&t.len, &(triangle.len+ERR_RANGE)));

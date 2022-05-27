@@ -250,7 +250,8 @@ impl Project {
                 &temp_file_names,
                 &files_to_del_later,
                 &thread_pool,
-                cancel_flag
+                cancel_flag,
+                idx
             )?;
         }
 

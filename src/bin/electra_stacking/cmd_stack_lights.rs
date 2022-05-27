@@ -146,7 +146,8 @@ pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
             &temp_file_names,
             &files_to_del_later,
             &thread_pool,
-            &cancel_flag
+            &cancel_flag,
+            0
         )?;
 
         progress.lock().unwrap().percent(

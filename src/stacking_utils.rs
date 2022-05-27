@@ -305,6 +305,7 @@ pub struct TempFileData {
     noise:        f32,
     exif:         Exif,
     img_offset:   ImageOffset,
+    group_idx:    usize,
 }
 
 pub fn create_temp_light_files(
@@ -319,6 +320,7 @@ pub fn create_temp_light_files(
     files_to_del_later: &Mutex<FilesToDeleteLater>,
     thread_pool:        &rayon::ThreadPool,
     cancel_flag:        &Arc<AtomicBool>,
+    group_idx:          usize,
 ) -> anyhow::Result<()> {
     progress.lock().unwrap().percent(0, 100, "Loading calibration images...");
     let cal_data = CalibrationData::load(
@@ -339,6 +341,7 @@ pub fn create_temp_light_files(
                 }
                 let res = create_temp_file_from_light_file(
                     file,
+                    group_idx,
                     &cal_data,
                     ref_data,
                     bin,
@@ -359,11 +362,14 @@ pub fn create_temp_light_files(
         }
     });
 
+    result_list.lock().unwrap().sort_by_key(|f| (f.group_idx, f.file_name.clone()));
+
     cur_result.into_inner()?
 }
 
 fn create_temp_file_from_light_file(
     file:               &Path,
+    group_idx:          usize,
     cal_data:           &CalibrationData,
     ref_data:           &RefBgData,
     bin:                usize,
@@ -439,6 +445,7 @@ fn create_temp_file_from_light_file(
             noise:        light_file.noise * norm_res.range_factor,
             exif:         light_file.exif,
             img_offset,
+            group_idx,
         });
     } else {
         anyhow::bail!("Can't calculate offset and angle between reference image and light file");
