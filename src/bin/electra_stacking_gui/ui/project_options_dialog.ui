@@ -98,6 +98,7 @@
                 <property name="can-focus">False</property>
                 <property name="halign">end</property>
                 <property name="label" translatable="yes">Bias stacking mode:</property>
+                <property name="justify">right</property>
               </object>
               <packing>
                 <property name="left-attach">0</property>
@@ -144,6 +145,7 @@
                 <property name="can-focus">False</property>
                 <property name="halign">end</property>
                 <property name="label" translatable="yes">Flats stacking mode:</property>
+                <property name="justify">right</property>
               </object>
               <packing>
                 <property name="left-attach">0</property>
@@ -190,6 +192,7 @@
                 <property name="can-focus">False</property>
                 <property name="halign">end</property>
                 <property name="label" translatable="yes">Darks stacking mode:</property>
+                <property name="justify">right</property>
               </object>
               <packing>
                 <property name="left-attach">0</property>
@@ -236,6 +239,7 @@
                 <property name="can-focus">False</property>
                 <property name="halign">end</property>
                 <property name="label" translatable="yes">Lights stacking mode:</property>
+                <property name="justify">right</property>
               </object>
               <packing>
                 <property name="left-attach">0</property>
@@ -396,6 +400,7 @@
               <packing>
                 <property name="left-attach">1</property>
                 <property name="top-attach">12</property>
+                <property name="width">3</property>
               </packing>
             </child>
             <child>
@@ -409,6 +414,7 @@
               <packing>
                 <property name="left-attach">1</property>
                 <property name="top-attach">11</property>
+                <property name="width">3</property>
               </packing>
             </child>
             <child>
@@ -424,6 +430,7 @@
               <packing>
                 <property name="left-attach">1</property>
                 <property name="top-attach">10</property>
+                <property name="width">3</property>
               </packing>
             </child>
             <child>
@@ -447,24 +454,6 @@
                 <property name="top-attach">13</property>
                 <property name="width">4</property>
               </packing>
-            </child>
-            <child>
-              <placeholder/>
-            </child>
-            <child>
-              <placeholder/>
-            </child>
-            <child>
-              <placeholder/>
-            </child>
-            <child>
-              <placeholder/>
-            </child>
-            <child>
-              <placeholder/>
-            </child>
-            <child>
-              <placeholder/>
             </child>
             <child>
               <placeholder/>

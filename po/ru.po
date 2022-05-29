@@ -332,22 +332,31 @@ msgid "Repeats"
 msgstr "Повторов"
 
 msgid "Lights stacking mode:"
-msgstr "Режим сложения изображений (light):"
+msgstr "Режим сложения\nизображений (light):"
 
 msgid "Darks stacking mode:"
-msgstr "Режим сложения темновых кадров (dark)"
+msgstr "Режим сложения\nтемновых кадров (dark):"
 
 msgid "Flats stacking mode:"
-msgstr "Режим сложения кадров поля (flat)"
+msgstr "Режим сложения\nкадров поля (flat):"
 
 msgid "Bias stacking mode:"
-msgstr "Режим сложения кадров смещения (bias)"
+msgstr "Режим сложения\nкадров смещения (bias):"
 
 msgid "Median"
 msgstr "Медианное среднее"
 
 msgid "Mean"
 msgstr "Среднее"
+
+msgid "For each light file"
+msgstr "Для каждого файла изображения (light)"
+
+msgid "Save calibrated and aligned image"
+msgstr "Сохранить калиброванное и выровненное изображение"
+
+msgid "Save common star image"
+msgstr "Сохранить изображение обобщённой звезды"
 
 ###########################################################
 
