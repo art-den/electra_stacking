@@ -5,11 +5,6 @@ pub struct NormResult {
     pub range_factor: f32,
 }
 
-pub struct ImageNormalizer {
-    grey_image: ImageLayerF32,
-    mask:       ImageMask,
-}
-
 fn mask_stars(mask: &mut ImageMask, width: Crd, height: Crd, stars: &Stars) {
         mask.resize_and_clear(width, height);
         for star in stars.iter() {

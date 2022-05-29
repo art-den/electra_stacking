@@ -602,7 +602,6 @@ impl<'a, T: Copy + Clone> Iterator for ImageLayerMutIter3<'a, T> {
 pub struct RectIterCrd<'a, T: Copy + Clone + ImgLayerDefValue<Type = T>> {
     img: &'a ImageLayer<T>,
     x1: Crd,
-    y1: Crd,
     x2: Crd,
     y2: Crd,
     x: Crd,
@@ -623,7 +622,7 @@ impl<'a, T: Copy + Clone + ImgLayerDefValue<Type = T>> RectIterCrd<'a, T> {
         if x2 >= img.width { x2 = img.width-1; }
         if y2 >= img.height { y2 = img.height-1; }
         RectIterCrd {
-            img, x1, y1, x2, y2, x: x1, y: y1,
+            img, x1, x2, y2, x: x1, y: y1,
             iter: RectIterCrd::create_iter(img, x1, x2, y1)
         }
     }

@@ -237,8 +237,7 @@ where
     }
 
     struct FileData {
-        file:       BufReader<File>,
-        image_info: RawImageInfo,
+        file: BufReader<File>,
     }
 
     let mut opened_files = Vec::new();
@@ -255,7 +254,7 @@ where
         } else {
             first_image_info = Some(image_info.clone());
         }
-        opened_files.push(FileData{ file, image_info });
+        opened_files.push(FileData{ file });
         temp_file_list.add(file_path);
     }
 
