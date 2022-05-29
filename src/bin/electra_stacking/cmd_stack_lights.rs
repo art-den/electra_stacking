@@ -147,7 +147,8 @@ pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
             &files_to_del_later,
             &thread_pool,
             &cancel_flag,
-            0
+            0,
+            SaveAlignedImageMode::No
         )?;
 
         progress.lock().unwrap().percent(

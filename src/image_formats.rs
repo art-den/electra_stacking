@@ -7,7 +7,7 @@ use chrono::prelude::*;
 use crate::{image::*, image_raw::*, fs_utils::*, compression::*, progress::ProgressTs};
 
 pub const FIT_EXTS: &[&str] = &["fit", "fits", "fts"];
-pub const TIF_EXTS: &[&str] = &["tiff", "tif"];
+pub const TIF_EXTS: &[&str] = &["tif", "tiff"];
 pub const RAW_EXTS: &[&str] = &[
     "dng",
     "cr2", // Canon
@@ -297,6 +297,23 @@ pub fn load_image_from_tiff_file(file_name: &Path) -> anyhow::Result<SrcImageDat
         image,
         exif: Exif::new_empty(),
     })
+}
+
+pub fn save_grayscale_image_to_tiff_file(
+    image:     &ImageLayerF32,
+    exif:      &Exif,
+    file_name: &Path
+) -> anyhow::Result<()> {
+    assert!(!image.is_empty());
+    let mut file = BufWriter::new(File::create(file_name)?);
+    let mut decoder = TiffEncoder::new(&mut file)?;
+    let mut tiff = decoder.new_image::<colortype::Gray32Float>(
+        image.width() as u32,
+        image.height() as u32
+    )?;
+    write_exif_into_tiff(tiff.encoder(), exif)?;
+    tiff.write_data(image.iter().as_slice())?;
+    Ok(())
 }
 
 pub fn save_image_to_tiff_file(

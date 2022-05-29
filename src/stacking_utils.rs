@@ -308,6 +308,13 @@ pub struct TempFileData {
     group_idx:    usize,
 }
 
+#[derive(Copy, Clone)]
+pub enum SaveAlignedImageMode {
+    No,
+    Tif,
+    Fits
+}
+
 pub fn create_temp_light_files(
     progress:           &ProgressTs,
     files_list:         Vec<PathBuf>,
@@ -321,6 +328,7 @@ pub fn create_temp_light_files(
     thread_pool:        &rayon::ThreadPool,
     cancel_flag:        &Arc<AtomicBool>,
     group_idx:          usize,
+    save_aligned:       SaveAlignedImageMode,
 ) -> anyhow::Result<()> {
     progress.lock().unwrap().percent(0, 100, "Loading calibration images...");
     let cal_data = CalibrationData::load(
@@ -347,7 +355,8 @@ pub fn create_temp_light_files(
                     bin,
                     files_to_del_later,
                     &disk_access_mutex,
-                    result_list
+                    result_list,
+                    save_aligned
                 );
                 if let Err(err) = res {
                     *cur_result.lock().unwrap() = Err(anyhow::anyhow!(
@@ -375,7 +384,8 @@ fn create_temp_file_from_light_file(
     bin:                usize,
     files_to_del_later: &Mutex<FilesToDeleteLater>,
     disk_access_mutex:  &Mutex<()>,
-    result_list:        &Mutex<Vec<TempFileData>>
+    result_list:        &Mutex<Vec<TempFileData>>,
+    save_aligned:       SaveAlignedImageMode,
 ) -> anyhow::Result<()> {
     let file_total_log = TimeLogger::start();
 
@@ -434,6 +444,23 @@ fn create_temp_file_from_light_file(
         let save_lock = disk_access_mutex.lock();
         let save_log = TimeLogger::start();
         save_image_into_internal_format(&light_file.image, &temp_file_name)?;
+
+        if let SaveAlignedImageMode::Fits|SaveAlignedImageMode::Tif = save_aligned {
+            let ext = match save_aligned {
+                SaveAlignedImageMode::Fits => FIT_EXTS[0],
+                SaveAlignedImageMode::Tif => TIF_EXTS[0],
+                _ => "",
+            };
+            let file_name = file.with_extension(format!("aligned.{}", ext));
+            log::info!("Saving aligned image to {:?} file", file_name);
+            light_file.image.fill_inf_areas();
+            save_image_to_file(
+                &light_file.image,
+                &Exif::new_empty(),
+                &file_name
+            )?;
+        }
+
         save_log.log("saving temp file");
         drop(save_lock);
 

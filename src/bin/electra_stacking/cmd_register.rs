@@ -32,10 +32,12 @@ pub struct CmdOptions {
 
 pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
     let progress = Arc::new(Mutex::new(ProgressConsole::new()));
-    progress.lock().unwrap().progress(false, "Searching files...");
+    progress.lock().unwrap()
+        .progress(false, "Searching files...");
 
     let file_names_list = get_files_list(&options.path, &options.exts, true)?;
-    progress.lock().unwrap().set_total(file_names_list.len());
+    progress.lock().unwrap()
+        .set_total(file_names_list.len());
 
     let cal_data = Arc::new(CalibrationData::load(
         options.master_flat.as_deref(),
@@ -51,7 +53,8 @@ pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
     thread_pool.scope(|s| {
         for file_name in file_names_list.iter() {
             s.spawn(|_| {
-                progress.lock().unwrap().progress(true, extract_file_name(file_name));
+                progress.lock().unwrap()
+                    .progress(true, extract_file_name(file_name));
 
                 let light_file = LightFile::load(
                     file_name,
@@ -76,9 +79,11 @@ pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
                     stars_r_dev: stars_stat.aver_r_dev,
                 };
 
-                let file_data_str = serde_json::to_string_pretty(&file_data).expect("Can't serialize");
+                let file_data_str = serde_json::to_string_pretty(&file_data)
+                    .expect("Can't serialize");
                 let info_file_name = get_light_info_file_name(file_name);
-                std::fs::write(info_file_name, &file_data_str).expect("Can't write file registration info");
+                std::fs::write(info_file_name, &file_data_str)
+                    .expect("Can't write file registration info");
             });
         }
     });

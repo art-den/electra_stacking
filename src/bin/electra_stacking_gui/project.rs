@@ -10,6 +10,7 @@ use electra_stacking::{
     stacking_utils::*,
     light_file::*,
     stars::*,
+    image::*,
     image_raw::*,
     image_norm::*,
     image_formats::*,
@@ -136,7 +137,8 @@ impl Project {
                 progress,
                 cancel_flag,
                 &thread_pool,
-                &result
+                &result,
+                self.config.save_common_star_img
             )?;
         }
 
@@ -239,6 +241,13 @@ impl Project {
                 group.name(idx)
             ));
 
+            let save_aligned_mode =
+                match (self.config.save_aligned_img, self.config.res_img_type) {
+                    (true, ResFileType::Fit) => SaveAlignedImageMode::Fits,
+                    (true, ResFileType::Tif) => SaveAlignedImageMode::Tif,
+                    _                        => SaveAlignedImageMode::No,
+                };
+
             create_temp_light_files(
                 progress,
                 group.light_files.get_selected_file_names(),
@@ -251,7 +260,8 @@ impl Project {
                 &files_to_del_later,
                 &thread_pool,
                 cancel_flag,
-                idx
+                idx,
+                save_aligned_mode
             )?;
         }
 
@@ -308,13 +318,9 @@ impl Project {
 
     pub fn get_result_file_name(&self) -> anyhow::Result<PathBuf> {
         if let Some(file_name) = &self.file_name {
-            let file_ext = match self.config.res_img_type {
-                ResFileType::Fit => "fit",
-                ResFileType::Tif => "tif",
-            };
             Ok(file_name
                 .with_file_name(self.config.name.as_ref().unwrap_or(&"result".to_string()).trim())
-                .with_extension(file_ext)
+                .with_extension(self.config.res_img_type.get_file_ext())
             )
         } else {
             anyhow::bail!(gettext("You have to save project before"));
@@ -334,10 +340,19 @@ pub enum ImageSize {
     Bin2x2,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug)]
 pub enum ResFileType {
     Fit,
     Tif,
+}
+
+impl ResFileType {
+    pub fn get_file_ext(self) -> &'static str {
+        match self {
+            ResFileType::Fit => FIT_EXTS[0],
+            ResFileType::Tif => TIF_EXTS[0],
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -350,6 +365,8 @@ pub struct ProjectConfig {
     pub flat_calc_opts: CalcOpts,
     pub bias_calc_opts: CalcOpts,
     pub res_img_type: ResFileType,
+    pub save_aligned_img: bool,
+    pub save_common_star_img: bool,
 }
 
 impl Default for ProjectConfig {
@@ -362,6 +379,8 @@ impl Default for ProjectConfig {
             flat_calc_opts: CalcOpts{ mode: CalcMode::Mean, .. CalcOpts::default() },
             bias_calc_opts: CalcOpts::default(),
             res_img_type: ResFileType::Fit,
+            save_aligned_img: false,
+            save_common_star_img: false,
         }
     }
 }
@@ -607,20 +626,23 @@ impl ProjectGroup {
 
     fn register_light_files(
         &self,
-        group_idx:   usize,
-        progress:    &ProgressTs,
-        cancel_flag: &Arc<AtomicBool>,
-        thread_pool: &rayon::ThreadPool,
-        result:      &Mutex<HashMap<PathBuf, RegInfo>>,
+        group_idx:     usize,
+        progress:      &ProgressTs,
+        cancel_flag:   &Arc<AtomicBool>,
+        thread_pool:   &rayon::ThreadPool,
+        result:        &Mutex<HashMap<PathBuf, RegInfo>>,
+        save_star_img: bool,
     ) -> anyhow::Result<()> {
         progress.lock().unwrap().stage(&format!(
             "Registering files for group {}...",
             self.name(group_idx)
         ));
-        progress.lock().unwrap().set_total(self.light_files.list.len());
-        progress.lock().unwrap().progress(false, &gettext(
-            "Loading calibration master files..."
-        ));
+        progress.lock().unwrap()
+            .set_total(self.light_files.list.len());
+        progress.lock().unwrap()
+            .progress(false, &gettext(
+                "Loading calibration master files..."
+            ));
 
         let cal_data = CalibrationData::load(
             self.flat_files.get_master_full_file_name(MASTER_FLAT_FN).as_deref(),
@@ -672,7 +694,26 @@ impl ProjectGroup {
                         }
                     };
 
-                    progress.lock().unwrap().progress(true, file.file_name.to_str().unwrap_or(""));
+                    if save_star_img {
+                        let common_star_img_fn = file.file_name.with_extension("common_star.tif");
+                        let save_res = save_grayscale_image_to_tiff_file(
+                            &stars_stat.common_stars_img,
+                            &Exif::new_empty(),
+                            &common_star_img_fn
+                        );
+                        if let Err(err) = save_res {
+                            *cur_result.lock().unwrap() = Err(anyhow::anyhow!(
+                                r#"Error "{}" during saving common star image to file "{}""#,
+                                err.to_string(),
+                                common_star_img_fn.to_str().unwrap_or("")
+                            ));
+                            return;
+                        }
+                    }
+
+                    progress.lock().unwrap()
+                        .progress(true, file.file_name.to_str().unwrap_or(""));
+
                     result.lock().unwrap().insert(
                         file.file_name.clone(),
                         RegInfo {

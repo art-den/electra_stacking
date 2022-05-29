@@ -1894,10 +1894,12 @@ fn handler_project_tree_checked_changed(
             group_idx: Some(group_idx),
             ..
         } => {
-            let mut group = &mut objects.project.borrow_mut().groups[group_idx];
+            let mut project = objects.project.borrow_mut();
+            let mut group = &mut project.groups[group_idx];
             group.used = !group.used;
             let iter = tree_store.iter(&path).unwrap();
-            tree_store.set(&iter, &[(COLUMN_CHECKBOX,  &group.used)]);
+            tree_store.set(&iter, &[(COLUMN_CHECKBOX, &group.used)]);
+            project.changed = true;
         },
 
         SelectedItem {
@@ -1915,6 +1917,7 @@ fn handler_project_tree_checked_changed(
             project_file.used = !project_file.used;
             let iter = tree_store.iter(&path).unwrap();
             tree_store.set(&iter, &[(COLUMN_CHECKBOX, &project_file.used)]);
+            project.changed = true;
         },
         _ => {
             return;
@@ -2202,6 +2205,9 @@ fn configure_project_options<F: Fn(ProjectConfig) + 'static>(
     let bias_stack_kappa = builder.object::<gtk::Entry>("bias_stack_kappa").unwrap();
     let bias_stack_steps = builder.object::<gtk::Entry>("bias_stack_steps").unwrap();
 
+    let chb_save_calibrated_img = builder.object::<gtk::CheckButton>("chb_save_calibrated_img").unwrap();
+    let chb_save_common_star_img = builder.object::<gtk::CheckButton>("chb_save_common_star_img").unwrap();
+
     project_name.set_text(project_config.name.as_ref().unwrap_or(&String::new()).as_str());
 
     img_size.set_active(Some(match project_config.image_size {
@@ -2239,6 +2245,9 @@ fn configure_project_options<F: Fn(ProjectConfig) + 'static>(
     show_calc_opts(&project_config.dark_calc_opts, &darks_stack_mode, &darks_stack_kappa, &darks_stack_steps);
     show_calc_opts(&project_config.flat_calc_opts, &flats_stack_mode, &flats_stack_kappa, &flats_stack_steps);
     show_calc_opts(&project_config.bias_calc_opts, &bias_stack_mode, &bias_stack_kappa, &bias_stack_steps);
+
+    chb_save_calibrated_img.set_active(project_config.save_aligned_img);
+    chb_save_common_star_img.set_active(project_config.save_common_star_img);
 
     dialog.set_transient_for(Some(&objects.window));
 
@@ -2288,6 +2297,9 @@ fn configure_project_options<F: Fn(ProjectConfig) + 'static>(
                 Some(1) => ResFileType::Tif,
                 _ => panic!("Wrong res_img_type.active(): {:?}", res_img_type.active()),
             };
+
+            project_config.save_aligned_img = chb_save_calibrated_img.is_active();
+            project_config.save_common_star_img = chb_save_common_star_img.is_active();
 
             set_fun(project_config);
         }

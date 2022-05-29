@@ -532,6 +532,7 @@ fn find_same_triangle<'a>(
 pub struct StarsStat {
     pub fwhm: f32,
     pub aver_r_dev: f32,
+    pub common_stars_img: ImageLayerF32,
 }
 
 fn create_common_star_image(
@@ -597,24 +598,20 @@ fn create_common_star_image(
 pub fn calc_stars_stat(stars: &Stars, image: &ImageLayerF32) -> anyhow::Result<StarsStat> {
     const MAG: Crd = 4;
 
-    let common_star_image = create_common_star_image(stars, image, MAG)?;
+    let common_stars_img = create_common_star_image(stars, image, MAG)?;
 
     let common_stars = find_stars_on_image(
-        &common_star_image,
+        &common_stars_img,
         None,
         Some(0.01),
         false
     )?;
 
-    if common_stars.is_empty() {
-        anyhow::bail!("Can't make common star");
-    }
-
     let common_star = common_stars.iter()
         .max_by(|s1, s2| cmp_f32(&s1.max_value,&s2.max_value))
         .ok_or_else(|| anyhow::anyhow!("Can't find common star"))?;
 
-    let over_0_5_cnt = common_star_image
+    let over_0_5_cnt = common_stars_img
         .as_slice()
         .iter()
         .filter(|&v| *v > 0.5)
@@ -623,5 +620,6 @@ pub fn calc_stars_stat(stars: &Stars, image: &ImageLayerF32) -> anyhow::Result<S
     Ok(StarsStat {
         fwhm:       over_0_5_cnt as f32 / (MAG * MAG) as f32,
         aver_r_dev: common_star.radius_std_dev as f32,
+        common_stars_img
     })
 }
