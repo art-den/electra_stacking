@@ -291,7 +291,7 @@ impl RefBgData {
         cal_data:      &CalibrationData,
         bin:           usize
     ) -> anyhow::Result<RefBgData> {
-        let image = LightFile::load(
+        let image = LightFile::load_and_calc_params(
             ref_file_name,
             cal_data,
             None,

@@ -659,7 +659,7 @@ impl ProjectGroup {
                     || cur_result.lock().unwrap().is_err() {
                         return;
                     }
-                    let load_light_file_res = LightFile::load(
+                    let load_light_file_res = LightFile::load_and_calc_params(
                         &file.file_name,
                         &cal_data,
                         None,

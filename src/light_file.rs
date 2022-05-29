@@ -22,7 +22,7 @@ pub struct LightFile {
 }
 
 impl LightFile {
-    pub fn load(
+    pub fn load_and_calc_params(
         file_name:  &Path,
         cal_data:   &CalibrationData,
         disk_mutex: Option<&std::sync::Mutex<()>>,
@@ -64,11 +64,9 @@ impl LightFile {
             ImageLayerF32::new_empty()
         };
 
-        let mut temp_values = Vec::new();
-
         let noise = if noise_flag || stars_flag {
             let noise_log = TimeLogger::start();
-            let result = calc_noise(&mut temp_values, &grey_image);
+            let result = calc_noise(&grey_image);
             noise_log.log("noise calculation");
             result as f32
         } else {
@@ -77,7 +75,7 @@ impl LightFile {
 
         let background = if bg_flag {
             let bg_log = TimeLogger::start();
-            let result = calc_background(&mut temp_values, &grey_image);
+            let result = calc_background(&grey_image);
             bg_log.log("background calculation");
             result
         } else {
@@ -131,7 +129,11 @@ fn check_raw_data(
     mode:        &str,
     master_dark: bool
 ) -> anyhow::Result<()> {
-    let compare = |item, raw: &dyn std::fmt::Display, cal: &dyn std::fmt::Display| -> anyhow::Result<()> {
+    let compare = |
+        item,
+        raw: &dyn std::fmt::Display,
+        cal: &dyn std::fmt::Display
+    | -> anyhow::Result<()> {
         if raw.to_string() != cal.to_string() {
             anyhow::bail!(
                 "{} differs for {}: ('{}' != '{}')",
@@ -212,8 +214,8 @@ fn load_raw_light_file(
 }
 
 #[inline(never)]
-fn calc_noise(temp_values: &mut Vec<f32>, grey_image: &ImageLayerF32) -> f64 {
-    temp_values.clear();
+fn calc_noise(grey_image: &ImageLayerF32) -> f64 {
+    let mut temp_values = Vec::with_capacity(grey_image.as_slice().len());
     for (b1, b2, v, a1, a2) in grey_image.iter().copied().tuple_windows() {
         let back = (b1 + b2 + a1 + a2) * 0.25;
         let diff = v - back;
@@ -230,8 +232,9 @@ fn calc_noise(temp_values: &mut Vec<f32>, grey_image: &ImageLayerF32) -> f64 {
     f64::sqrt(sum / pos as f64) * PART as f64
 }
 
-fn calc_background(temp_values: &mut Vec<f32>, grey_image: &ImageLayerF32) -> f32 {
+fn calc_background(grey_image: &ImageLayerF32) -> f32 {
     let grey_slice = grey_image.as_slice();
+    let mut temp_values = Vec::new();
     temp_values.resize(grey_slice.len(), 0.0);
     temp_values.copy_from_slice(grey_slice);
     let pos = temp_values.len() / 4;

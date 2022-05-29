@@ -1781,7 +1781,7 @@ fn preview_image_file(
         };
         load_flags |= LoadLightFlags::FAST_DEMOSAIC;
 
-        let light_file = LightFile::load(
+        let light_file = LightFile::load_and_calc_params(
             &file_name,
             &calibr_data,
             None,

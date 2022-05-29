@@ -56,7 +56,7 @@ pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
                 progress.lock().unwrap()
                     .progress(true, extract_file_name(file_name));
 
-                let light_file = LightFile::load(
+                let light_file = LightFile::load_and_calc_params(
                     file_name,
                     &cal_data,
                     Some(&disk_access_mutex),

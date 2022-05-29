@@ -389,7 +389,7 @@ fn create_temp_file_from_light_file(
     let file_total_log = TimeLogger::start();
 
     let load_log = TimeLogger::start();
-    let mut light_file = LightFile::load(
+    let mut light_file = LightFile::load_and_calc_params(
         file,
         cal_data,
         Some(disk_access_mutex),
