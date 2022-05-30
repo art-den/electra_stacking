@@ -364,7 +364,7 @@ pub fn calc_image_offset_by_stars(
         for item in corr_items.iter() {
             angles.push(CalcValue::new_weighted(item.angle, item.len));
         }
-        angle = cappa_sigma_weighted(&mut angles, 2.0, 10, true, true)?.result;
+        angle = cappa_sigma_weighted_result(&mut angles, 2.0, 10, true, true)?.result;
 
         for (i, a) in angles.iter().enumerate() {
             if !a.used { corr_items[i].used = false; }
@@ -389,8 +389,8 @@ pub fn calc_image_offset_by_stars(
             y_offsets.push(CalcValue::new(on_ref_y - ref_tri_center_y));
         }
 
-        offset_x = cappa_sigma_weighted(&mut x_offsets, 2.0, 10, true, true)?.result;
-        offset_y = cappa_sigma_weighted(&mut y_offsets, 2.0, 10, true, true)?.result;
+        offset_x = cappa_sigma_weighted_result(&mut x_offsets, 2.0, 10, true, true)?.result;
+        offset_y = cappa_sigma_weighted_result(&mut y_offsets, 2.0, 10, true, true)?.result;
 
         for (i, (x, y)) in x_offsets.iter().zip(y_offsets.iter()).enumerate() {
             if !x.used || !y.used { corr_items[i].used = false; }
@@ -587,7 +587,7 @@ fn create_common_star_image(
             };
             pt_values.push(CalcValue::new(norm_star_values as f64));
         }
-        if let Some(filtered_v) = median(&mut pt_values) {
+        if let Some(filtered_v) = median_result(&mut pt_values) {
             *v = (filtered_v.result as f32).min(1.0);
         }
     }

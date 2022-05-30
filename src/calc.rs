@@ -89,6 +89,11 @@ pub fn mean(values: &[CalcValue]) -> Option<f64> {
     Some(sum/cnt)
 }
 
+pub fn mean_result(values: &[CalcValue]) -> Option<CalcResult> {
+    mean(values)
+        .map(|v| CalcResult{ result: v, discarded: 0 })
+}
+
 pub fn mean_and_std_dev(values: &[CalcValue]) -> Option<(f64, f64)> {
     if values.is_empty() { return None; }
     if let Some(m) = mean(values) {
@@ -112,7 +117,7 @@ pub fn median_f64(values: &mut [f64]) -> Option<f64> {
     Some(values[median_index])
 }
 
-pub fn median(values: &mut [CalcValue]) -> Option<CalcResult> {
+pub fn median_result(values: &mut [CalcValue]) -> Option<CalcResult> {
     if values.is_empty() { return None; }
 
     let median_index = values.len() / 2;
@@ -124,7 +129,7 @@ pub fn median(values: &mut [CalcValue]) -> Option<CalcResult> {
     })
 }
 
-pub fn cappa_sigma_weighted(
+pub fn cappa_sigma_weighted_result(
     values:  &mut [CalcValue],
     kappa:   f32,
     repeats: u32,
@@ -174,12 +179,13 @@ pub fn cappa_sigma_weighted(
 pub fn calc(values: &mut [CalcValue], opts: &CalcOpts) -> Option<CalcResult> {
     match opts.mode {
         CalcMode::Median =>
-            median(values),
+            median_result(values),
 
         CalcMode::CappaSigma =>
-            cappa_sigma_weighted(values, opts.kappa, opts.repeats, true, true),
+            cappa_sigma_weighted_result(values, opts.kappa, opts.repeats, true, true),
 
-        CalcMode::Mean => todo!(),
+        CalcMode::Mean =>
+            mean_result(values),
     }
 }
 
