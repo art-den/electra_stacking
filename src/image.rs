@@ -1,4 +1,5 @@
 use std::collections::{VecDeque,HashSet};
+use itertools::izip;
 use serde::{Serialize, Deserialize};
 use rayon::prelude::*;
 use crate::calc::*;
@@ -443,11 +444,9 @@ impl ImageLayer<f32> {
         }
     }
 
-    pub fn fill_inf_areas_with_one(&mut self) {
-        for v in &mut self.data {
-            if v.is_infinite() {
-                *v = 1.0;
-            }
+    pub fn fill_with_one_by_mask(&mut self, mask: &ImageLayer<bool>) {
+        for (v, m) in self.data.iter_mut().zip(mask.iter()) {
+            if *m { *v = 1.0; }
         }
     }
 
@@ -922,10 +921,68 @@ impl Image {
     }
 
     pub fn fill_inf_areas_with_one(&mut self) {
-        self.l.fill_inf_areas_with_one();
-        self.r.fill_inf_areas_with_one();
-        self.g.fill_inf_areas_with_one();
-        self.b.fill_inf_areas_with_one();
+        let mut inf_mask = ImageLayer::<bool>::new(
+            self.width(),
+            self.height()
+        );
+
+        for (m, v) in inf_mask.iter_mut().zip(self.l.iter_mut()) {
+            if v.is_infinite() { *m = true; }
+        }
+
+        for (m, v) in inf_mask.iter_mut().zip(self.r.iter_mut()) {
+            if v.is_infinite() { *m = true; }
+        }
+
+        for (m, v) in inf_mask.iter_mut().zip(self.g.iter_mut()) {
+            if v.is_infinite() { *m = true; }
+        }
+
+        for (m, v) in inf_mask.iter_mut().zip(self.b.iter_mut()) {
+            if v.is_infinite() { *m = true; }
+        }
+
+        self.l.fill_with_one_by_mask(&inf_mask);
+        self.r.fill_with_one_by_mask(&inf_mask);
+        self.g.fill_with_one_by_mask(&inf_mask);
+        self.b.fill_with_one_by_mask(&inf_mask);
+
+        let mut enlarged_inf_mask = ImageLayer::<bool>::new(
+            self.width(),
+            self.height()
+        );
+
+        for (x, y, d) in enlarged_inf_mask.iter_crd_mut() {
+            *d = inf_mask
+                .iter_rect_crd(x-1, y-1, x+1, y+1)
+                .any(|(_, _, v)| { v });
+        }
+
+        let process = |img: &mut ImageLayerF32| {
+            if img.is_empty() { return; }
+            let mut new_img = ImageLayerF32::new(img.width(), img.height());
+            for ((x, y, m), s, d) in
+            izip!(enlarged_inf_mask.iter_crd(), img.iter(), new_img.iter_mut()) {
+                if !m {
+                    *d = *s;
+                } else {
+                    let (sum, cnt) = img
+                        .iter_rect_crd(x-1, y-1, x+1, y+1)
+                        .fold((0_f64, 0_f64), |(summ, cnt), (_, _, v)| {
+                            (summ + v as f64, cnt + 1.0)
+                        });
+
+                    *d = if cnt != 0.0 {(sum / cnt) as f32} else { *s };
+                }
+            }
+            img.data = new_img.data;
+        };
+
+        process(&mut self.l);
+        process(&mut self.r);
+        process(&mut self.g);
+        process(&mut self.b);
+
     }
 
     pub fn clear(&mut self) {
