@@ -443,6 +443,14 @@ impl ImageLayer<f32> {
         }
     }
 
+    pub fn fill_inf_areas_with_one(&mut self) {
+        for v in &mut self.data {
+            if v.is_infinite() {
+                *v = 1.0;
+            }
+        }
+    }
+
     pub fn check_contains_inf_or_nan(
         &self,
         check_inf: bool,
@@ -869,7 +877,9 @@ impl Image {
             .max_by(cmp_f32)
             .unwrap_or(0.0);
 
-        if max < 1.0 { return; }
+        const MAX: f32 = 0.999;
+
+        if max < MAX { return; }
 
         let do_norm = |k, img: &mut ImageLayerF32| {
             for v in img.iter_mut() {
@@ -877,7 +887,7 @@ impl Image {
             }
         };
 
-        let k = 1.0 / max;
+        let k = MAX / max;
         do_norm(k, &mut self.l);
         do_norm(k, &mut self.r);
         do_norm(k, &mut self.g);
@@ -909,6 +919,13 @@ impl Image {
         self.r.fill_inf_areas();
         self.g.fill_inf_areas();
         self.b.fill_inf_areas();
+    }
+
+    pub fn fill_inf_areas_with_one(&mut self) {
+        self.l.fill_inf_areas_with_one();
+        self.r.fill_inf_areas_with_one();
+        self.g.fill_inf_areas_with_one();
+        self.b.fill_inf_areas_with_one();
     }
 
     pub fn clear(&mut self) {

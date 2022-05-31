@@ -641,12 +641,10 @@ pub fn merge_temp_light_files(
 
     progress.lock().unwrap().percent(100, 100, "Saving result...");
 
-    log::info!("Chacking NAN before fill_inf_areas...");
     result_image.check_contains_inf_or_nan(false, true)?;
-    result_image.fill_inf_areas();
-    log::info!("Chacking INF or NAN after fill_inf_areas");
-    result_image.check_contains_inf_or_nan(true, true)?;
     result_image.normalize_if_greater_1();
+    result_image.fill_inf_areas_with_one();
+    result_image.check_contains_inf_or_nan(true, true)?;
 
     log::info!("Saving image into file {}", result_file.to_str().unwrap_or(""));
     let mut dst_exif = Exif::new_empty();
