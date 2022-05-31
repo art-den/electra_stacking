@@ -1,119 +1,21 @@
-# Утилита для сложения астрофотографий
-`electra_stacking` - это консольная утилита для сложения астрофотографий. Это аналог DeepSkyStacker,  но без внешнего интерфейса. Утилита позволяет складывать дарк-, флэт- и лайт- кадры и на выходе получать tif или fits-файл с конечным линейным фото, которое можно обрабатывать в других программах (например в PhotoShop).
-Программа была написана с одной целью - обкатать алгоритмы обработки астрономических фотографий.
+# Electra
+Software for astronomical images stacking
 
-# Особенности программы
-* При сложении лайт-кадров в режиме `среднее` или `каппа-сигма` программа всегда производит оптимальное сложение, когда каждый кадр попадает в сумму с весом, обратно пропорционально квадрату шумов изображения, что позволяет получить оптимальное отношение "сигнал/шум" на конечной фотографии.
-* При сложении лайт-файлов в любом режиме программа всегда приводит динамический диапазон каждого снимка к динамическому диапазону референсного снимка, что позволяет складывать снимки с разной выдержкой, ISO, диафрагмой в один заход.
-* Программа учитывает пересветы на лайт-файлах. Если складывать за один заход кадры с пересвеченными участками (с длительными выдержками) и кадры без пересвеченных участков (с короткими выдержками), программа "скроет" пересвеченные участки, позаимствовав их с кадров с короткими выдержками.
+## Prerequisites
 
-# Что ещё не сделано
-* Работа с bias-файлами
-* Графический интерфейс
+Windows + MSYS64:
 
-# Как работать с программой
-Обработка данных разбивается на следующие этапы:
-1. Получение master-dark файла из набора dark-файлов
-2. Получение master-flat файла из набора flat-файлов
-3. Регистрация снимков с сохранением краткой информации о каждом снимке
-4. Удаление фотографий со смазом, с облаками и т.п.
-5. Сложение снимков в один результирующий файл
-
-Далее будет рассмотрен вариант использования утилиты из ОС Windows. Команды лучше всего записывать в bat-файлы, чтобы каждый раз не набирать их заново.
-
-## Получение master-dark файла из набора dark-файлов
 ```
-electra_stacking.exe                           ^
-  master-dark                             ^
-  --path        "<папка с dark-файлами>"  ^
-  --result-file "<имя master-dark файла>"
+pacman -S mingw-w64-x86_64-gtk3
+pacman --noconfirm -S base-devel mingw-w64-x86_64-gcc libxml2-devel tar
+```
+Linux:
+```
+sudo apt install libgtk-3-dev build-essential
 ```
 
-## Получение master-flat файла из набора flat-файлов
+## How to build
+To build optimized binaried type
 ```
-electra_stacking.exe                           ^
-  master-flat                             ^
-  --path        "<папка с flat-файлами>"  ^
-  --result-file "<имя master-flat файла>"
-```
-
-## Регистрация снимков с сохранением краткой информации о каждом снимке
-```
-electra_stacking.exe                           ^
-  register                                ^
-  --master-dark "<имя master-dark файла>" ^
-  --master-flat "<имя master-flat файла>" ^
-  --path        "<папка с light-файлами>"
-```
-
-## Удаление фотографий со смазом, с дымкой и т.п.
-Неудачные фото будут удалены в подкаталог `bad`
-Удаление фото со смазом:
-```
-electra_stacking.exe                     ^
-  cleanup                           ^
-  --path "<папка с light-файлами>"  ^
-  --mode StarsRDev
-```
-Удаление фото с дымкой:
-```
-electra_stacking.exe                     ^
-  cleanup                           ^
-  --path "<папка с light-файлами>"  ^
-  --mode Background
-```
-
-## Сложение снимков в один результирующий файл
-Для сложения требуется указать один референсный light-файл. В качестве такого файла лучше всего выбирать файл без смазов, метеоров, спутников, облаков и других нежелательных объектов
-```
-electra_stacking.exe                                    ^
-  stack-lights                                     ^
-  --master-dark "<имя master-dark файла>"          ^
-  --master-flat "<имя master-flat файла>"          ^
-  --path        "<папка с light-файлами>"          ^
-  --ref-file    "имя реф. light-файла"             ^
-  --result-file "<имя результирующего файла.FIT>"
-```
-
-## Пример команд для всего цикла обработки
-```
-electra_stacking.exe                                ^
-  --log-path    logs                           ^
-  master-dark                                  ^
-  --path        "darks-iso-800-16s"            ^
-  --result-file "master-files\master_dark.raw" ^
-  --mode        CappaSigma
-
-electra_stacking.exe                                ^
-  --log-path    logs                           ^
-  master-flat                                  ^
-  --path        "flats"                        ^
-  --result-file "master-files\master_flat.raw" ^
-  --mode        CappaSigma
-
-electra_stacking.exe                                ^
-  --log-path    logs                           ^
-  register                                     ^
-  --master-dark "master-files\master_dark.raw" ^
-  --master-flat "master-files\master_flat.raw" ^
-  --path        "lights-iso-800-f4.0-16s"
-
-electra_stacking.exe                        ^
-  --log-path logs                      ^
-    cleanup                            ^
-  --mode     StarsRDev                 ^
-  --path     "lights-iso-800-f4.0-16s" ^
-
-electra_stacking.exe                                   ^
-  --log-path    "logs"                                 ^
-  stack-lights                                         ^
-  --master-dark "master-files\master_dark.raw"         ^
-  --master-flat "master-files\master_flat.raw"         ^
-  --path        "lights-iso-800-f4.0-16s"              ^
-  --ref-file    "lights-iso-800-f4.0-16s\00000102.DNG" ^
-  --result-file "result.fit"                           ^
-  --mode        CappaSigma                             ^
-  --kappa       2.5                                    ^
-  --repeats     5                                      ^
-  --num-tasks   4
+cargo build --release
 ```
