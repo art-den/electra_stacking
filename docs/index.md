@@ -8,8 +8,7 @@ tif или fits-файл с конечным линейным фото, кото
 
 ## Скачать программу
 Пока что программа доступна в виде обычного архива. Его нужно распаковать в какой-нибуь
-каталог на компьютере. Релизы выкладываются на яндекс-диске
-по ссылке https://disk.yandex.ru/d/acwvVPFGZ6gUpQ
+каталог на компьютере. Релизы выкладываются на [яндекс-диске](https://disk.yandex.ru/d/acwvVPFGZ6gUpQ)
 
 Программа выкладывается в нескольких вариантах. Для обычного использования надо качать архив
 вида `electra-stacking-gui-x.x.x-x64-win.7z` (со словом `gui` посередине).
@@ -20,9 +19,9 @@ tif или fits-файл с конечным линейным фото, кото
 проблемами фокусировки и т.п.
 
 ## Как пользоваться программой
-Краткое видео по использованию программы: https://youtu.be/hG3dr9aAHs8
+Краткое видео по использованию программы [на ютубе](https://youtu.be/hG3dr9aAHs8)
 
 ## Аналогичные бесплатные программы
-* DeepSkyStacker - http://deepskystacker.free.fr/english/index.html
-* Sequator - https://sites.google.com/view/sequator/
-* Siril - https://siril.org/ (позволяет не только складывать, но и обрабатывать снимки)
+* [DeepSkyStacker](http://deepskystacker.free.fr/english/index.html)
+* [Sequator](https://sites.google.com/view/sequator/)
+* [Siril](https://siril.org/) (позволяет не только складывать, но и обрабатывать снимки)
