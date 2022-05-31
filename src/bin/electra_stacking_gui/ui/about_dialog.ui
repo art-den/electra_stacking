@@ -147,7 +147,7 @@
                     <property name="receives-default">True</property>
                     <property name="halign">start</property>
                     <property name="relief">none</property>
-                    <property name="uri">https://github.com/art-den/electra_stacking</property>
+                    <property name="uri">https://art-den.github.io/electra_stacking/</property>
                   </object>
                   <packing>
                     <property name="expand">False</property>

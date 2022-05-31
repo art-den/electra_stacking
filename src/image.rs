@@ -271,6 +271,7 @@ where T: Copy + Clone + ImgLayerDefValue<Type = T> {
         &mut self.data
     }
 
+    /// Iterate rectangle area
     pub fn iter_rect_crd(&self, x1: Crd, y1: Crd, x2: Crd, y2: Crd) -> RectIterCrd<T> {
         RectIterCrd::new(self, x1, y1, x2, y2)
     }
@@ -958,7 +959,7 @@ impl Image {
                 .any(|(_, _, v)| { v });
         }
 
-        let process = |img: &mut ImageLayerF32| {
+        let process_layer = |img: &mut ImageLayerF32| {
             if img.is_empty() { return; }
             let mut new_img = ImageLayerF32::new(img.width(), img.height());
             for ((x, y, m), s, d) in
@@ -978,10 +979,10 @@ impl Image {
             img.data = new_img.data;
         };
 
-        process(&mut self.l);
-        process(&mut self.r);
-        process(&mut self.g);
-        process(&mut self.b);
+        process_layer(&mut self.l);
+        process_layer(&mut self.r);
+        process_layer(&mut self.g);
+        process_layer(&mut self.b);
 
     }
 
