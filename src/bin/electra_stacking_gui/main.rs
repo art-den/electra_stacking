@@ -155,7 +155,7 @@ fn build_ui(application: &gtk::Application) {
             col.pack_start(&cell_img, false);
             col.pack_start(&cell_text, true);
 
-            col.add_attribute(&cell_text, "text", idx as i32);
+            col.add_attribute(&cell_text, "markup", idx as i32);
             col.add_attribute(&cell_img, "pixbuf", COLUMN_ICON as i32);
             col.add_attribute(&cell_check, "active", COLUMN_CHECKBOX as i32);
             col.add_attribute(&cell_check, "visible", COLUMN_CHECKBOX_VIS as i32);
@@ -1115,10 +1115,14 @@ fn fill_project_tree(objects: &MainWindowObjectsPtr) {
     helper.apply_changes(objects, true);
 }
 
-fn get_project_title(project: &Project) -> String {
+fn get_project_title(project: &Project, markup: bool) -> String {
     let mut result = project.config.name
         .clone()
         .unwrap_or_else(|| gettext("Unnamed project"));
+
+    if markup {
+        result = format!("<b>{}</b>", result);
+    }
 
     if project.config.image_size == ImageSize::Bin2x2 {
         result.push_str(" - bin 2x2");
@@ -1147,7 +1151,7 @@ fn update_project_name_and_time_in_gui(objects: &MainWindowObjectsPtr, title: bo
         };
         objects.window.set_title(&format!(
             "[{}] - Electra Stacking - {} v{}",
-            get_project_title(&objects.project.borrow()),
+            get_project_title(&objects.project.borrow(), false),
             app_descr_text,
             env!("CARGO_PKG_VERSION"),
         ));
@@ -1322,7 +1326,7 @@ impl TreeViewFillHelper {
         };
 
         let project_iter = tree_store.iter_first().unwrap();
-        let project_name = get_project_title(&project);
+        let project_name = get_project_title(&project, true);
 
         let project_path = project.file_name
             .as_ref()
@@ -1549,15 +1553,20 @@ impl TreeViewFillHelper {
                 // Files folder name
                 let folder_text = if project_files.list.is_empty() {
                     folder_name.to_string()
-                } else if show_total_time {
-                    format!(
-                        "{} [{}] ({})",
-                        folder_name,
-                        seconds_to_total_time_str(project_files.calc_total_exp_time()),
-                        project_files.list.len()
-                    )
-                } else {
-                    format!("{} ({})", folder_name, project_files.list.len())
+                } else  {
+                    let total_files = project_files.list.len();
+                    let selected_files = project_files.get_checked_count();
+                    let total_time = seconds_to_total_time_str(project_files.calc_total_exp_time());
+
+                    if show_total_time && selected_files == total_files {
+                        format!(r#"{} <span alpha="50%">[{}] ({})</span>"#, folder_name, total_time, total_files)
+                    } else if show_total_time && selected_files != total_files {
+                        format!(r#"{} <span alpha="50%">[{}] ({}/{})</span>"#, folder_name, total_time, selected_files, total_files)
+                    } else if !show_total_time && selected_files == total_files {
+                        format!(r#"{} <span alpha="50%">({})</span>"#, folder_name, total_files)
+                    } else {
+                        format!(r#"{} <span alpha="50%">({}/{})</span>"#, folder_name, selected_files, total_files)
+                    }
                 };
 
                 tree_store.set(

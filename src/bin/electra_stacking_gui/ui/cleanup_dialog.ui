@@ -47,7 +47,7 @@
             <property name="column-spacing">5</property>
             <child>
               <object class="GtkCheckButton" id="check_before">
-                <property name="label" translatable="yes">Check all light files before execute</property>
+                <property name="label" translatable="yes">Enable all light files before execute</property>
                 <property name="visible">True</property>
                 <property name="can-focus">True</property>
                 <property name="receives-default">False</property>

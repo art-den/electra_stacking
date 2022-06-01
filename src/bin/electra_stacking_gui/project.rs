@@ -996,6 +996,13 @@ impl ProjectFiles {
         }
     }
 
+    pub fn get_checked_count(&self) -> usize {
+        self.list
+            .iter()
+            .filter(|f| f.used)
+            .count()
+    }
+
     pub fn calc_total_exp_time(&self) -> f64 {
         self.list
             .iter()
