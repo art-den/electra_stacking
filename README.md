@@ -15,7 +15,7 @@ sudo apt install libgtk-3-dev build-essential
 ```
 
 ## How to build
-To build optimized binaried type
+To build optimized binaries just type
 ```
 cargo build --release
 ```
