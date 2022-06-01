@@ -1,5 +1,5 @@
 # Electra
-Software for astronomical images stacking
+Software for stacking of deep sky astronomical images
 
 ## Prerequisites
 
