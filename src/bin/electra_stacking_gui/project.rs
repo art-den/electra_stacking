@@ -1,6 +1,5 @@
-use std::collections::HashMap;
-use std::{path::*, io::*, fs::*, collections::HashSet};
-use std::sync::{*, atomic::AtomicBool, atomic::Ordering};
+use std::{path::*, io::*, fs::*, rc::*, cell::RefCell, collections::*};
+use std::sync::{Arc, Mutex, atomic::AtomicBool, atomic::Ordering};
 use serde::*;
 use gettextrs::*;
 use chrono::prelude::*;
@@ -22,19 +21,22 @@ const MASTER_DARK_FN: &str = "master-dark.es_raw";
 const MASTER_FLAT_FN: &str = "master-flat.es_raw";
 const MASTER_BIAS_FN: &str = "master-bias.es_raw";
 
-#[derive(Serialize, Deserialize, Clone, Default)]
+#[derive(Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct Project {
-    pub config: ProjectConfig,
-    pub cleanup_conf: ClenupConf,
-    pub groups: Vec<ProjectGroup>,
+    config: ProjectConfig,
+    cleanup_conf: CleanupConf,
+    groups: ProjectGroups,
     pub ref_image: Option<PathBuf>,
 
     #[serde(skip)]
-    pub file_name: Option<PathBuf>,
+    file_name: Option<PathBuf>,
 
     #[serde(skip)]
     pub changed: bool,
+
+    #[serde(skip)]
+    weak_self: Weak<RefCell<Project>>,
 }
 
 pub enum CanExecStackLightsRes {
@@ -43,22 +45,72 @@ pub enum CanExecStackLightsRes {
 }
 
 impl Project {
+    pub fn new() -> Rc<RefCell<Self>> {
+        let project = Rc::new(RefCell::new(Self::default()));
+        let weak = Rc::downgrade(&project);
+        project.borrow_mut().weak_self = weak;
+        project
+    }
+
+    fn mark_changed(&mut self) {
+        self.changed = true;
+    }
+
+    fn update_child_parents(&mut self) {
+        for group in &mut self.groups {
+            let group_weak = Rc::downgrade(&group);
+            let mut group = group.borrow_mut();
+            group.set_parent(Weak::clone(&self.weak_self));
+        }
+    }
+
     pub fn load(&mut self, file_name: &Path) -> anyhow::Result<()> {
         let reader = BufReader::new(File::open(file_name)?);
         *self = serde_json::from_reader(reader)?;
+        self.update_child_parents();
+        self.changed = false;
+        self.file_name = Some(file_name.to_path_buf());
         Ok(())
     }
 
-    pub fn save(&mut self, file_name: &Path) -> anyhow::Result<()> {
+    pub fn save(&mut self, file_name: &Path, update_name: bool) -> anyhow::Result<()> {
         let writer = BufWriter::new(File::create(file_name)?);
         serde_json::to_writer_pretty(writer, self)?;
         self.changed = false;
+        self.file_name = Some(file_name.to_path_buf());
+
+        if update_name {
+            let project_name = file_name.with_extension("")
+                .file_name()
+                .and_then(|v| v.to_str())
+                .unwrap_or("")
+                .to_string();
+
+            self.config.name = Some(project_name);
+        }
+
         Ok(())
+    }
+
+    pub fn to_json_string(&self) -> String {
+        serde_json::to_string(self).unwrap()
+    }
+
+    pub fn from_json_string(text: &str) -> Project {
+        serde_json::from_str(text).unwrap()
+    }
+
+    pub fn file_name(&self) -> &Option<PathBuf> {
+        &self.file_name
     }
 
     pub fn make_default(&mut self) {
         self.groups.clear();
-        self.groups.push(ProjectGroup::default());
+        self.groups.push(Rc::new(RefCell::new(ProjectGroup::default())));
+    }
+
+    pub fn groups(&self) -> &ProjectGroups {
+        &self.groups
     }
 
     pub fn add_default_group_if_empty(&mut self) {
@@ -69,13 +121,18 @@ impl Project {
     pub fn group_exists(&self, uuid: &str) -> bool {
         self.groups
             .iter()
-            .any(|g| g.uuid == uuid)
+            .any(|g| g.borrow().uuid == uuid)
     }
 
-    pub fn find_group_by_uuid_mut(&mut self, uuid: &str) -> Option<&mut ProjectGroup> {
+    pub fn group_by_index(&self, index: usize) -> Rc<RefCell<ProjectGroup>> {
+        Rc::clone(&self.groups[index])
+    }
+
+    pub fn find_group_by_uuid_mut(&self, uuid: &str) -> Option<Rc<RefCell<ProjectGroup>>> {
         self.groups
-            .iter_mut()
-            .find(|g| g.uuid == uuid)
+            .iter()
+            .find(|g| g.borrow().uuid == uuid)
+            .map(Rc::clone)
     }
 
     pub fn add_new_group(&mut self, options: GroupOptions) {
@@ -83,18 +140,31 @@ impl Project {
             options,
             .. Default::default()
         };
-        self.groups.push(group);
+        self.groups.push(Rc::new(RefCell::new(group)));
         self.changed = true;
     }
 
-    pub fn remove_group(&mut self, group_idx: usize) -> ProjectGroup {
+    pub fn remove_group(&mut self, group_idx: usize) -> Rc<RefCell<ProjectGroup>> {
         let result = self.groups.remove(group_idx);
         self.changed = true;
         result
     }
 
-    pub fn set_new_config(&mut self, config: ProjectConfig) {
+    pub fn config(&self) -> &ProjectConfig {
+        &self.config
+    }
+
+    pub fn set_config(&mut self, config: ProjectConfig) {
         self.config = config;
+        self.changed = true;
+    }
+
+    pub fn cleanup_conf(&self) -> &CleanupConf {
+        &self.cleanup_conf
+    }
+
+    pub fn set_cleanup_conf(&mut self, conf: CleanupConf) {
+        self.cleanup_conf = conf;
         self.changed = true;
     }
 
@@ -106,7 +176,7 @@ impl Project {
     ) -> anyhow::Result<HashMap<PathBuf, RegInfo>> {
         let total_files_cnt: usize =
             self.groups.iter()
-            .map(|g| g.light_files.list.len())
+            .map(|g| g.borrow().light_files.list.len())
             .sum();
 
         if total_files_cnt == 0 {
@@ -120,7 +190,7 @@ impl Project {
         // master-files
         for (idx, group) in self.groups.iter().enumerate() {
             if cancel_flag.load(Ordering::Relaxed) { return Ok(HashMap::new()); }
-            group.create_master_files(
+            group.borrow().create_master_files(
                 idx,
                 progress,
                 cancel_flag,
@@ -132,7 +202,7 @@ impl Project {
         let result = Mutex::new(HashMap::new());
         for (idx, group) in self.groups.iter().enumerate() {
             if cancel_flag.load(Ordering::Relaxed) { return Ok(HashMap::new()); }
-            group.register_light_files(
+            group.borrow().register_light_files(
                 idx,
                 progress,
                 cancel_flag,
@@ -147,14 +217,14 @@ impl Project {
 
     pub fn update_light_files_reg_info(&mut self, reg_info: HashMap<PathBuf, RegInfo>) {
         for group in &mut self.groups {
-            group.light_files.update_reg_info(&reg_info);
+            group.borrow_mut().light_files.update_reg_info(&reg_info);
         }
         self.changed = true;
     }
 
     pub fn can_exec_cleanup(&self) -> bool {
         for group in &self.groups {
-            if !group.can_exec_cleanup() { return false; }
+            if !group.borrow().can_exec_cleanup() { return false; }
         }
         true
     }
@@ -162,7 +232,7 @@ impl Project {
     pub fn cleanup_light_files(&mut self) -> anyhow::Result<usize> {
         let mut cleaned_up_cnt = 0_usize;
         for group in &mut self.groups {
-            cleaned_up_cnt += group.cleanup_light_files(&self.cleanup_conf)?;
+            cleaned_up_cnt += group.borrow_mut().cleanup_light_files(&self.cleanup_conf)?;
         }
         self.changed = true;
         Ok(cleaned_up_cnt)
@@ -190,6 +260,7 @@ impl Project {
         // master-files
 
         for (idx, group) in self.groups.iter().enumerate() {
+            let group = group.borrow();
             if cancel_flag.load(Ordering::Relaxed) { anyhow::bail!("Termimated") }
             group.create_master_files(
                 idx,
@@ -215,6 +286,8 @@ impl Project {
             .find_group_with_light_file(self.ref_image.as_ref().unwrap())
             .ok_or_else(|| anyhow::anyhow!(gettext("Can't find group with reference image")))?;
 
+        let group_with_ref_file = group_with_ref_file.borrow();
+
         let ref_cal = CalibrationData::load(
             group_with_ref_file.flat_files.get_master_full_file_name(MASTER_FLAT_FN).as_deref(),
             group_with_ref_file.dark_files.get_master_full_file_name(MASTER_DARK_FN).as_deref(),
@@ -229,9 +302,12 @@ impl Project {
         let files_to_del_later = Mutex::new(FilesToDeleteLater::new());
 
         for (idx, group) in self.groups.iter().enumerate() {
+            let group = group.borrow();
+
             if cancel_flag.load(Ordering::Relaxed) {
                 anyhow::bail!(gettext("Termimated"))
             }
+
             if !group.used {
                 continue;
             }
@@ -298,11 +374,14 @@ impl Project {
         })
     }
 
-    fn find_group_with_light_file(&self, file_name: &Path) -> Option<&ProjectGroup> {
+    fn find_group_with_light_file(&self, file_name: &Path) -> Option<Rc<RefCell<ProjectGroup>>> {
         for group in &self.groups {
-            let res = group.light_files.list.iter().find(|&f| f.file_name == file_name);
+            let group_b = group.borrow();
+            let res = group_b
+                .light_files.list.iter()
+                .find(|&f| f.borrow().file_name == file_name);
             if res.is_some() {
-                return Some(group);
+                return Some(Rc::clone(group));
             }
         }
         None
@@ -311,8 +390,8 @@ impl Project {
     pub fn calc_time(&self) -> f64 {
         self.groups
             .iter()
-            .filter(|g| g.used)
-            .map(|g| g.light_files.calc_total_exp_time())
+            .filter(|g| g.borrow().used)
+            .map(|g| g.borrow().light_files.calc_total_exp_time())
             .sum()
     }
 
@@ -329,12 +408,12 @@ impl Project {
 
     pub fn get_total_light_files_count(&self) -> usize {
         self.groups.iter()
-            .map(|g| g.light_files.list.len())
+            .map(|g| g.borrow().light_files.list.len())
             .sum()
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub enum ImageSize {
     Original,
     Bin2x2,
@@ -355,7 +434,7 @@ impl ResFileType {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(default)]
 pub struct ProjectConfig {
     pub name: Option<String>,
@@ -393,16 +472,27 @@ pub enum ProjectFileType {
     Bias,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize)]
 #[serde(default)]
 pub struct ProjectGroup {
-    pub options: GroupOptions,
-    pub used: bool,
-    pub uuid: String,
-    pub light_files: ProjectFiles,
-    pub dark_files: ProjectFiles,
-    pub bias_files: ProjectFiles,
-    pub flat_files: ProjectFiles,
+    options: GroupOptions,
+    used: bool,
+    uuid: String,
+    light_files: ProjectFiles,
+    dark_files: ProjectFiles,
+    bias_files: ProjectFiles,
+    flat_files: ProjectFiles,
+
+    #[serde(skip)]
+    parent: Weak<RefCell<Project>>,
+}
+
+type ProjectGroups = Vec<Rc<RefCell<ProjectGroup>>>;
+
+#[derive(Serialize, Deserialize, Debug, Default, Clone)]
+#[serde(default)]
+pub struct GroupOptions {
+    pub name: Option<String>,
 }
 
 impl Default for ProjectGroup {
@@ -415,17 +505,34 @@ impl Default for ProjectGroup {
             bias_files: ProjectFiles::default(),
             flat_files: ProjectFiles::default(),
             light_files: ProjectFiles::default(),
+            parent: Default::default()
         }
     }
 }
 
 impl ProjectGroup {
+    pub fn set_parent(&mut self, parent: Weak<RefCell<Project>>) {
+        self.parent = parent;
+        self.update_child_parents();
+    }
+
+    fn update_child_parents(&mut self) {
+
+    }
+
+    pub fn mark_changed(&self) {
+        if let Some(project) = self.parent.upgrade() {
+            project.borrow_mut().mark_changed();
+        }
+    }
+
     pub fn name(&self, group_index: usize) -> String {
         if let Some(name) = &self.options.name {
             return name.clone();
         }
 
         if let Some(first_file) = self.light_files.list.first() {
+            let first_file = first_file.borrow();
             match (first_file.iso, first_file.exp) {
                 (Some(iso), Some(exp)) =>
                     return format!("#{}. ISO={}, Exp={:.0}sec", group_index+1, iso, exp),
@@ -441,6 +548,48 @@ impl ProjectGroup {
         } else {
             format!("{} #{}", gettext("Group"), group_index+1)
         }
+    }
+
+    pub fn used(&self) -> bool {
+        self.used
+    }
+
+    pub fn set_used(&mut self, value: bool) {
+        if self.used == value {
+            return;
+        }
+
+        self.used = value;
+        self.mark_changed();
+    }
+
+    pub fn options(&self) -> &GroupOptions {
+        &self.options
+    }
+
+    pub fn set_options(&mut self, new_options: GroupOptions)  {
+        self.options = new_options;
+        self.mark_changed();
+    }
+
+    pub fn uuid(&self) -> &str {
+        &self.uuid
+    }
+
+    pub fn light_files(&self) -> &ProjectFiles {
+        &self.light_files
+    }
+
+    pub fn dark_files(&self) -> &ProjectFiles {
+        &self.dark_files
+    }
+
+    pub fn bias_files(&self) -> &ProjectFiles {
+        &self.bias_files
+    }
+
+    pub fn flat_files(&self) -> &ProjectFiles {
+        &self.flat_files
     }
 
     pub fn get_file_list_by_type(&self, file_type: ProjectFileType) -> &ProjectFiles {
@@ -470,9 +619,7 @@ impl ProjectGroup {
         let from_files = self.get_file_list_by_type_mut(from_type);
         let files_to_move = from_files.remove_files_by_idx(file_indices);
         let to_files = self.get_file_list_by_type_mut(to_type);
-        for file in files_to_move {
-            to_files.list.push(file);
-        }
+        to_files.add_files(files_to_move);
     }
 
     fn create_master_files(
@@ -651,16 +798,21 @@ impl ProjectGroup {
         )?;
 
         let cur_result = Mutex::new(anyhow::Result::<()>::Ok(()));
+        let file_names: Vec<_> = self.light_files.list
+            .iter()
+            .map(|f| f.borrow().file_name.to_path_buf())
+            .collect();
 
         thread_pool.scope(|s| {
-            for file in &self.light_files.list {
+            for file_name in file_names {
                 s.spawn(|_| {
+                    let file_name = file_name;
                     if cancel_flag.load(Ordering::Relaxed)
                     || cur_result.lock().unwrap().is_err() {
                         return;
                     }
                     let load_light_file_res = LightFile::load_and_calc_params(
-                        &file.file_name,
+                        &file_name,
                         &cal_data,
                         None,
                         LoadLightFlags::STARS
@@ -675,7 +827,7 @@ impl ProjectGroup {
                             *cur_result.lock().unwrap() = Err(anyhow::anyhow!(
                                 r#"Error "{}" during loading of file "{}""#,
                                 err.to_string(),
-                                file.file_name.to_str().unwrap_or("")
+                                file_name.to_str().unwrap_or("")
                             ));
                             return;
                         },
@@ -688,14 +840,14 @@ impl ProjectGroup {
                             *cur_result.lock().unwrap() = Err(anyhow::anyhow!(
                                 r#"Error "{}" during stars statistics calculation for file "{}""#,
                                 err.to_string(),
-                                file.file_name.to_str().unwrap_or("")
+                                file_name.to_str().unwrap_or("")
                             ));
                             return;
                         }
                     };
 
                     if save_star_img {
-                        let common_star_img_fn = file.file_name.with_extension("common_star.tif");
+                        let common_star_img_fn = file_name.with_extension("common_star.tif");
                         let save_res = save_grayscale_image_to_tiff_file(
                             &stars_stat.common_stars_img,
                             &Exif::new_empty(),
@@ -712,10 +864,10 @@ impl ProjectGroup {
                     }
 
                     progress.lock().unwrap()
-                        .progress(true, file.file_name.to_str().unwrap_or(""));
+                        .progress(true, file_name.to_str().unwrap_or(""));
 
                     result.lock().unwrap().insert(
-                        file.file_name.clone(),
+                        file_name.clone(),
                         RegInfo {
                             noise:       light_file.noise,
                             background:  light_file.background,
@@ -737,15 +889,15 @@ impl ProjectGroup {
     }
 
     pub fn can_exec_cleanup(&self) -> bool {
-        for file in &self.light_files.list {
-            if file.reg_info.is_none() { return false; }
-        }
-        true
+        !self.light_files.list
+            .iter()
+            .any(|f| f.borrow().reg_info.is_none())
     }
 
-    pub fn cleanup_light_files(&mut self, conf: &ClenupConf) -> anyhow::Result<usize> {
+    fn cleanup_light_files(&mut self, conf: &CleanupConf) -> anyhow::Result<usize> {
         if conf.check_before_execute {
             for file in &mut self.light_files.list {
+                let mut file = file.borrow_mut();
                 file.used = true;
                 file.flags = 0;
             }
@@ -753,7 +905,7 @@ impl ProjectGroup {
 
         let before_checked_cnt = self.light_files.list
             .iter()
-            .filter(|f| f.used)
+            .filter(|f| f.borrow().used)
             .count();
 
         self.cleanup_by_conf(
@@ -806,7 +958,7 @@ impl ProjectGroup {
 
         let after_checked_cnt = self.light_files.list
             .iter()
-            .filter(|f| f.used)
+            .filter(|f| f.borrow().used)
             .count();
 
 
@@ -850,6 +1002,7 @@ impl ProjectGroup {
             values.clear();
             for (item, to_exclude) in self.light_files.list.iter().zip(&to_exclude) {
                 if *to_exclude { continue; }
+                let item = item.borrow();
                 let reg_info = item.reg_info.as_ref().unwrap();
                 let value = fun(reg_info);
                 if value != 0.0 {
@@ -870,10 +1023,12 @@ impl ProjectGroup {
 
             for (item, to_exclude) in self.light_files.list.iter_mut().zip(&mut to_exclude) {
                 if *to_exclude { continue; }
+                let mut item = item.borrow_mut();
                 let reg_info = item.reg_info.as_ref().unwrap();
                 let value = fun(reg_info) as f64;
 
                 if (remove_min && value < min) || (remove_max && value > max) {
+
                     item.used = false;
                     item.flags |= flags;
                     *to_exclude = true;
@@ -899,6 +1054,7 @@ impl ProjectGroup {
 
         let mut items = Vec::new();
         for (idx, file) in self.light_files.list.iter().enumerate() {
+            let file = file.borrow();
             let reg_info = file.reg_info.as_ref().unwrap();
             items.push((idx, fun(reg_info)));
         }
@@ -909,13 +1065,13 @@ impl ProjectGroup {
 
         if remove_min {
             for (idx, _) in &items[..percent_cnt] {
-                self.light_files.list[*idx].used = false;
+                self.light_files.list[*idx].borrow_mut().used = false;
             }
         }
 
         if remove_max {
             for (idx, _) in &items[items.len()-percent_cnt..] {
-                let item = &mut self.light_files.list[*idx];
+                let mut item = self.light_files.list[*idx].borrow_mut();
                 item.used = false;
                 item.flags |= flags;
             }
@@ -925,37 +1081,42 @@ impl ProjectGroup {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
-#[serde(default)]
-pub struct GroupOptions {
-    pub name: Option<String>,
-}
-
-#[derive(Serialize, Deserialize, Clone, Default)]
+#[derive(Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct ProjectFiles {
-    pub list: Vec<ProjectFile>,
+    pub list: Vec<Rc<RefCell<ProjectFile>>>,
+
+    #[serde(skip)]
+    parent: Weak<ProjectGroup>,
 }
 
 impl ProjectFiles {
     fn get_path(&self) -> PathBuf {
         assert!(!self.list.is_empty());
-        self.list[0].file_name
+        self.list[0].borrow().file_name
             .parent()
             .unwrap()
             .into()
     }
 
-    pub fn add_files(&mut self, file_info: Vec<SrcFileInfo>) {
+    pub fn add_files_by_src_file_info(&mut self, file_info: Vec<SrcFileInfo>) {
         for info in file_info {
-            self.list.push(ProjectFile::new_from_info(info))
+            self.list.push(Rc::new(RefCell::new(
+                ProjectFile::new_from_info(info)
+            )))
+        }
+    }
+
+    pub fn add_files(&mut self, files: Vec<Rc<RefCell<ProjectFile>>>) {
+        for file in files {
+            self.list.push(file);
         }
     }
 
     pub fn retain_files_if_they_are_not_here(&self, files: &mut Vec<PathBuf>) {
         let existing = self.list
             .iter()
-            .map(|f| &f.file_name)
+            .map(|f| f.borrow().file_name.clone())
             .collect::<HashSet<_>>();
 
         files.retain(|file_name| {
@@ -964,11 +1125,10 @@ impl ProjectFiles {
     }
 
     fn get_master_full_file_name(&self, short_file_name: &str) -> Option<PathBuf> {
-        let used_count = self.list
+        let anb_used = self.list
             .iter()
-            .filter(|f| f.used)
-            .count();
-        if used_count != 0 {
+            .any(|f| f.borrow().used);
+        if anb_used {
             Some(self.get_path().join(PathBuf::from(short_file_name)))
         } else {
             None
@@ -977,18 +1137,19 @@ impl ProjectFiles {
 
     pub fn check_all(&mut self, value: bool) {
         for file in &mut self.list {
-            file.used = value;
+            file.borrow_mut().used = value;
         }
     }
 
     pub fn check_by_indices(&mut self, indices: &[usize], value: bool) {
         for &idx in indices {
-            self.list[idx].used = value;
+            self.list[idx].borrow_mut().used = value;
         }
     }
 
     pub fn update_reg_info(&mut self, reg_info: &HashMap<PathBuf, RegInfo>) {
         for file in &mut self.list {
+            let mut file = file.borrow_mut();
             if let Some(info) = reg_info.get(&file.file_name) {
                 file.reg_info = Some(info.clone());
                 file.flags = 0;
@@ -999,13 +1160,14 @@ impl ProjectFiles {
     pub fn get_checked_count(&self) -> usize {
         self.list
             .iter()
-            .filter(|f| f.used)
+            .filter(|f| f.borrow().used)
             .count()
     }
 
     pub fn calc_total_exp_time(&self) -> f64 {
         self.list
             .iter()
+            .map(|f| f.borrow())
             .filter(|f| f.used)
             .map(|f| f.exp.unwrap_or(0.0) as f64)
             .sum()
@@ -1014,12 +1176,13 @@ impl ProjectFiles {
     fn get_selected_file_names(&self) -> Vec<PathBuf> {
         self.list
             .iter()
+            .map(|f| f.borrow())
             .filter(|f| f.used)
             .map(|f| f.file_name.clone())
             .collect()
     }
 
-    pub fn remove_files_by_idx(&mut self, mut indices: Vec<usize>) -> Vec<ProjectFile> {
+    pub fn remove_files_by_idx(&mut self, mut indices: Vec<usize>) -> Vec<Rc<RefCell<ProjectFile>>> {
         indices.sort_unstable();
         indices
             .into_iter()
@@ -1029,7 +1192,7 @@ impl ProjectFiles {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(default)]
 pub struct RegInfo {
     pub noise: f32,
@@ -1061,7 +1224,7 @@ pub const FILE_FLAG_CLEANUP_SHARPNESS: FileFlags = 1 << 3;
 pub const FILE_FLAG_CLEANUP_NOISE:     FileFlags = 1 << 4;
 pub const FILE_FLAG_CLEANUP_BG:        FileFlags = 1 << 5;
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize)]
 #[serde(default)]
 pub struct ProjectFile {
     pub used: bool,
@@ -1114,13 +1277,13 @@ impl ProjectFile {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum CleanupMode {
     SigmaClipping,
     Percent,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(default)]
 pub struct ClenupConfItem {
     pub used: bool,
@@ -1148,9 +1311,9 @@ impl Default for ClenupConfItem {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(default)]
-pub struct ClenupConf {
+pub struct CleanupConf {
     pub check_before_execute: bool,
     pub stars_r_dev: ClenupConfItem,
     pub stars_fwhm: ClenupConfItem,
@@ -1160,7 +1323,7 @@ pub struct ClenupConf {
     pub background: ClenupConfItem,
 }
 
-impl Default for ClenupConf {
+impl Default for CleanupConf {
     fn default() -> Self {
         Self {
             check_before_execute: true,
