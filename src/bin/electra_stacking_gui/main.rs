@@ -5,7 +5,7 @@
 mod config;
 mod project;
 
-use std::{rc::Rc, path::*, thread, collections::*, cell::RefCell};
+use std::{rc::Rc, path::*, thread, collections::*, cell::*};
 use std::sync::{*, atomic::{AtomicBool, Ordering}};
 use gtk::{
     prelude::*,
@@ -187,7 +187,7 @@ fn build_ui(application: &gtk::Application) {
         window: window.clone(),
         menu_bar,
         prj_tree: project_tree.clone(),
-        prj_tree_changed_flag: RefCell::new(false),
+        prj_tree_changed_flag: Cell::new(false),
         prj_tree_menu: prj_tree_menu.clone(),
         prj_img_paned,
         mi_dark_theme: mi_dark_theme.clone(),
@@ -256,8 +256,8 @@ fn build_ui(application: &gtk::Application) {
         handler_project_tree_selection_changed(&objects);
     }});
 
-    cell_check.connect_toggled(clone!(@weak objects => move |_, path| {
-        handler_project_tree_checked_changed(&objects, path);
+    cell_check.connect_toggled(clone!(@weak objects => move |toggle, path| {
+        handler_project_tree_checked_changed(&objects, path, !toggle.is_active());
     }));
 
     mi_dark_theme.connect_activate(clone!(@strong objects => move |mi| {
@@ -439,7 +439,7 @@ fn enable_action(window: &gtk::ApplicationWindow, action_name: &str, enabled: bo
 }
 
 fn ask_user_to_save_project(objects: &MainWindowObjectsPtr) -> bool {
-    if !objects.project.borrow().changed { return true; }
+    if !objects.project.borrow().changed() { return true; }
 
     let dialog = gtk::MessageDialog::builder()
         .transient_for(&objects.window)
@@ -469,11 +469,11 @@ fn ask_user_to_save_project(objects: &MainWindowObjectsPtr) -> bool {
     match resp {
         gtk::ResponseType::Yes => {
             action_save_project(objects);
-            objects.project.borrow_mut().changed = false;
+            objects.project.borrow_mut().reset_changed_flag();
             true
         },
         gtk::ResponseType::No => {
-            objects.project.borrow_mut().changed = false;
+            objects.project.borrow_mut().reset_changed_flag();
             true
         },
         _ => {
@@ -490,7 +490,7 @@ struct MainWindowObjects {
     menu_bar: gtk::MenuBar,
 
     prj_tree: gtk::TreeView,
-    prj_tree_changed_flag: RefCell<bool>,
+    prj_tree_changed_flag: Cell<bool>,
     prj_tree_menu: gtk::Menu,
     prj_img_paned: gtk::Paned,
 
@@ -784,7 +784,6 @@ fn open_project(objects: &MainWindowObjectsPtr, path: &Path) {
         show_error_message(&err.to_string(), objects);
         log::error!("'{}' during opening project", err.to_string());
     } else {
-        objects.project.borrow_mut().file_name = Some(path.to_path_buf());
         fill_project_tree(objects);
         update_project_name_and_time_in_gui(objects, true, true);
         log::info!("Project {} opened", path.to_str().unwrap_or(""));
@@ -792,7 +791,7 @@ fn open_project(objects: &MainWindowObjectsPtr, path: &Path) {
 }
 
 fn action_save_project(objects: &MainWindowObjectsPtr) {
-    let file_name = objects.project.borrow().file_name.clone();
+    let file_name = objects.project.borrow().file_name().clone();
     if let Some(file_name) = file_name {
         save_project(objects, &file_name);
     } else {
@@ -822,7 +821,7 @@ fn action_save_project_as(objects: &MainWindowObjectsPtr) {
         ]);
     }
 
-    if let Some(file_name) = objects.project.borrow().file_name.clone() {
+    if let Some(file_name) = objects.project.borrow().file_name() {
         let _ = fc.set_file(&gio::File::for_path(file_name));
     } else {
         fc.set_current_folder(objects.config.borrow().last_path.clone());
@@ -847,7 +846,9 @@ fn action_save_project_as(objects: &MainWindowObjectsPtr) {
             objects.config.borrow_mut().last_path = cur_folder;
         }
 
-        objects.project.borrow_mut().config.name = Some(project_name);
+        let mut new_conf = objects.project.borrow().config().clone();
+        new_conf.name = Some(project_name);
+        objects.project.borrow_mut().set_config(new_conf);
 
         let ok = save_project(objects, &path);
         if !ok { return; }
@@ -863,7 +864,6 @@ fn save_project(objects: &MainWindowObjectsPtr, file_name: &Path) -> bool {
         log::error!("'{}' during saving project", err.to_string());
         false
     } else {
-        objects.project.borrow_mut().file_name = Some(file_name.to_path_buf());
         log::info!("Project {} saved", file_name.to_str().unwrap_or(""));
         true
     }
@@ -921,7 +921,7 @@ fn select_and_add_files_into_project(
         if response == gtk::ResponseType::Accept {
             let group_index = get_active_group_index(&objects, &select_group_cap).
                 or_else(|| {
-                    if objects.project.borrow().groups.is_empty() {
+                    if objects.project.borrow().groups().is_empty() {
                         Some(0)
                     } else {
                         None
@@ -954,7 +954,7 @@ fn select_and_add_files_into_project(
     ) {
         {
             let project = objects.project.borrow();
-            let group = project.groups.get(group_iter_index);
+            let group = project.groups().get(group_iter_index);
             if let Some(group) = group {
                 let files = &group.get_file_list_by_type(file_type);
                 files.retain_files_if_they_are_not_here(&mut file_names);
@@ -971,11 +971,10 @@ fn select_and_add_files_into_project(
                 {
                     let mut project = objects.project.borrow_mut();
                     project.add_default_group_if_empty();
-                    let group = &mut project.groups[group_iter_index];
-                    let files = &mut group.get_file_list_by_type_mut(file_type);
+                    let group = project.group_by_index_mut(group_iter_index);
+                    let files = &mut group.file_list_by_type_mut(file_type);
                     log::info!("Added {} files", result.len());
-                    files.add_files(result);
-                    project.changed = true;
+                    files.add_files_from_src_file_info(result);
                 }
                 helper.apply_changes(objects, true);
             }
@@ -1045,11 +1044,12 @@ fn get_filenames_from_file_vec(files: Vec<gio::File>) -> Vec<PathBuf> {
 
 fn action_register(objects: &MainWindowObjectsPtr) {
     log::info!("Registering light files started");
-    let project = objects.project.borrow().clone();
+    let project_json = objects.project.borrow().to_json_string();
     let cpu_load = objects.config.borrow().cpu_load;
     exec_and_show_progress(
         objects,
         move |progress, cancel_flag| {
+            let project = Project::from_json_string(&project_json);
             project.register_light_files(progress, cancel_flag, cpu_load)
         },
         move |objects, result| {
@@ -1116,7 +1116,7 @@ fn fill_project_tree(objects: &MainWindowObjectsPtr) {
 }
 
 fn get_project_title(project: &Project, markup: bool) -> String {
-    let mut result = project.config.name
+    let mut result = project.config().name
         .clone()
         .unwrap_or_else(|| gettext("Unnamed project"));
 
@@ -1124,7 +1124,7 @@ fn get_project_title(project: &Project, markup: bool) -> String {
         result = format!("<b>{}</b>", result);
     }
 
-    if project.config.image_size == ImageSize::Bin2x2 {
+    if project.config().image_size == ImageSize::Bin2x2 {
         result.push_str(" - bin 2x2");
     }
 
@@ -1267,37 +1267,37 @@ impl TreeViewFillHelper {
 
     fn new(project: &Project) -> TreeViewFillHelper {
         let mut groups = HashMap::new();
-        for (idx, project_group) in project.groups.iter().enumerate() {
+        for (idx, project_group) in project.groups().iter().enumerate() {
             let group = PrjTreeFillHelperGroup {
                 idx,
-                light_names: project_group.light_files.list
+                light_names: project_group.light_files.list()
                     .iter()
                     .enumerate()
-                    .map(|(idx, f)| (f.file_name.clone(), idx))
+                    .map(|(idx, f)| (f.file_name().clone(), idx))
                     .collect(),
-                dark_names: project_group.dark_files.list
+                dark_names: project_group.dark_files.list()
                     .iter()
                     .enumerate()
-                    .map(|(idx, f)| (f.file_name.clone(), idx))
+                    .map(|(idx, f)| (f.file_name().clone(), idx))
                     .collect(),
-                flat_names: project_group.flat_files.list
+                flat_names: project_group.flat_files.list()
                     .iter()
                     .enumerate()
-                    .map(|(idx, f)| (f.file_name.clone(), idx))
+                    .map(|(idx, f)| (f.file_name().clone(), idx))
                     .collect(),
-                bias_names: project_group.bias_files.list
+                bias_names: project_group.bias_files.list()
                     .iter()
                     .enumerate()
-                    .map(|(idx, f)| (f.file_name.clone(), idx))
+                    .map(|(idx, f)| (f.file_name().clone(), idx))
                     .collect(),
             };
-            groups.insert(project_group.uuid.clone(), group);
+            groups.insert(project_group.uuid().to_string(), group);
         }
         TreeViewFillHelper { groups }
     }
 
     fn apply_changes(&self, objects: &MainWindowObjectsPtr, update_files: bool) {
-        *objects.prj_tree_changed_flag.borrow_mut() = true;
+        objects.prj_tree_changed_flag.set(true);
 
         let mut ids_to_delete = Vec::new();
         let dummy_group = PrjTreeFillHelperGroup::new();
@@ -1328,7 +1328,7 @@ impl TreeViewFillHelper {
         let project_iter = tree_store.iter_first().unwrap();
         let project_name = get_project_title(&project, true);
 
-        let project_path = project.file_name
+        let project_path = project.file_name()
             .as_ref()
             .and_then(|v|v.parent().and_then(|p| p.to_str()))
             .unwrap_or("");
@@ -1339,8 +1339,8 @@ impl TreeViewFillHelper {
         ]);
 
         // add/update groups
-        for (idx, project_group) in project.groups.iter().enumerate() {
-            let prev_group = self.groups.get(&project_group.uuid);
+        for (idx, project_group) in project.groups().iter().enumerate() {
+            let prev_group = self.groups.get(project_group.uuid());
             let (group_iter, group_added) = if prev_group.is_none() {
                 let iter = tree_store.insert_with_values(
                     Some(&project_iter),
@@ -1355,7 +1355,7 @@ impl TreeViewFillHelper {
             let group_name = project_group.name(idx);
             tree_store.set(&group_iter, &[
                 (COLUMN_FILE_NAME,    &group_name),
-                (COLUMN_CHECKBOX,     &project_group.used),
+                (COLUMN_CHECKBOX,     &project_group.used()),
                 (COLUMN_CHECKBOX_VIS, &true),
             ]);
 
@@ -1387,8 +1387,8 @@ impl TreeViewFillHelper {
 
                 if update_files {
                     // add/update files
-                    for project_file in project_files.list.iter() {
-                        let prev_file_idx = prev_files.get(&project_file.file_name);
+                    for project_file in project_files.list().iter() {
+                        let prev_file_idx = prev_files.get(project_file.file_name());
                         let file_iter = if let Some(prev_file_idx) = prev_file_idx {
                             tree_store.iter_nth_child(Some(&files_iter), *prev_file_idx as i32).unwrap()
                         } else {
@@ -1398,42 +1398,42 @@ impl TreeViewFillHelper {
                         };
 
                         let file_name = project_file
-                            .file_name
+                            .file_name()
                             .file_name()
                             .and_then(|v| v.to_str())
                             .unwrap_or("");
 
                         let path = project_file
-                            .file_name
+                            .file_name()
                             .parent()
                             .and_then(|v|v.to_str())
                             .unwrap_or("");
 
-                        let dim_str = if let (Some(width), Some(height)) = (project_file.width, project_file.height) {
+                        let dim_str = if let (Some(width), Some(height)) = (*project_file.width(), *project_file.height()) {
                             format!("{} x {}", width, height)
                         } else {
                             String::new()
                         };
 
-                        let camera_str = if let Some(camera) = project_file.camera.as_ref() {
+                        let camera_str = if let Some(camera) = project_file.camera().as_ref() {
                             camera.as_str()
                         } else {
                             ""
                         };
 
-                        let file_time_str = if let Some(file_time) = project_file.file_time {
+                        let file_time_str = if let Some(file_time) = project_file.file_time() {
                             file_time.format("%Y-%m-%d %H:%M:%S").to_string()
                         } else {
                             String::new()
                         };
 
-                        let (iso_str, iso) = if let Some(iso) = project_file.iso {
+                        let (iso_str, iso) = if let Some(iso) = *project_file.iso() {
                             (format!("{}", iso), iso)
                         } else {
                             (String::new(), 0)
                         };
 
-                        let (exp_str, exp) = if let Some(exp) = project_file.exp {
+                        let (exp_str, exp) = if let Some(exp) = *project_file.exp() {
                             if exp == 0.0 {
                                 ("0".to_string(), 0.0)
                             } else if exp > 0.5 {
@@ -1445,7 +1445,7 @@ impl TreeViewFillHelper {
                             (String::new(), 0.0)
                         };
 
-                        let fnumber_str = if let Some(fnumber) = project_file.fnumber {
+                        let fnumber_str = if let Some(fnumber) = *project_file.fnumber() {
                             if fnumber != 0.0 {
                                 format!("f/{:.1}", fnumber)
                             } else {
@@ -1457,7 +1457,7 @@ impl TreeViewFillHelper {
 
                         let (noise_str, noise, bg_str, bg, stars_cnt_str, stars_cnt,
                              fwhm_str, fwhm, star_r_dev_str, star_r_dev, sharpness_str, sharpness)
-                            = if let Some(reg_info) = &project_file.reg_info {(
+                            = if let Some(reg_info) = project_file.reg_info() {(
                                 format!("{:.2}%", reg_info.noise * 100.0),
                                 reg_info.noise,
                                 format!("{:.1}%", 100.0 * reg_info.background),
@@ -1485,10 +1485,10 @@ impl TreeViewFillHelper {
                                 0.0,
                             )};
 
-                        let is_ref_file = Some(&project_file.file_name) == project.ref_image.as_ref();
+                        let is_ref_file = Some(project_file.file_name()) == project.ref_image().as_ref();
                         let icon = if is_ref_file { &objects.icon_ref_image } else { &objects.icon_image };
 
-                        let make_important = |s, flag: FileFlags, mask: FileFlags| -> String {
+                        let make_important = |s, flag: &FileFlags, mask: FileFlags| -> String {
                             if flag & mask == 0 {
                                 s
                             } else {
@@ -1496,16 +1496,16 @@ impl TreeViewFillHelper {
                             }
                         };
 
-                        let star_r_dev_str = make_important(star_r_dev_str, project_file.flags, FILE_FLAG_CLEANUP_R_DEV);
-                        let fwhm_str = make_important(fwhm_str, project_file.flags, FILE_FLAG_CLEANUP_FWHM);
-                        let stars_cnt_str = make_important(stars_cnt_str, project_file.flags, FILE_FLAG_CLEANUP_STARS);
-                        let noise_str = make_important(noise_str, project_file.flags, FILE_FLAG_CLEANUP_NOISE);
-                        let sharpness_str = make_important(sharpness_str, project_file.flags, FILE_FLAG_CLEANUP_SHARPNESS);
-                        let bg_str = make_important(bg_str, project_file.flags, FILE_FLAG_CLEANUP_BG);
+                        let star_r_dev_str = make_important(star_r_dev_str, project_file.flags(), FILE_FLAG_CLEANUP_R_DEV);
+                        let fwhm_str = make_important(fwhm_str, project_file.flags(), FILE_FLAG_CLEANUP_FWHM);
+                        let stars_cnt_str = make_important(stars_cnt_str, project_file.flags(), FILE_FLAG_CLEANUP_STARS);
+                        let noise_str = make_important(noise_str, project_file.flags(), FILE_FLAG_CLEANUP_NOISE);
+                        let sharpness_str = make_important(sharpness_str, project_file.flags(), FILE_FLAG_CLEANUP_SHARPNESS);
+                        let bg_str = make_important(bg_str, project_file.flags(), FILE_FLAG_CLEANUP_BG);
 
                         tree_store.set(&file_iter, &[
                             (COLUMN_ICON,            icon),
-                            (COLUMN_CHECKBOX,        &project_file.used),
+                            (COLUMN_CHECKBOX,        &project_file.used()),
                             (COLUMN_CHECKBOX_VIS,    &true),
                             (COLUMN_FILE_NAME,       &file_name),
                             (COLUMN_FILE_PATH,       &path),
@@ -1534,8 +1534,8 @@ impl TreeViewFillHelper {
 
                     // Delete files
                     let mut poject_files_set = HashSet::new();
-                    for project_file in project_files.list.iter() {
-                        poject_files_set.insert(project_file.file_name.clone());
+                    for project_file in project_files.list().iter() {
+                        poject_files_set.insert(project_file.file_name().clone());
                     }
                     ids_to_delete.clear();
                     for (prev_file, idx) in prev_files.iter() {
@@ -1551,10 +1551,10 @@ impl TreeViewFillHelper {
                 }
 
                 // Files folder name
-                let folder_text = if project_files.list.is_empty() {
+                let folder_text = if project_files.list().is_empty() {
                     folder_name.to_string()
                 } else  {
-                    let total_files = project_files.list.len();
+                    let total_files = project_files.list().len();
                     let selected_files = project_files.get_checked_count();
                     let total_time = seconds_to_total_time_str(project_files.calc_total_exp_time());
 
@@ -1597,12 +1597,12 @@ impl TreeViewFillHelper {
         let project_path = tree_store.path(&project_iter).unwrap();
         objects.prj_tree.expand_to_path(&project_path);
 
-        *objects.prj_tree_changed_flag.borrow_mut() = false;
+        objects.prj_tree_changed_flag.set(false);
     }
 }
 
 fn handler_project_tree_selection_changed(objects: &MainWindowObjectsPtr) {
-    if *objects.prj_tree_changed_flag.borrow() {
+    if objects.prj_tree_changed_flag.get() {
         return;
     }
     preview_selected_file(objects);
@@ -1659,9 +1659,9 @@ fn preview_selected_file(objects: &MainWindowObjectsPtr) {
                 ..
             } if !files.is_empty() => {
                 let project = objects.project.borrow();
-                let file_list = project.groups[group_idx].get_file_list_by_type(file_type);
-                let project_file = &file_list.list[files[0]];
-                (project_file.file_name.clone(), false)
+                let file_list = project.groups()[group_idx].get_file_list_by_type(file_type);
+                let project_file = &file_list.list()[files[0]];
+                (project_file.file_name().clone(), false)
             },
 
             SelectedItem {
@@ -1775,7 +1775,7 @@ fn preview_image_file(
     objects.preview_ctrls_box.set_sensitive(false);
 
     let file_name = file_name.to_path_buf();
-    let bin = match objects.project.borrow().config.image_size {
+    let bin = match objects.project.borrow().config().image_size {
         ImageSize::Bin2x2 => if is_result_file {1} else {2},
         ImageSize::Original => 1,
     };
@@ -1883,8 +1883,9 @@ fn show_preview_image(
 }
 
 fn handler_project_tree_checked_changed(
-    objects:  &MainWindowObjectsPtr,
+    objects:     &MainWindowObjectsPtr,
     sorted_path: gtk::TreePath,
+    checked:     bool,
 ) {
     let sorted_model = objects.prj_tree
         .model().unwrap()
@@ -1904,11 +1905,10 @@ fn handler_project_tree_checked_changed(
             ..
         } => {
             let mut project = objects.project.borrow_mut();
-            let mut group = &mut project.groups[group_idx];
-            group.used = !group.used;
+            let group = project.group_by_index_mut(group_idx);
+            group.set_used(checked);
             let iter = tree_store.iter(&path).unwrap();
-            tree_store.set(&iter, &[(COLUMN_CHECKBOX, &group.used)]);
-            project.changed = true;
+            tree_store.set(&iter, &[(COLUMN_CHECKBOX, &checked)]);
         },
 
         SelectedItem {
@@ -1920,13 +1920,12 @@ fn handler_project_tree_checked_changed(
         } => {
             let mut project = objects.project.borrow_mut();
             let file_list = project
-                .groups[group_idx]
-                .get_file_list_by_type_mut(file_type);
-            let project_file = &mut file_list.list[files[0]];
-            project_file.used = !project_file.used;
+                .group_by_index_mut(group_idx)
+                .file_list_by_type_mut(file_type);
+            let project_file = &mut file_list.file_by_index_mut(files[0]);
+            project_file.set_used(checked);
             let iter = tree_store.iter(&path).unwrap();
-            tree_store.set(&iter, &[(COLUMN_CHECKBOX, &project_file.used)]);
-            project.changed = true;
+            tree_store.set(&iter, &[(COLUMN_CHECKBOX, &checked)]);
         },
         _ => {
             return;
@@ -1955,13 +1954,14 @@ fn action_new_group(objects: &MainWindowObjectsPtr) {
 
 fn action_delete_item(objects: &MainWindowObjectsPtr) {
     let selection = get_current_selection(objects);
+    let project = objects.project.borrow();
     match selection {
         SelectedItem {
             item_type: SelItemType::Group,
             group_idx: Some(group_idx),
             ..
         } => {
-            let group = &objects.project.borrow().groups[group_idx];
+            let group = &project.groups()[group_idx];
             let dialog = confirm_dialog(
                 objects,
                 format!("Remove group '{}' from project?", group.name(group_idx)),
@@ -1983,12 +1983,11 @@ fn action_delete_item(objects: &MainWindowObjectsPtr) {
             ..
         } => {
             files.sort_unstable();
-            let project = objects.project.borrow();
             let dialog_text = if files.len() == 1 {
-                let group = &project.groups[group_idx];
+                let group = &project.groups()[group_idx];
                 let folder = &group.get_file_list_by_type(file_type);
-                let file = &folder.list[files[0]];
-                format!("Remove file '{}' from project?", file.file_name.to_str().unwrap_or(""))
+                let file = &folder.list()[files[0]];
+                format!("Remove file '{}' from project?", file.file_name().to_str().unwrap_or(""))
             } else {
                 format!("Remove {} files from project?", files.len())
             };
@@ -1998,16 +1997,10 @@ fn action_delete_item(objects: &MainWindowObjectsPtr) {
                 clone!(@strong objects => move || {
                     objects.prj_tree.selection().unselect_all();
                     let helper = TreeViewFillHelper::new(&objects.project.borrow());
-                    for file_idx in files.iter().rev() {
-                        let file = objects.project.borrow_mut()
-                            .groups[group_idx]
-                            .get_file_list_by_type_mut(file_type)
-                            .list
-                            .remove(*file_idx);
-                        log::info!("File '{}' removed from project", file.file_name.to_str().unwrap_or(""));
-                    }
-
-                    objects.project.borrow_mut().changed = true;
+                    objects.project.borrow_mut()
+                        .group_by_index_mut(group_idx)
+                        .file_list_by_type_mut(file_type)
+                        .remove_files_by_idx(files.clone());
                     helper.apply_changes(&objects, true);
                 })
             );
@@ -2052,15 +2045,14 @@ fn action_item_properties(objects: &MainWindowObjectsPtr) {
             let dialog = group_options_dialog(
                 objects,
                 gettext("Group properties"),
-                objects.project.borrow().groups[group_idx].options.clone(),
+                objects.project.borrow().groups()[group_idx].options().clone(),
                 clone!(@strong objects => move |new_options| {
                     let helper = TreeViewFillHelper::new(&objects.project.borrow());
                     {
                         let mut project = objects.project.borrow_mut();
-                        let group = &mut project.groups[group_idx];
+                        let group = project.group_by_index_mut(group_idx);
                         log::info!("Group '{}' options changed to {:?}", group.name(group_idx), new_options);
-                        group.options = new_options;
-                        project.changed = true;
+                        group.set_options(new_options);
                     }
                     helper.apply_changes(&objects, false);
                 })
@@ -2133,7 +2125,7 @@ fn group_options_dialog<F: Fn(GroupOptions) + 'static>(
 }
 
 fn get_active_group_index(objects: &MainWindowObjectsPtr, title: &str) -> Option<usize> {
-    match objects.project.borrow().groups.len() {
+    match objects.project.borrow().groups().len() {
         0 => return None,
         1 => return Some(0),
         _ => {},
@@ -2161,7 +2153,7 @@ fn get_active_group_index(objects: &MainWindowObjectsPtr, title: &str) -> Option
         ]);
     }
 
-    for (idx, group) in objects.project.borrow().groups.iter().enumerate() {
+    for (idx, group) in objects.project.borrow().groups().iter().enumerate() {
         groups_list.append(None, &group.name(idx));
     }
 
@@ -2182,7 +2174,7 @@ fn get_active_group_index(objects: &MainWindowObjectsPtr, title: &str) -> Option
 fn action_project_options(objects: &MainWindowObjectsPtr) {
     configure_project_options(
         objects,
-        objects.project.borrow().config.clone(),
+        objects.project.borrow().config().clone(),
         clone!(@strong objects => move |new_config| {
             log::info!("New project options:\n{:#?}", new_config);
             objects.project.borrow_mut().set_new_config(new_config);
@@ -2332,7 +2324,7 @@ fn action_cleanup_light_files(objects: &MainWindowObjectsPtr) {
     let chbt_check_before = builder.object::<gtk::CheckButton>("check_before").unwrap();
 
     let project = objects.project.borrow();
-    chbt_check_before.set_active(project.cleanup_conf.check_before_execute);
+    chbt_check_before.set_active(project.cleanup_conf().check_before_execute);
 
     let show_line = |
         item: &ClenupConfItem,
@@ -2388,17 +2380,17 @@ fn action_cleanup_light_files(objects: &MainWindowObjectsPtr) {
     };
 
     let (chb_rdev, cbt_rdev, e_rdev_kappa, e_rdev_repeats, e_rdev_percent) =
-        show_line(&project.cleanup_conf.stars_r_dev, "chb_rdev", "cbt_rdev", "e_rdev_kappa", "e_rdev_repeats", "e_rdev_percent");
+        show_line(&project.cleanup_conf().stars_r_dev, "chb_rdev", "cbt_rdev", "e_rdev_kappa", "e_rdev_repeats", "e_rdev_percent");
     let (chb_fwhm, cbt_fwhm, e_fwhm_kappa, e_fwhm_repeats, e_fwhm_percent) =
-        show_line(&project.cleanup_conf.stars_fwhm, "chb_fwhm", "cbt_fwhm", "e_fwhm_kappa", "e_fwhm_repeats", "e_fwhm_percent");
+        show_line(&project.cleanup_conf().stars_fwhm, "chb_fwhm", "cbt_fwhm", "e_fwhm_kappa", "e_fwhm_repeats", "e_fwhm_percent");
     let (chb_stars, cbt_stars, e_stars_kappa, e_stars_repeats, e_stars_percent) =
-        show_line(&project.cleanup_conf.stars_count, "chb_stars", "cbt_stars", "e_stars_kappa", "e_stars_repeats", "e_stars_percent");
+        show_line(&project.cleanup_conf().stars_count, "chb_stars", "cbt_stars", "e_stars_kappa", "e_stars_repeats", "e_stars_percent");
     let (chb_sharp, cbt_sharp, e_sharp_kappa, e_sharp_repeats, e_sharp_percent) =
-        show_line(&project.cleanup_conf.img_sharpness, "chb_sharp", "cbt_sharp", "e_sharp_kappa", "e_sharp_repeats", "e_sharp_percent");
+        show_line(&project.cleanup_conf().img_sharpness, "chb_sharp", "cbt_sharp", "e_sharp_kappa", "e_sharp_repeats", "e_sharp_percent");
     let (chb_noise, cbt_noise, e_noise_kappa, e_noise_repeats, e_noise_percent) =
-        show_line(&project.cleanup_conf.noise, "chb_noise", "cbt_noise", "e_noise_kappa", "e_noise_repeats", "e_noise_percent");
+        show_line(&project.cleanup_conf().noise, "chb_noise", "cbt_noise", "e_noise_kappa", "e_noise_repeats", "e_noise_percent");
     let (chb_bg, cbt_bg, e_bg_kappa, e_bg_repeats, e_bg_percent) =
-        show_line(&project.cleanup_conf.background, "chb_bg", "cbt_bg", "e_bg_kappa", "e_bg_repeats", "e_bg_percent");
+        show_line(&project.cleanup_conf().background, "chb_bg", "cbt_bg", "e_bg_kappa", "e_bg_repeats", "e_bg_percent");
 
     drop(project);
 
@@ -2418,7 +2410,10 @@ fn action_cleanup_light_files(objects: &MainWindowObjectsPtr) {
     dialog.connect_response(clone!(@strong objects => move |dialog, response| {
         if response == gtk::ResponseType::Ok {
             let mut project = objects.project.borrow_mut();
-            project.cleanup_conf.check_before_execute = chbt_check_before.is_active();
+
+            let mut cleanup_conf = project.cleanup_conf().clone();
+
+            cleanup_conf.check_before_execute = chbt_check_before.is_active();
 
             let get_line = |
                 item:      &mut ClenupConfItem,
@@ -2439,12 +2434,14 @@ fn action_cleanup_light_files(objects: &MainWindowObjectsPtr) {
                 item.percent = e_percent.text().as_str().parse().unwrap_or(item.percent);
             };
 
-            get_line(&mut project.cleanup_conf.stars_r_dev,   &chb_rdev,  &cbt_rdev,  &e_rdev_kappa,  &e_rdev_repeats,  &e_rdev_percent);
-            get_line(&mut project.cleanup_conf.stars_fwhm,    &chb_fwhm,  &cbt_fwhm,  &e_fwhm_kappa,  &e_fwhm_repeats,  &e_fwhm_percent);
-            get_line(&mut project.cleanup_conf.stars_count,   &chb_stars, &cbt_stars, &e_stars_kappa, &e_stars_repeats, &e_stars_percent);
-            get_line(&mut project.cleanup_conf.img_sharpness, &chb_sharp, &cbt_sharp, &e_sharp_kappa, &e_sharp_repeats, &e_sharp_percent);
-            get_line(&mut project.cleanup_conf.noise,         &chb_noise, &cbt_noise, &e_noise_kappa, &e_noise_repeats, &e_noise_percent);
-            get_line(&mut project.cleanup_conf.background,    &chb_bg,    &cbt_bg,    &e_bg_kappa,    &e_bg_repeats,    &e_bg_percent);
+            get_line(&mut cleanup_conf.stars_r_dev,   &chb_rdev,  &cbt_rdev,  &e_rdev_kappa,  &e_rdev_repeats,  &e_rdev_percent);
+            get_line(&mut cleanup_conf.stars_fwhm,    &chb_fwhm,  &cbt_fwhm,  &e_fwhm_kappa,  &e_fwhm_repeats,  &e_fwhm_percent);
+            get_line(&mut cleanup_conf.stars_count,   &chb_stars, &cbt_stars, &e_stars_kappa, &e_stars_repeats, &e_stars_percent);
+            get_line(&mut cleanup_conf.img_sharpness, &chb_sharp, &cbt_sharp, &e_sharp_kappa, &e_sharp_repeats, &e_sharp_percent);
+            get_line(&mut cleanup_conf.noise,         &chb_noise, &cbt_noise, &e_noise_kappa, &e_noise_repeats, &e_noise_percent);
+            get_line(&mut cleanup_conf.background,    &chb_bg,    &cbt_bg,    &e_bg_kappa,    &e_bg_repeats,    &e_bg_percent);
+
+            project.set_cleanup_conf(cleanup_conf);
 
             drop(project);
 
@@ -2492,11 +2489,12 @@ fn action_stack(objects: &MainWindowObjectsPtr) {
 
     log::info!("Stacking light files started");
 
-    let project = objects.project.borrow().clone();
+    let project_json = objects.project.borrow().to_json_string();
     let cpu_load = objects.config.borrow().cpu_load;
     exec_and_show_progress(
         objects,
         move|progress, cancel_flag| {
+            let project = Project::from_json_string(&project_json);
             project.stack_light_files(progress, cancel_flag, cpu_load)
         },
         move |objects, result| {
@@ -2520,8 +2518,11 @@ fn action_use_as_reference_image(objects: &MainWindowObjectsPtr) {
     } = get_current_selection(objects) {
         if files.len() == 1 {
             let mut project = objects.project.borrow_mut();
-            let file = &project.groups[group_idx].light_files.list[files[0]];
-            project.ref_image = Some(file.file_name.clone());
+            let file_name =  project.groups()[group_idx]
+                .light_files.list()[files[0]]
+                .file_name()
+                .clone();
+            project.set_ref_image(file_name);
         } else {
             return;
         }
@@ -2664,13 +2665,12 @@ fn change_selected_files_type(
             let helper = TreeViewFillHelper::new(&objects.project.borrow());
             {
                 let mut project = objects.project.borrow_mut();
-                let group = &mut project.groups[selection.group_idx.unwrap()];
+                let group = project.group_by_index_mut(selection.group_idx.unwrap());
                 group.change_file_types(
                     selection.file_type.unwrap(),
                     new_type,
                     selection.files.clone()
                 );
-                project.changed = true;
             }
             helper.apply_changes(&objects, true);
             update_project_name_and_time_in_gui(&objects, true, false);
@@ -2709,9 +2709,9 @@ fn action_move_file_to_group(objects: &MainWindowObjectsPtr) {
 
     {
         let project = objects.project.borrow();
-        for (idx, group) in project.groups.iter().enumerate() {
+        for (idx, group) in project.groups().iter().enumerate() {
             if Some(idx) != selection.group_idx {
-                cbx_existing_groups.append(Some(&group.uuid), &group.name(idx));
+                cbx_existing_groups.append(Some(group.uuid()), &group.name(idx));
             }
         }
         let move_to_group_last_uuid = objects.move_to_group_last_uuid.borrow();
@@ -2719,7 +2719,7 @@ fn action_move_file_to_group(objects: &MainWindowObjectsPtr) {
             cbx_existing_groups.set_active_id(Some(&*move_to_group_last_uuid));
         }
 
-        if project.groups.len() <= 1 {
+        if project.groups().len() <= 1 {
             rbtn_existing_group.set_sensitive(false);
             rbtn_new_group.set_active(true);
         } else {
@@ -2750,7 +2750,7 @@ fn action_move_file_to_group(objects: &MainWindowObjectsPtr) {
                         group_options.name = Some(new_group_name);
                     }
                     project.add_new_group(group_options);
-                    project.groups.last().unwrap().uuid.clone()
+                    project.groups().last().unwrap().uuid().to_string()
                 } else {
                     match cbx_existing_groups.active_id() {
                         Some(s) => s.to_string(),
@@ -2758,17 +2758,14 @@ fn action_move_file_to_group(objects: &MainWindowObjectsPtr) {
                     }
                 };
 
-                let from_group = &mut project.groups[selection.group_idx.unwrap()];
-                let from_folder = from_group.get_file_list_by_type_mut(selection.file_type.unwrap());
+                let from_group = project.group_by_index_mut(selection.group_idx.unwrap());
+                let from_folder = from_group.file_list_by_type_mut(selection.file_type.unwrap());
                 let files_to_move = from_folder.remove_files_by_idx(selection.files.clone());
 
                 let to_group = project.find_group_by_uuid_mut(&group_id).unwrap();
-                let to_folder = to_group.get_file_list_by_type_mut(selection.file_type.unwrap());
-                for file in files_to_move {
-                    to_folder.list.push(file);
-                }
+                let to_folder = to_group.file_list_by_type_mut(selection.file_type.unwrap());
 
-                project.changed = true;
+                to_folder.add_files(files_to_move);
             }
             helper.apply_changes(&objects, true);
             update_project_name_and_time_in_gui(&objects, true, false);
@@ -2796,8 +2793,8 @@ fn check_all_files(objects: &MainWindowObjectsPtr, value: bool) {
 
     let helper = TreeViewFillHelper::new(&objects.project.borrow());
     objects.project.borrow_mut()
-        .groups[group_idx]
-        .get_file_list_by_type_mut(file_type)
+        .group_by_index_mut(group_idx)
+        .file_list_by_type_mut(file_type)
         .check_all(value);
     helper.apply_changes(objects, true);
     update_project_name_and_time_in_gui(objects, true, false);
@@ -2822,8 +2819,8 @@ fn check_selected_files(objects: &MainWindowObjectsPtr, value: bool) {
 
     let helper = TreeViewFillHelper::new(&objects.project.borrow());
     objects.project.borrow_mut()
-        .groups[group_idx]
-        .get_file_list_by_type_mut(file_type)
+        .group_by_index_mut(group_idx)
+        .file_list_by_type_mut(file_type)
         .check_by_indices(&files, value);
     helper.apply_changes(objects, true);
     update_project_name_and_time_in_gui(objects, true, false);
