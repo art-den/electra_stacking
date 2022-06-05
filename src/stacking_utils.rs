@@ -1,4 +1,5 @@
-use std::{path::*, io::*, fs::*, sync::{*, atomic::{AtomicBool, Ordering}}};
+use std::{path::*, io::*, fs::*};
+use std::sync::{*, mpsc, atomic::{AtomicBool, Ordering}};
 use anyhow::bail;
 use byteorder::*;
 use crate::{
@@ -48,7 +49,7 @@ fn postprocess_single_flat_image_color(
 {
     let center_x = raw_image.info.width / 2;
     let center_y = raw_image.info.height / 2;
-    let center_size = (raw_image.info.width + raw_image.info.height) / 40; // have to be odd
+    let center_size = (raw_image.info.width + raw_image.info.height) / 40;
 
     let mut data = Vec::new();
 
@@ -314,6 +315,38 @@ pub enum SaveAlignedImageMode {
     Fits
 }
 
+struct SaveTempFileData {
+    file_name:    PathBuf,
+    image:        Image,
+    save_aligned: SaveAlignedImageMode,
+}
+
+fn save_temp_file(mut args: SaveTempFileData) -> anyhow::Result<()> {
+    let save_log = TimeLogger::start();
+    save_image_into_internal_format(&args.image, &args.file_name)?;
+
+    if let SaveAlignedImageMode::Fits|SaveAlignedImageMode::Tif = args.save_aligned {
+        let ext = match args.save_aligned {
+            SaveAlignedImageMode::Fits => FIT_EXTS[0],
+            SaveAlignedImageMode::Tif => TIF_EXTS[0],
+            _ => "",
+        };
+        let file_name = args.file_name.with_extension(format!("aligned.{}", ext));
+        log::info!("Saving aligned image to {:?} file", file_name);
+
+        args.image.fill_inf_areas();
+        save_image_to_file(
+            &args.image,
+            &Exif::new_empty(),
+            &file_name
+        )?;
+    }
+
+    save_log.log("saving temp file");
+
+    Ok(())
+}
+
 pub fn create_temp_light_files(
     progress:           &ProgressTs,
     files_list:         Vec<PathBuf>,
@@ -336,11 +369,32 @@ pub fn create_temp_light_files(
         master_bias
     )?;
 
+    let (save_tx, save_rx) = mpsc::sync_channel::<SaveTempFileData>(5);
+    let cur_result = Mutex::new(anyhow::Result::<()>::Ok(()));
+
     progress.lock().unwrap().set_total(files_list.len());
     let disk_access_mutex = Mutex::new(());
-    let cur_result = Mutex::new(anyhow::Result::<()>::Ok(()));
+
     thread_pool.scope(|s| {
+        s.spawn(|_| {
+            let save_rx = save_rx;
+            while let Ok(item) = save_rx.recv() {
+                let file_name = item.file_name.clone();
+                let res = save_temp_file(item);
+                if let Err(err) = res {
+                    *cur_result.lock().unwrap() = Err(anyhow::anyhow!(
+                        r#"Error "{}" during saving of file "{}""#,
+                        err.to_string(),
+                        file_name.to_str().unwrap_or("")
+                    ));
+                    break;
+                }
+            }
+            log::info!("Exiting from save thread...");
+        });
+
         for file in files_list.iter() {
+            let save_tx = save_tx.clone();
             s.spawn(|_| {
                 if cancel_flag.load(Ordering::Relaxed)
                 || cur_result.lock().unwrap().is_err() {
@@ -355,6 +409,7 @@ pub fn create_temp_light_files(
                     files_to_del_later,
                     &disk_access_mutex,
                     result_list,
+                    save_tx,
                     save_aligned
                 );
                 if let Err(err) = res {
@@ -368,6 +423,8 @@ pub fn create_temp_light_files(
                 progress.lock().unwrap().progress(true, extract_file_name(file));
             });
         }
+
+        drop(save_tx);
     });
 
     result_list.lock().unwrap().sort_by_key(|f| (f.group_idx, f.file_name.clone()));
@@ -384,6 +441,7 @@ fn create_temp_file_from_light_file(
     files_to_del_later: &Mutex<FilesToDeleteLater>,
     disk_access_mutex:  &Mutex<()>,
     result_list:        &Mutex<Vec<TempFileData>>,
+    save_tx:            mpsc::SyncSender<SaveTempFileData>,
     save_aligned:       SaveAlignedImageMode,
 ) -> anyhow::Result<()> {
     let file_total_log = TimeLogger::start();
@@ -440,28 +498,11 @@ fn create_temp_file_from_light_file(
         nan_log.log("check_contains_nan");
 
         let temp_file_name = file.with_extension("temp_light_data");
-        let save_lock = disk_access_mutex.lock();
-        let save_log = TimeLogger::start();
-        save_image_into_internal_format(&light_file.image, &temp_file_name)?;
-
-        if let SaveAlignedImageMode::Fits|SaveAlignedImageMode::Tif = save_aligned {
-            let ext = match save_aligned {
-                SaveAlignedImageMode::Fits => FIT_EXTS[0],
-                SaveAlignedImageMode::Tif => TIF_EXTS[0],
-                _ => "",
-            };
-            let file_name = file.with_extension(format!("aligned.{}", ext));
-            log::info!("Saving aligned image to {:?} file", file_name);
-            light_file.image.fill_inf_areas();
-            save_image_to_file(
-                &light_file.image,
-                &Exif::new_empty(),
-                &file_name
-            )?;
-        }
-
-        save_log.log("saving temp file");
-        drop(save_lock);
+        save_tx.send(SaveTempFileData{
+            file_name:    temp_file_name.clone(),
+            image:        light_file.image,
+            save_aligned,
+        })?;
 
         files_to_del_later.lock().unwrap().add(&temp_file_name);
         result_list.lock().unwrap().push(TempFileData{
