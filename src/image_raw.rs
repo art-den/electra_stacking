@@ -177,9 +177,9 @@ pub struct RawImage {
 }
 
 #[derive(Hash, PartialEq, Eq, Clone)]
-pub struct HotPixel {
-    x: Crd,
-    y: Crd,
+pub struct BadPixel {
+    pub x: Crd,
+    pub y: Crd,
 }
 
 bitflags! { pub struct RawLoadFlags: u32 {
@@ -481,7 +481,7 @@ impl RawImage {
         Ok(result)
     }
 
-    pub fn find_hot_pixels(&self) -> Vec<HotPixel> {
+    pub fn find_hot_pixels_in_dark_file(&self) -> Vec<BadPixel> {
         const R: Crd = 2;
         let mut result = Vec::new();
         let max_dev = (self.info.max_values[0] * 0.005).powf(2.0);
@@ -501,14 +501,24 @@ impl RawImage {
             if cnt < 2 { continue; }
             let mean = (sum - min.unwrap() - max.unwrap()) / ((cnt - 2) as f32);
             let pt_dev = (mean - v) * (mean - v);
-            if pt_dev > max_dev { result.push(HotPixel{x, y}); }
+            if pt_dev > max_dev { result.push(BadPixel{x, y}); }
         }
         result
     }
 
-    pub fn remove_hot_pixels(&mut self, hot_pixels: &[HotPixel]) {
+    pub fn find_bad_pixels(&self) -> Vec<BadPixel> {
+        let min_value =
+            self.info.black_values.iter().copied().filter(|v| *v != 0.0).min_by(cmp_f32).unwrap_or(0.0);
+
+        self.data.iter_crd()
+            .filter(|(_, _, v)| *v < min_value)
+            .map(|(x, y, _)| BadPixel {x, y})
+            .collect()
+    }
+
+    pub fn remove_bad_pixels(&mut self, hot_pixels: &[BadPixel]) {
         if hot_pixels.is_empty() { return; }
-        let mut top_pixels_index: HashSet<HotPixel> = HashSet::from_iter(hot_pixels.iter().cloned());
+        let mut hot_pixels_index: HashSet<BadPixel> = HashSet::from_iter(hot_pixels.iter().cloned());
         for hp in hot_pixels {
             for r in 1..=2 {
                 let mut sum = 0_f32;
@@ -516,7 +526,7 @@ impl RawImage {
                 let color = self.info.cfa.get_pixel_color(hp.x, hp.y);
                 for x in hp.x-r ..= hp.x+r { for y in hp.y-r ..= hp.y+r {
                     if color != self.info.cfa.get_pixel_color(x, y) { continue; }
-                    if top_pixels_index.contains(&HotPixel{x, y}) { continue; }
+                    if hot_pixels_index.contains(&BadPixel{x, y}) { continue; }
                     if let Some(v) = self.data.get(x, y) { if !v.is_infinite() {
                         sum += v;
                         cnt += 1;
@@ -524,7 +534,7 @@ impl RawImage {
                 }}
                 if cnt >= 2 {
                     self.data.set(hp.x, hp.y, sum / cnt as f32);
-                    top_pixels_index.remove(hp);
+                    hot_pixels_index.remove(hp);
                     break;
                 }
             }
@@ -554,7 +564,7 @@ pub struct CalibrationData {
     pub dark_image: Option<RawImage>,
     pub flat_image: Option<RawImage>,
     pub bias_image: Option<RawImage>,
-    pub hot_pixels: Vec<HotPixel>,
+    pub hot_pixels: Vec<BadPixel>,
 }
 
 impl CalibrationData {
@@ -593,7 +603,7 @@ impl CalibrationData {
                 if let Some(bias_image) = &bias_image {
                     image.data -= &bias_image.data;
                 }
-                let hot_pixels = image.find_hot_pixels();
+                let hot_pixels = image.find_hot_pixels_in_dark_file();
                 log::info!("hot pixels count = {}", hot_pixels.len());
                 (Some(image), hot_pixels)
             },
@@ -607,7 +617,9 @@ impl CalibrationData {
                     fs_utils::path_to_str(file_name)
                 );
                 let mut image = RawImage::new_from_master_format_file(file_name)?;
-                image.remove_hot_pixels(&hot_pixels);
+                image.remove_bad_pixels(&hot_pixels);
+                let bad_bixels = image.find_bad_pixels();
+                image.remove_bad_pixels(&bad_bixels);
                 let filter_log = TimeLogger::start();
                 let mut image = image.filter_flat_image();
                 filter_log.log("filtering flat image");

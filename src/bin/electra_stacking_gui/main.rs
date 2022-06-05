@@ -1096,7 +1096,6 @@ fn show_message(
     dialog.connect_response(move |dlg, _| {
         dlg.close();
     });
-
 }
 
 fn show_error_message(text: &str, objects: &MainWindowObjects) {
