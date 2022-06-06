@@ -219,6 +219,9 @@ fn build_ui(application: &gtk::Application) {
         preview_ctrls_box,
         preview_scroll_pos: RefCell::new(None),
         move_to_group_last_uuid: RefCell::new(String::new()),
+
+        process_mode_flag: Cell::new(false),
+        trying_to_close: Cell::new(false),
     });
 
     // Load and apply config
@@ -355,7 +358,18 @@ fn build_ui(application: &gtk::Application) {
     mi_theme.set_sensitive(cfg!(target_os = "windows"));
 
     objects.window.connect_delete_event(clone!(@strong objects => move |_, _| {
+        if objects.trying_to_close.get() {
+            return gtk::Inhibit(objects.process_mode_flag.get());
+        }
+
         let can_close = ask_user_to_save_project(&objects);
+
+        if can_close && objects.process_mode_flag.get() {
+            objects.trying_to_close.set(true);
+            objects.cancel_flag.store(true, Ordering::Relaxed);
+            return gtk::Inhibit(true);
+        }
+
         gtk::Inhibit(!can_close)
     }));
 
@@ -490,7 +504,6 @@ struct MainWindowObjects {
     menu_bar: gtk::MenuBar,
 
     prj_tree: gtk::TreeView,
-    prj_tree_changed_flag: Cell<bool>,
     prj_tree_menu: gtk::Menu,
     prj_img_paned: gtk::Paned,
 
@@ -526,6 +539,10 @@ struct MainWindowObjects {
 
     cancel_flag: Arc<AtomicBool>,
     move_to_group_last_uuid: RefCell<String>,
+
+    prj_tree_changed_flag: Cell<bool>,
+    process_mode_flag: Cell<bool>,
+    trying_to_close: Cell<bool>,
 }
 
 type MainWindowObjectsPtr = Rc::<MainWindowObjects>;
@@ -2549,9 +2566,11 @@ fn exec_and_show_progress<R, ExecFun, OkFun> (
 
     let (sender, receiver) = MainContext::channel(PRIORITY_DEFAULT);
 
-    /* Worker */
+    objects.process_mode_flag.set(true);
     let cancel_flag = Arc::clone(&objects.cancel_flag);
     cancel_flag.store(false, Ordering::Relaxed);
+
+    /* Worker */
     thread::spawn(move || {
         let sndr1 = sender.clone();
         let sndr2 = sender.clone();
@@ -2594,13 +2613,23 @@ fn exec_and_show_progress<R, ExecFun, OkFun> (
                     Continue(true)
                 },
                 UiMessage::Finished(reg_info) => {
-                    enable_progress_bar(&objects, false);
-                    ok_fun(&objects, reg_info);
+                    objects.process_mode_flag.set(false);
+                    if objects.trying_to_close.get() {
+                        objects.window.close();
+                    } else {
+                        enable_progress_bar(&objects, false);
+                        ok_fun(&objects, reg_info);
+                    }
                     Continue(false)
                 },
                 UiMessage::Error(error) => {
-                    enable_progress_bar(&objects, false);
-                    show_error_message(&error, &objects);
+                    objects.process_mode_flag.set(false);
+                    if objects.trying_to_close.get() {
+                        objects.window.close();
+                    } else {
+                        enable_progress_bar(&objects, false);
+                        show_error_message(&error, &objects);
+                    }
                     Continue(false)
                 },
             }
