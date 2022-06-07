@@ -29,22 +29,51 @@ impl LightFile {
         flags:      LoadLightFlags,
         bin:        usize,
     ) -> anyhow::Result<LightFile> {
-        let noise_flag = flags.contains(LoadLightFlags::NOISE);
         let stars_flag = flags.contains(LoadLightFlags::STARS);
-        let bg_flag = flags.contains(LoadLightFlags::BACKGROUND);
-        let sharpness_flag = flags.contains(LoadLightFlags::SHARPNESS);
-        let fast_demosaic_flag = flags.contains(LoadLightFlags::FAST_DEMOSAIC);
 
         let mut src_data = if is_image_file_name(file_name) {
-            load_image_from_file(file_name)
+            load_image_from_file(file_name)?
         } else {
             load_raw_light_file(
                 file_name,
                 cal_data,
                 disk_mutex,
-                fast_demosaic_flag
-            )
-        }?;
+                flags.contains(LoadLightFlags::FAST_DEMOSAIC)
+            )?
+        };
+
+        let img_layer_to_calc = if src_data.image.is_greyscale() {
+            &src_data.image.l
+        } else {
+            &src_data.image.g
+        };
+
+        let noise = if stars_flag || flags.contains(LoadLightFlags::NOISE) {
+            let noise_log = TimeLogger::start();
+            let result = calc_noise(img_layer_to_calc);
+            noise_log.log("noise calculation");
+            result as f32
+        } else {
+            0.0
+        };
+
+        let background = if flags.contains(LoadLightFlags::BACKGROUND) {
+            let bg_log = TimeLogger::start();
+            let result = calc_background(img_layer_to_calc);
+            bg_log.log("background calculation");
+            result
+        } else {
+            0.0
+        };
+
+        let sharpness = if flags.contains(LoadLightFlags::SHARPNESS) {
+            let f_log = TimeLogger::start();
+            let result = calc_sharpness(img_layer_to_calc);
+            f_log.log("freq calculation");
+            result
+        } else {
+            0.0
+        };
 
         if bin == 2 {
             let bin_log = TimeLogger::start();
@@ -52,7 +81,7 @@ impl LightFile {
             bin_log.log("decreasing image 2x");
         }
 
-        let grey_image = if noise_flag || stars_flag || bg_flag {
+        let grey_image = if stars_flag {
             let grey_log = TimeLogger::start();
             let mut result = src_data.image.create_greyscale_layer();
             grey_log.log("creating grey image");
@@ -62,24 +91,6 @@ impl LightFile {
             result
         } else {
             ImageLayerF32::new_empty()
-        };
-
-        let noise = if noise_flag || stars_flag {
-            let noise_log = TimeLogger::start();
-            let result = calc_noise(&grey_image);
-            noise_log.log("noise calculation");
-            result as f32
-        } else {
-            0.0
-        };
-
-        let background = if bg_flag {
-            let bg_log = TimeLogger::start();
-            let result = calc_background(&grey_image);
-            bg_log.log("background calculation");
-            result
-        } else {
-            0.0
         };
 
         let stars = if stars_flag {
@@ -95,20 +106,6 @@ impl LightFile {
             result
         } else {
             Stars::new()
-        };
-
-        let sharpness = if sharpness_flag {
-            let f_log = TimeLogger::start();
-            let img = if src_data.image.is_greyscale() {
-                &src_data.image.l
-            } else {
-                &src_data.image.g
-            };
-            let result = calc_sharpness(img);
-            f_log.log("freq calculation");
-            result
-        } else {
-            0.0
         };
 
         Ok(LightFile{
