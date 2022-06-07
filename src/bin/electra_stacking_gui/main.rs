@@ -100,7 +100,6 @@ fn build_ui(application: &gtk::Application) {
     let builder = gtk::Builder::from_string(include_str!(r"ui/main_window.ui"));
 
     let window              = builder.object::<gtk::ApplicationWindow>("main_window").unwrap();
-    let menu_bar            = builder.object::<gtk::MenuBar>("menu_bar").unwrap();
     let prj_tree_menu       = builder.object::<gtk::Menu>("prj_tree_menu").unwrap();
     let project_tree        = builder.object::<gtk::TreeView>("project_tree").unwrap();
     let progress_bar        = builder.object::<gtk::ProgressBar>("progress_bar").unwrap();
@@ -123,6 +122,7 @@ fn build_ui(application: &gtk::Application) {
     let mi_cpu_load_half    = builder.object::<gtk::RadioMenuItem>("mi_cpu_load_half").unwrap();
     let mi_cpu_load_max     = builder.object::<gtk::RadioMenuItem>("mi_cpu_load_max").unwrap();
     let mi_theme            = builder.object::<gtk::MenuItem>("mi_theme").unwrap();
+    let mi_cpu_load         = builder.object::<gtk::MenuItem>("mi_cpu_load").unwrap();
 
     let prj_tree_store_columns = get_prj_tree_store_columns();
 
@@ -185,17 +185,16 @@ fn build_ui(application: &gtk::Application) {
         project: RefCell::new(project),
         config: RefCell::new(config),
         window: window.clone(),
-        menu_bar,
         prj_tree: project_tree.clone(),
         prj_tree_changed_flag: Cell::new(false),
-        prj_tree_menu: prj_tree_menu.clone(),
         prj_img_paned,
+        mi_cpu_load,
+        recent_menu: recent_menu.clone(),
         mi_dark_theme: mi_dark_theme.clone(),
         mi_light_theme: mi_light_theme.clone(),
         mi_cpu_load_min: mi_cpu_load_min.clone(),
         mi_cpu_load_half: mi_cpu_load_half.clone(),
         mi_cpu_load_max: mi_cpu_load_max.clone(),
-
         mi_change_file_type,
         progress_bar,
         progress_cont: progress_box.upcast(),
@@ -256,7 +255,10 @@ fn build_ui(application: &gtk::Application) {
     });
 
     objects.prj_tree.selection().connect_changed(clone!{ @weak objects => move |_| {
-        handler_project_tree_selection_changed(&objects);
+        if !objects.prj_tree_changed_flag.get() {
+            enable_actions(&objects);
+            preview_selected_file(&objects);
+        }
     }});
 
     cell_check.connect_toggled(clone!(@weak objects => move |toggle, path| {
@@ -427,6 +429,7 @@ fn build_ui(application: &gtk::Application) {
     window.set_application(Some(application));
     window.show_all();
     objects.progress_cont.set_visible(false);
+    enable_actions(&objects);
 }
 
 fn conn_action<F: Fn(&MainWindowObjectsPtr) + 'static>(
@@ -501,10 +504,8 @@ struct MainWindowObjects {
     config: RefCell<Config>,
 
     window: gtk::ApplicationWindow,
-    menu_bar: gtk::MenuBar,
 
     prj_tree: gtk::TreeView,
-    prj_tree_menu: gtk::Menu,
     prj_img_paned: gtk::Paned,
 
     progress_bar: gtk::ProgressBar,
@@ -524,6 +525,9 @@ struct MainWindowObjects {
     preview_file_name: gtk::Label,
     preview_ctrls_box: gtk::Widget,
     preview_scroll_pos: RefCell<Option<((f64, f64), (f64, f64))>>,
+
+    mi_cpu_load: gtk::MenuItem,
+    recent_menu: gtk::RecentChooserMenu,
 
     mi_dark_theme: gtk::RadioMenuItem,
     mi_light_theme: gtk::RadioMenuItem,
@@ -1181,9 +1185,6 @@ fn update_project_name_and_time_in_gui(objects: &MainWindowObjectsPtr, title: bo
 
 fn enable_progress_bar(objects: &MainWindowObjectsPtr, enable: bool) {
     objects.progress_cont.set_visible(enable);
-    objects.menu_bar.set_sensitive(!enable);
-    objects.prj_tree_menu.set_sensitive(!enable);
-
     if enable {
         objects.progress_bar.set_fraction(0.0);
         objects.progress_bar.set_text(None);
@@ -1617,12 +1618,9 @@ impl TreeViewFillHelper {
     }
 }
 
-fn handler_project_tree_selection_changed(objects: &MainWindowObjectsPtr) {
-    if objects.prj_tree_changed_flag.get() {
-        return;
-    }
-    preview_selected_file(objects);
+fn enable_actions(objects: &MainWindowObjectsPtr) {
     let selection = get_current_selection(objects);
+    let is_processing = objects.process_mode_flag.get();
     let is_file = selection.item_type == SelItemType::File;
     let is_group = selection.item_type == SelItemType::Group;
     let is_file_type = selection.item_type == SelItemType::FileType;
@@ -1633,35 +1631,50 @@ fn handler_project_tree_selection_changed(objects: &MainWindowObjectsPtr) {
         is_file &&
         selection.file_type == Some(ProjectFileType::Light) &&
         selection.files.len() == 1;
-    enable_action(&objects.window, "item_properties", support_item_properties);
-    enable_action(&objects.window, "delete_item", support_delete);
-    enable_action(&objects.window, "use_as_ref_image", support_use_as_ref_image);
-    enable_action(&objects.window, "move_file_to_group", is_file);
+    enable_action(&objects.window, "item_properties", support_item_properties && !is_processing);
+    enable_action(&objects.window, "delete_item", support_delete && !is_processing);
+    enable_action(&objects.window, "use_as_ref_image", support_use_as_ref_image && !is_processing);
+    enable_action(&objects.window, "move_file_to_group", is_file && !is_processing);
     objects.mi_change_file_type.set_sensitive(is_file);
     enable_action(
         &objects.window,
         "change_file_to_light",
-        selection.file_type != Some(ProjectFileType::Light)
+        selection.file_type != Some(ProjectFileType::Light) && !is_processing
     );
     enable_action(
         &objects.window,
         "change_file_to_dark",
-        selection.file_type != Some(ProjectFileType::Dark)
+        selection.file_type != Some(ProjectFileType::Dark) && !is_processing
     );
     enable_action(
         &objects.window,
         "change_file_to_flat",
-        selection.file_type != Some(ProjectFileType::Flat)
+        selection.file_type != Some(ProjectFileType::Flat) && !is_processing
     );
     enable_action(
         &objects.window,
         "change_file_to_bias",
-        selection.file_type != Some(ProjectFileType::Bias)
+        selection.file_type != Some(ProjectFileType::Bias) && !is_processing
     );
-    enable_action(&objects.window, "check_all_files", is_file || is_file_type);
-    enable_action(&objects.window, "uncheck_all_files", is_file || is_file_type);
-    enable_action(&objects.window, "check_selected_files", is_file);
-    enable_action(&objects.window, "uncheck_selected_files", is_file);
+    enable_action(&objects.window, "check_all_files", (is_file || is_file_type) && !is_processing);
+    enable_action(&objects.window, "uncheck_all_files", (is_file || is_file_type) && !is_processing);
+    enable_action(&objects.window, "check_selected_files", is_file && !is_processing);
+    enable_action(&objects.window, "uncheck_selected_files", is_file && !is_processing);
+
+    enable_action(&objects.window, "new_project", !is_processing);
+    enable_action(&objects.window, "open_project", !is_processing);
+    enable_action(&objects.window, "add_light_files", !is_processing);
+    enable_action(&objects.window, "add_dark_files", !is_processing);
+    enable_action(&objects.window, "add_flat_files", !is_processing);
+    enable_action(&objects.window, "add_bias_files", !is_processing);
+    enable_action(&objects.window, "new_group", !is_processing);
+    enable_action(&objects.window, "register_light_files", !is_processing);
+    enable_action(&objects.window, "stack_light_files", !is_processing);
+    enable_action(&objects.window, "project_options", !is_processing);
+    enable_action(&objects.window, "cleanup_light_files", !is_processing);
+
+    objects.recent_menu.set_sensitive(!is_processing);
+    objects.mi_cpu_load.set_sensitive(!is_processing);
 }
 
 fn preview_selected_file(objects: &MainWindowObjectsPtr) {
@@ -2596,6 +2609,7 @@ fn exec_and_show_progress<R, ExecFun, OkFun> (
 
     /* Ui events */
     enable_progress_bar(objects, true);
+    enable_actions(objects);
     receiver.attach(
         None,
         clone!(@strong objects => move |message| {
@@ -2617,6 +2631,7 @@ fn exec_and_show_progress<R, ExecFun, OkFun> (
                     if objects.trying_to_close.get() {
                         objects.window.close();
                     } else {
+                        enable_actions(&objects);
                         enable_progress_bar(&objects, false);
                         ok_fun(&objects, reg_info);
                     }
@@ -2627,6 +2642,7 @@ fn exec_and_show_progress<R, ExecFun, OkFun> (
                     if objects.trying_to_close.get() {
                         objects.window.close();
                     } else {
+                        enable_actions(&objects);
                         enable_progress_bar(&objects, false);
                         show_error_message(&error, &objects);
                     }
