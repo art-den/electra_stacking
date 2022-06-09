@@ -503,16 +503,6 @@ impl RawImage {
         result
     }
 
-    pub fn find_bad_pixels(&self) -> Vec<BadPixel> {
-        let min_value =
-            self.info.black_values.iter().copied().filter(|v| *v != 0.0).min_by(cmp_f32).unwrap_or(0.0);
-
-        self.data.iter_crd()
-            .filter(|(_, _, v)| *v < min_value)
-            .map(|(x, y, _)| BadPixel {x, y})
-            .collect()
-    }
-
     pub fn remove_bad_pixels(&mut self, hot_pixels: &[BadPixel]) {
         if hot_pixels.is_empty() { return; }
         let mut hot_pixels_index: HashSet<BadPixel> = HashSet::from_iter(hot_pixels.iter().cloned());
@@ -615,8 +605,6 @@ impl CalibrationData {
                 );
                 let mut image = RawImage::new_from_master_format_file(file_name)?;
                 image.remove_bad_pixels(&hot_pixels);
-                let bad_bixels = image.find_bad_pixels();
-                image.remove_bad_pixels(&bad_bixels);
                 let filter_log = TimeLogger::start();
                 let mut image = image.filter_flat_image();
                 filter_log.log("filtering flat image");

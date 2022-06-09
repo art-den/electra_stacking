@@ -169,10 +169,6 @@ fn load_raw_light_file(
     )?;
     raw_log.log("loading raw image");
 
-    // looking for bad pixels
-    let mut bad_bixels = raw_image.find_bad_pixels();
-    log::info!("Bad pixels count = {}", bad_bixels.len());
-
     // extract master-bias image
     if let Some(bias) = &cal_data.bias_image {
         check_raw_data(&raw_image.info, &bias.info, "master bias", false)?;
@@ -191,11 +187,8 @@ fn load_raw_light_file(
         raw_image.data *= &flat.data;
     }
 
-    // remove hot and bad pixels from RAW image
-    for p in &cal_data.hot_pixels {
-        bad_bixels.push(p.clone());
-    }
-    raw_image.remove_bad_pixels(&bad_bixels);
+    // remove hot pixels from RAW image
+    raw_image.remove_bad_pixels(&cal_data.hot_pixels);
 
     // do demosaic
     let dem_log = TimeLogger::start();
