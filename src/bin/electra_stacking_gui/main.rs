@@ -1731,7 +1731,7 @@ fn preview_image_after_change_view_opts(
     }
     let bytes = image.to_rgb_bytes(
         &objects.prev_preview_params.borrow(),
-        config.preview_gamma,
+        config.preview_gamma.min(20.0),
     );
     show_preview_image(
         objects,

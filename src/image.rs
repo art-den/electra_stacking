@@ -1079,25 +1079,19 @@ impl Image {
     }
 
     pub fn to_rgb_bytes(&self, params: &ToRgbBytesParams, gamma: f32) -> Vec<u8> {
-        let mut gamma_table = InterpolTable::new();
-        for i in 0..=10 {
-            let x = (i as f32 / 10.0).powf(gamma);
-            gamma_table.add(x, 256.0 * x.powf(1.0/gamma));
-        }
-        gamma_table.prepare();
-
+        let gamma_div = 1.0/gamma as f64;
         if self.is_rgb() {
             self.r.as_slice().par_iter()
                 .zip_eq(self.g.as_slice().par_iter())
                 .zip_eq(self.b.as_slice().par_iter())
                 .map(|((&r, &g), &b)| {
-                    let mut r = gamma_table.get((r-params.r_min)*params.range) as i32;
+                    let mut r = (256.0 * fast_pow(((r-params.r_min)*params.range) as f64, gamma_div)) as i32;
                     if r < 0 { r = 0; }
                     if r > 255 { r = 255; }
-                    let mut g = gamma_table.get((g-params.g_min)*params.range) as i32;
+                    let mut g = (256.0 * fast_pow(((g-params.g_min)*params.range) as f64, gamma_div)) as i32;
                     if g < 0 { g = 0; }
                     if g > 255 { g = 255; }
-                    let mut b = gamma_table.get((b-params.b_min)*params.range) as i32;
+                    let mut b = (256.0 * fast_pow(((b-params.b_min)*params.range) as f64, gamma_div)) as i32;
                     if b < 0 { b = 0; }
                     if b > 255 { b = 255; }
                     [r as u8, g as u8, b as u8]
@@ -1107,7 +1101,7 @@ impl Image {
         } else {
             self.l.as_slice().par_iter()
                 .map(|l| {
-                    let mut l = gamma_table.get((l-params.l_min)*params.range) as i32;
+                    let mut l = (256.0 * fast_pow(((l-params.l_min)*params.range) as f64, gamma_div)) as i32;
                     if l < 0 { l = 0; }
                     if l > 255 { l = 255; }
                     let l = l as u8;

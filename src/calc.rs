@@ -329,19 +329,19 @@ fn linear_solve3(
     Some((det1/det, det2/det, det3/det))
 }
 
-pub struct Cubic {
+pub struct SquareCoeffs {
     pub a2: f64,
     pub a1: f64,
     pub a0: f64,
 }
 
-impl Cubic {
+impl SquareCoeffs {
     pub fn calc(&self, x: f64) -> f64 {
         self.a2*x*x + self.a1*x + self.a0
     }
 }
 
-pub fn cubic_ls(x_values: &[f64], y_values: &[f64]) -> Option<Cubic> {
+pub fn square_ls(x_values: &[f64], y_values: &[f64]) -> Option<SquareCoeffs> {
     assert!(x_values.len() == y_values.len());
     if x_values.len() < 3 { return None; }
 
@@ -372,7 +372,7 @@ pub fn cubic_ls(x_values: &[f64], y_values: &[f64]) -> Option<Cubic> {
         sum_x,                 sum_x2, sum_x3, sum_xy,
         sum_x2,                sum_x3, sum_x4, sum_x2y,
     ).map(|coeffs| {
-        Cubic {a0: coeffs.0, a1: coeffs.1, a2: coeffs.2,}
+        SquareCoeffs {a0: coeffs.0, a1: coeffs.1, a2: coeffs.2,}
     })
 }
 
@@ -380,66 +380,9 @@ pub fn linear_interpol(x: f64, x1: f64, x2: f64, y1: f64, y2: f64) -> f64 {
     (x - x1) * (y2 - y1) / (x2 - x1) + y1
 }
 
-struct InterpolTableItem {
-    x: f32,
-    a: f32,
-    b: f32,
-}
-
-impl InterpolTableItem {
-    fn get(&self, x: f32) -> f32 {
-        self.a * x + self.b
-    }
-}
-
-pub struct InterpolTable {
-    data: Vec<(f32, f32)>,
-    items: Vec<InterpolTableItem>,
-    min_x: f32,
-}
-
-impl InterpolTable {
-    pub fn new() -> InterpolTable {
-        InterpolTable {
-            data: Vec::new(),
-            items: Vec::new(),
-            min_x: 0.0,
-        }
-    }
-
-    pub fn add(&mut self, x: f32, y: f32) {
-        self.data.push((x, y));
-    }
-
-    pub fn prepare(&mut self) {
-        self.data.sort_by(|i1, i2| cmp_f32(&i1.0, &i2.0));
-
-        self.items.clear();
-        for i in 0..self.data.len()-1 {
-            let i1 = &self.data[i];
-            let i2 = &self.data[i+1];
-
-            let a = (i2.1 - i1.1) / (i2.0 - i1.0);
-            let b = i1.1 - a * i1.0;
-
-            self.items.push(InterpolTableItem {
-                a, b, x: i2.0
-            });
-        }
-
-        self.min_x = self.items[0].x;
-    }
-
-    #[inline(always)]
-    pub fn get(&self, x: f32) -> f32 {
-        if x < self.min_x {
-            return self.items[0].get(x);
-        }
-        for item in self.items.iter() {
-            if x <= item.x {
-                return item.get(x);
-            }
-        }
-        self.items[self.items.len()-1].get(x)
-    }
+pub fn fast_pow(a: f64, b: f64) -> f64 {
+    if a < 0.0 { return 0.0; }
+    let tmp = a.to_bits() as i64;
+    let tmp2 = (b * (tmp - 4606921280493453312_i64) as f64) as i64 + 4606921280493453312_i64;
+    f64::from_bits(tmp2 as u64)
 }

@@ -204,7 +204,7 @@ pub fn calc_image_layer_bg(image: &ImageLayerF32, mask: &ImageMask) -> anyhow::R
         if x_values.len() < 3 { continue; }
 
         let x = x_sum / x_values.len() as i64;
-        let col_coeffs = cubic_ls(&x_values, &y_values).ok_or_else(|| anyhow::anyhow!("cubic_ls"))?;
+        let col_coeffs = square_ls(&x_values, &y_values).ok_or_else(|| anyhow::anyhow!("cubic_ls"))?;
         cols.push(BgCol { coeffs: col_coeffs, x: x as f64 });
     }
 
@@ -212,7 +212,7 @@ pub fn calc_image_layer_bg(image: &ImageLayerF32, mask: &ImageMask) -> anyhow::R
 }
 
 struct BgCol {
-    coeffs: Cubic,
+    coeffs: SquareCoeffs,
     x: f64,
 }
 
@@ -235,7 +235,7 @@ impl BgCols {
                 x_values.push(col.x);
                 y_values.push(col.coeffs.calc(y as f64));
             }
-            let coeffs = cubic_ls(&x_values, &y_values)
+            let coeffs = square_ls(&x_values, &y_values)
                 .ok_or_else(|| anyhow::anyhow!("cubic_ls"))?;
             for (x, v) in img.iter_row_mut(y).enumerate() {
                 let bg = coeffs.calc(x as f64) as f32;
