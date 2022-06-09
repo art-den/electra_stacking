@@ -1,8 +1,9 @@
 use std::{path::*, io::*, fs::*};
 use std::sync::{*, mpsc, atomic::{AtomicBool, Ordering}};
 use anyhow::bail;
-use byteorder::*;
+use bitstream_io::{BigEndian, BitReader};
 use crate::{
+    compression::*,
     image::*,
     calc::*,
     progress::*,
@@ -237,7 +238,8 @@ where
     }
 
     struct FileData {
-        file: BufReader<File>,
+        reader: BitReader<BufReader<File>, BigEndian>,
+        decompress: ValuesDecompressor,
     }
 
     let mut opened_files = Vec::new();
@@ -254,7 +256,12 @@ where
         } else {
             first_image_info = Some(image_info.clone());
         }
-        opened_files.push(FileData{ file });
+
+        let reader = BitReader::endian(file, BigEndian);
+        opened_files.push(FileData {
+            reader,
+            decompress: ValuesDecompressor::new(),
+        });
         temp_file_list.add(file_path);
     }
 
@@ -275,7 +282,7 @@ where
 
         data_to_calc.clear();
         for f in opened_files.iter_mut() {
-            let value = f.file.read_f32::<BigEndian>()?;
+            let value = f.decompress.read_f32(&mut f.reader)?;
             data_to_calc.push(CalcValue::new(value as f64));
         }
         *v = calc(&mut data_to_calc, calc_opts)

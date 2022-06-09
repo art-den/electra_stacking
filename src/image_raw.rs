@@ -3,10 +3,11 @@ use rayon::prelude::*;
 use serde::{Serialize, Deserialize};
 use byteorder::*;
 use bitflags::bitflags;
-use crate::{image::*, fs_utils, log_utils::*, calc::*,};
+use crate::{image::*, fs_utils, log_utils::*, calc::*, compression::*,};
+use bitstream_io::{BitWriter, BitWrite};
 
-const CALIBR_FILE_SIG: &[u8] = b"calibr-file-1";
-const MASTER_FILE_SIG: &[u8] = b"master-file-1";
+const CALIBR_FILE_SIG: &[u8] = b"calibr-file-2";
+const MASTER_FILE_SIG: &[u8] = b"master-file-2";
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq)]
 pub enum CfaColor {
@@ -333,7 +334,14 @@ impl RawImage {
     pub fn save_to_calibr_format_file(&self, file_name: &Path) -> anyhow::Result<()> {
         let mut file = BufWriter::new(File::create(file_name)?);
         self.info.write_to(&mut file)?;
-        for v in self.data.iter() { file.write_f32::<BigEndian>(*v)?; }
+        let mut writer = BitWriter::endian(&mut file, bitstream_io::BigEndian);
+        let mut compr = ValuesCompressor::new();
+        for v in self.data.iter() {
+            compr.write_f32(*v, &mut writer)?;
+        }
+        compr.flush(&mut writer)?;
+        writer.write(32, 0)?;
+        writer.flush()?;
         Ok(())
     }
 
@@ -363,7 +371,6 @@ impl RawImage {
         for v in image.iter_mut() { *v = file.read_f32::<BigEndian>()?; }
         Ok(RawImage{ info, data: image })
     }
-
 
     pub fn demosaic_linear(&self, fast: bool) -> anyhow::Result<Image> {
         if self.data.is_empty() {

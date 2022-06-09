@@ -41,11 +41,26 @@ impl ValuesCompressor {
             .map(|v| v.leading_zeros())
             .min()
             .unwrap_or(0);
-        let mut max_len = 32-min_lz;
+
+        let min_tz = self.data
+            .iter()
+            .map(|v| v.trailing_zeros())
+            .min()
+            .unwrap_or(0);
+
+        let mut max_len = 32-min_lz.max(min_tz);
         if max_len == 0 { max_len = 1; }
-        writer.write(5, max_len-1)?;
-        for v in self.data {
-            writer.write(max_len, v)?;
+
+        if min_lz >= min_tz {
+            writer.write(6, max_len-1)?;
+            for v in self.data {
+                writer.write(max_len, v)?;
+            }
+        } else {
+            writer.write(6, 32|(max_len-1))?;
+            for v in self.data {
+                writer.write(max_len, v >> min_tz)?;
+            }
         }
         self.data_ptr = 0;
         Ok(())
@@ -74,10 +89,20 @@ impl ValuesDecompressor {
     pub fn read_u32<T: BitRead>(&mut self, reader: &mut T) -> std::io::Result<u32> {
         if self.values_ptr == F32_COMPR_BUF_SIZE {
             self.values_ptr = 0;
-            let len = reader.read::<u32>(5)? + 1;
-            for v in &mut self.values {
-                self.prev_value ^= reader.read::<u32>(len)?;
-                *v = self.prev_value;
+            let tz_and_len = reader.read::<u32>(6)?;
+            let use_lz = (tz_and_len & 32) == 0;
+            let len = (tz_and_len & 31) + 1;
+            if use_lz {
+                for v in &mut self.values {
+                    self.prev_value ^= reader.read::<u32>(len)?;
+                    *v = self.prev_value;
+                }
+            } else {
+                let shift = 32-len;
+                for v in &mut self.values {
+                    self.prev_value ^= reader.read::<u32>(len)? << shift;
+                    *v = self.prev_value;
+                }
             }
         }
         let result = self.values[self.values_ptr];
