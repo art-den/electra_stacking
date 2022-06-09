@@ -201,8 +201,7 @@ where
                 }
                 let raw_res = RawImage::load_camera_raw_file(
                     file_path,
-                    load_raw_flags,
-                    Some(&disk_access_mutex)
+                    load_raw_flags
                 );
                 let mut raw = match raw_res {
                     Ok(raw) => raw,
@@ -319,6 +318,7 @@ struct SaveTempFileData {
     file_name:    PathBuf,
     image:        Image,
     save_aligned: SaveAlignedImageMode,
+    orig_fn:      PathBuf,
 }
 
 fn save_temp_file(mut args: SaveTempFileData) -> anyhow::Result<()> {
@@ -370,16 +370,18 @@ pub fn create_temp_light_files(
     )?;
 
     let (save_tx, save_rx) = mpsc::sync_channel::<SaveTempFileData>(5);
-    let cur_result = Mutex::new(anyhow::Result::<()>::Ok(()));
+    let cur_result = Arc::new(Mutex::new(anyhow::Result::<()>::Ok(())));
 
     progress.lock().unwrap().set_total(files_list.len());
-    let disk_access_mutex = Mutex::new(());
 
-    thread_pool.scope(|s| {
-        s.spawn(|_| {
+    let save_thread = {
+        let cur_result = Arc::clone(&cur_result);
+        let progress = Arc::clone(&progress);
+        std::thread::spawn(move || {
             let save_rx = save_rx;
             while let Ok(item) = save_rx.recv() {
                 let file_name = item.file_name.clone();
+                let org_fn = item.orig_fn.clone();
                 let res = save_temp_file(item);
                 if let Err(err) = res {
                     *cur_result.lock().unwrap() = Err(anyhow::anyhow!(
@@ -389,10 +391,13 @@ pub fn create_temp_light_files(
                     ));
                     break;
                 }
+                progress.lock().unwrap().progress(true, extract_file_name(&org_fn));
             }
             log::info!("Exiting from save thread...");
-        });
+        })
+    };
 
+    thread_pool.scope(|s| {
         for file in files_list.iter() {
             let save_tx = save_tx.clone();
             s.spawn(|_| {
@@ -407,7 +412,6 @@ pub fn create_temp_light_files(
                     ref_data,
                     bin,
                     files_to_del_later,
-                    &disk_access_mutex,
                     result_list,
                     save_tx,
                     save_aligned
@@ -420,16 +424,18 @@ pub fn create_temp_light_files(
                     ));
                     return;
                 }
-                progress.lock().unwrap().progress(true, extract_file_name(file));
             });
         }
 
         drop(save_tx);
     });
 
+    save_thread.join().expect("save_thread.join()");
+
     result_list.lock().unwrap().sort_by_key(|f| (f.group_idx, f.file_name.clone()));
 
-    cur_result.into_inner()?
+    Arc::try_unwrap(cur_result).unwrap().into_inner()?
+
 }
 
 fn create_temp_file_from_light_file(
@@ -439,22 +445,22 @@ fn create_temp_file_from_light_file(
     ref_data:           &RefBgData,
     bin:                usize,
     files_to_del_later: &Mutex<FilesToDeleteLater>,
-    disk_access_mutex:  &Mutex<()>,
     result_list:        &Mutex<Vec<TempFileData>>,
     save_tx:            mpsc::SyncSender<SaveTempFileData>,
     save_aligned:       SaveAlignedImageMode,
 ) -> anyhow::Result<()> {
     let file_total_log = TimeLogger::start();
 
+    log::info!("loading light file {}...", file.to_str().unwrap_or(""));
     let load_log = TimeLogger::start();
     let mut light_file = LightFile::load_and_calc_params(
         file,
         cal_data,
-        Some(disk_access_mutex),
           LoadLightFlags::STARS
         | LoadLightFlags::NOISE,
         bin
     )?;
+    log::info!("loaded light file {}!", file.to_str().unwrap_or(""));
     load_log.log("loading light file TOTAL");
 
     log::info!("noise = {:.8}", light_file.noise);
@@ -498,11 +504,14 @@ fn create_temp_file_from_light_file(
         nan_log.log("check_contains_nan");
 
         let temp_file_name = file.with_extension("temp_light_data");
+        log::info!("Sending image into saving queue...");
         save_tx.send(SaveTempFileData{
             file_name:    temp_file_name.clone(),
+            orig_fn:      file.to_path_buf(),
             image:        light_file.image,
             save_aligned,
         })?;
+        log::info!("Sending image into saving queue... OK!");
 
         files_to_del_later.lock().unwrap().add(&temp_file_name);
         result_list.lock().unwrap().push(TempFileData{

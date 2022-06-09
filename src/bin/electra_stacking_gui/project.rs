@@ -761,7 +761,6 @@ impl ProjectGroup {
                     let load_light_file_res = LightFile::load_and_calc_params(
                         &file_name,
                         &cal_data,
-                        None,
                         LoadLightFlags::STARS
                         | LoadLightFlags::NOISE
                         | LoadLightFlags::BACKGROUND

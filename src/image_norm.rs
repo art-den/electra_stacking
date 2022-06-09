@@ -294,7 +294,6 @@ impl RefBgData {
         let image = LightFile::load_and_calc_params(
             ref_file_name,
             cal_data,
-            None,
             LoadLightFlags::STARS,
             bin
         )?;

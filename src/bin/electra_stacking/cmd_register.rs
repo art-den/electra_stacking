@@ -45,7 +45,6 @@ pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
         options.master_bias.as_deref()
     )?);
 
-    let disk_access_mutex = Arc::new(Mutex::new(()));
     let thread_pool = rayon::ThreadPoolBuilder::new()
         .num_threads(options.num_tasks)
         .build()?;
@@ -59,7 +58,6 @@ pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
                 let light_file = LightFile::load_and_calc_params(
                     file_name,
                     &cal_data,
-                    Some(&disk_access_mutex),
                     LoadLightFlags::STARS
                     | LoadLightFlags::NOISE
                     | LoadLightFlags::BACKGROUND,

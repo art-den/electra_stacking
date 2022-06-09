@@ -25,7 +25,6 @@ impl LightFile {
     pub fn load_and_calc_params(
         file_name:  &Path,
         cal_data:   &CalibrationData,
-        disk_mutex: Option<&std::sync::Mutex<()>>,
         flags:      LoadLightFlags,
         bin:        usize,
     ) -> anyhow::Result<LightFile> {
@@ -37,7 +36,6 @@ impl LightFile {
             load_raw_light_file(
                 file_name,
                 cal_data,
-                disk_mutex,
                 flags.contains(LoadLightFlags::FAST_DEMOSAIC)
             )?
         };
@@ -160,7 +158,6 @@ fn check_raw_data(
 fn load_raw_light_file(
     file_name:     &Path,
     cal_data:      &CalibrationData,
-    disk_mutex:    Option<&std::sync::Mutex<()>>,
     fast_demosaic: bool,
 ) -> anyhow::Result<SrcImageData> {
     // load raw file
@@ -168,8 +165,7 @@ fn load_raw_light_file(
     let mut raw_image = RawImage::load_camera_raw_file(
         file_name,
           RawLoadFlags::EXTRACT_BLACK
-        | RawLoadFlags::INF_OVEREXPOSURES,
-        disk_mutex
+        | RawLoadFlags::INF_OVEREXPOSURES
     )?;
     raw_log.log("loading raw image");
 
@@ -218,12 +214,14 @@ fn load_raw_light_file(
 }
 
 #[inline(never)]
-fn calc_noise(grey_image: &ImageLayerF32) -> f64 {
-    let mut temp_values = Vec::with_capacity(grey_image.as_slice().len());
-    for (b1, b2, v, a1, a2) in grey_image.iter().copied().tuple_windows() {
+fn calc_noise(image: &ImageLayerF32) -> f64 {
+    let mut temp_values = Vec::with_capacity(image.as_slice().len());
+    for (b1, b2, v, a1, a2) in image.iter().copied().tuple_windows() {
         let back = (b1 + b2 + a1 + a2) * 0.25;
         let diff = v - back;
-        temp_values.push(diff*diff);
+        if !diff.is_nan() && !diff.is_infinite() {
+            temp_values.push(diff*diff);
+        }
     }
 
     // use lower 25% of noise_values to calc noise
@@ -236,24 +234,25 @@ fn calc_noise(grey_image: &ImageLayerF32) -> f64 {
     f64::sqrt(sum / pos as f64) * PART as f64
 }
 
-fn calc_background(grey_image: &ImageLayerF32) -> f32 {
-    let grey_slice = grey_image.as_slice();
-    let mut temp_values = Vec::new();
-    temp_values.resize(grey_slice.len(), 0.0);
-    temp_values.copy_from_slice(grey_slice);
+fn calc_background(image: &ImageLayerF32) -> f32 {
+    let mut temp_values = Vec::with_capacity(image.as_slice().len());
+    for v in image.as_slice() { if !v.is_infinite() {
+        temp_values.push(*v);
+    }}
     let pos = temp_values.len() / 4;
     *temp_values.select_nth_unstable_by(pos, cmp_f32).1
 }
 
-fn calc_sharpness(grey_image: &ImageLayerF32) -> f32 {
-    let mut high_freq = Vec::new();
-    let mut mid_freq = Vec::new();
+fn calc_sharpness(image: &ImageLayerF32) -> f32 {
+    let all_values_cnt = image.as_slice().len();
+    let mut high_freq = Vec::with_capacity(all_values_cnt);
+    let mut mid_freq = Vec::with_capacity(all_values_cnt);
     let mut calc_values = Vec::new();
 
     let mut calc_by_dir = |dir| {
         high_freq.clear();
         mid_freq.clear();
-        grey_image.foreach_row_and_col(
+        image.foreach_row_and_col(
             dir,
             |values, _, _| {
                 for (v1, v2, v3, v4, v5, v6, v7, v8, v9, v10) in values.iter().tuple_windows() {

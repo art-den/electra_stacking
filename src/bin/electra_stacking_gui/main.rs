@@ -1822,7 +1822,6 @@ fn preview_image_file(
         let light_file = LightFile::load_and_calc_params(
             &file_name,
             &calibr_data,
-            None,
             load_flags,
             bin
         );
