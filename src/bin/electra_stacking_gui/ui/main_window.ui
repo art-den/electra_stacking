@@ -556,7 +556,7 @@
                 <property name="visible">True</property>
                 <property name="can-focus">True</property>
                 <property name="vexpand">True</property>
-                <property name="shadow-type">in</property>
+                <property name="kinetic-scrolling">False</property>
                 <child>
                   <object class="GtkTreeView" id="project_tree">
                     <property name="visible">True</property>
@@ -733,7 +733,6 @@
                   <object class="GtkScrolledWindow" id="preview_image_scrolled">
                     <property name="visible">True</property>
                     <property name="can-focus">True</property>
-                    <property name="shadow-type">in</property>
                     <property name="kinetic-scrolling">False</property>
                     <child>
                       <placeholder/>

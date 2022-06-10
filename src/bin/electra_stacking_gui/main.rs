@@ -552,635 +552,6 @@ struct MainWindowObjects {
 
 type MainWindowObjectsPtr = Rc::<MainWindowObjects>;
 
-// widgets -> config
-fn assign_config(objects: &MainWindowObjectsPtr) {
-    let mut config = objects.config.borrow_mut();
-    config.prj_tree_width = objects.prj_img_paned.position();
-
-    if objects.mi_dark_theme.is_active() {
-        config.theme = Theme::Dark;
-    } else if objects.mi_light_theme.is_active() {
-        config.theme = Theme::Light;
-    }
-
-    config.prj_tree_cols.clear();
-    for col in objects.prj_tree.columns() {
-        config.prj_tree_cols.push(PrjTreeCol {
-            width: col.width(),
-            visible: col.is_visible(),
-            pos: -1,
-        })
-    }
-
-    let (width, height) = objects.window.size();
-    config.main_win_width = width;
-    config.main_win_height = height;
-    config.main_win_maximized = objects.window.is_maximized();
-}
-
-// config -> widgets
-fn apply_config(objects: &MainWindowObjectsPtr) {
-    let config = objects.config.borrow();
-
-    match config.theme {
-        Theme::Dark     => {
-            action_dark_theme(objects);
-            objects.mi_dark_theme.set_active(true);
-        },
-        Theme::Light    => {
-            action_light_theme(objects);
-            objects.mi_light_theme.set_active(true);
-        },
-        Theme::Other(_) => (),
-    }
-
-    match config.cpu_load {
-        CpuLoad::OneThread =>
-            objects.mi_cpu_load_min.set_active(true),
-        CpuLoad::HalfCPUs =>
-            objects.mi_cpu_load_half.set_active(true),
-        CpuLoad::AllCPUs =>
-            objects.mi_cpu_load_max.set_active(true),
-        _ => {},
-    };
-
-    if config.prj_tree_width != -1 {
-        objects.prj_img_paned.set_position(config.prj_tree_width);
-    }
-
-    if config.prj_tree_cols.len() == objects.prj_tree.n_columns() as usize {
-        for (i, col) in config.prj_tree_cols.iter().enumerate() {
-            let tree_col = objects.prj_tree.column(i as i32).unwrap();
-            tree_col.set_fixed_width(col.width);
-        }
-    }
-
-    if config.main_win_width != -1 && config.main_win_height != -1 {
-        objects.window.resize(config.main_win_width, config.main_win_height);
-    }
-
-    if config.main_win_maximized {
-        objects.window.maximize();
-    }
-
-    match config.preview_scale {
-        ImgScale::Original =>
-            objects.preview_img_scale.set_active(Some(0)),
-        ImgScale::FitWindow =>
-            objects.preview_img_scale.set_active(Some(1)),
-    }
-
-    objects.preview_auto_min.set_active(config.preview_auto_min);
-    objects.preview_auto_wb.set_active(config.preview_auto_wb);
-
-    objects.preview_img_gamma.set_value(config.preview_gamma as f64);
-}
-
-#[derive(PartialEq, Clone)]
-enum SelItemType {
-    None,
-    Project,
-    Group,
-    FileType,
-    File
-}
-
-#[derive(Clone)]
-struct SelectedItem {
-    item_type: SelItemType,
-    group_idx: Option<usize>,
-    file_type: Option<ProjectFileType>,
-    files: Vec<usize>,
-}
-
-impl SelectedItem {
-    fn new_empty() -> Self {
-        Self {
-            item_type: SelItemType::None,
-            group_idx: None,
-            file_type: None,
-            files: Vec::new(),
-        }
-    }
-}
-
-fn get_selection_for_path(path: &gtk::TreePath) -> SelectedItem {
-    let mut result = SelectedItem::new_empty();
-    let values = path.indices();
-
-    if values.len() >= 2 {
-        result.group_idx = Some(values[1] as usize);
-    }
-
-    if values.len() >= 3 {
-        result.file_type = Some(match values[2] {
-            0 => ProjectFileType::Light,
-            1 => ProjectFileType::Dark,
-            2 => ProjectFileType::Flat,
-            3 => ProjectFileType::Bias,
-            _ => panic!("Wrong folder index ({})", values[2]),
-        });
-    }
-
-    if values.len() >= 4 {
-        result.files.push(values[3] as usize);
-    }
-
-    match values.len() {
-        1 => result.item_type = SelItemType::Project,
-        2 => result.item_type = SelItemType::Group,
-        3 => result.item_type = SelItemType::FileType,
-        4 => result.item_type = SelItemType::File,
-        _ => (),
-    }
-
-    result
-}
-
-fn get_current_selection(objects: &MainWindowObjectsPtr) -> SelectedItem {
-    let model = match objects.prj_tree.model() {
-        Some(model) =>
-            model.downcast::<gtk::TreeModelSort>().unwrap(),
-        None =>
-            return SelectedItem::new_empty(),
-    };
-
-    let items = objects.prj_tree
-        .selection()
-        .selected_rows().0
-        .iter()
-        .filter_map(|path| model.convert_path_to_child_path(path))
-        .map(|path| get_selection_for_path(&path))
-        .collect::<Vec<_>>();
-
-    if items.len() == 1 {
-        return items[0].clone();
-    } else if items.len() > 1 {
-        let not_file_selection = items
-            .iter()
-            .find(|sel| sel.item_type != SelItemType::File || sel.files.len() != 1);
-
-        if not_file_selection.is_some() {
-            return SelectedItem::new_empty();
-        }
-
-        let group = items[0].group_idx;
-        let file_type = items[0].file_type;
-
-        let not_same_group_or_filetype = items
-            .iter()
-            .find(|sel| sel.group_idx != group || sel.file_type != file_type);
-
-        if not_same_group_or_filetype.is_some() {
-            return SelectedItem::new_empty();
-        }
-
-        let mut result = items[0].clone();
-        for item in items.iter().skip(1) {
-            result.files.push(item.files[0]);
-        }
-
-        return result;
-    }
-
-    SelectedItem::new_empty()
-}
-
-fn action_new_project(objects: &MainWindowObjectsPtr) {
-    let can_create_new_project = ask_user_to_save_project(objects);
-    if !can_create_new_project { return; }
-    let mut new_project = Project::default();
-    new_project.make_default();
-    *objects.project.borrow_mut() = new_project;
-    update_project_tree(objects, true);
-    log::info!("New project created");
-}
-
-fn action_open_project(objects: &MainWindowObjectsPtr) {
-    let can_opened = ask_user_to_save_project(objects);
-    if !can_opened { return; }
-
-    let ff = create_file_filter_for_project();
-    let fc = gtk::FileChooserDialog::builder()
-        .action(gtk::FileChooserAction::Open)
-        .title(&gettext("Select project file to open"))
-        .filter(&ff)
-        .modal(true)
-        .transient_for(&objects.window)
-        .build();
-
-    fc.set_current_folder(objects.config.borrow().last_path.clone());
-
-    if cfg!(target_os = "windows") {
-        fc.add_buttons(&[
-            (&gettext("_Open"), gtk::ResponseType::Accept),
-            (&gettext("_Cancel"), gtk::ResponseType::Cancel),
-        ]);
-    } else {
-        fc.add_buttons(&[
-            (&gettext("_Cancel"), gtk::ResponseType::Cancel),
-            (&gettext("_Open"), gtk::ResponseType::Accept),
-        ]);
-    }
-
-    fc.connect_response(clone!(@strong objects => move |file_chooser, response| {
-        if response == gtk::ResponseType::Accept {
-            let file_name = file_chooser.file().expect("Can't get file_name");
-            let path = file_name.path().unwrap();
-
-            if let Some(cur_folder) = file_chooser.current_folder() {
-                objects.config.borrow_mut().last_path = cur_folder;
-            }
-
-            open_project(&objects, &path);
-        }
-        file_chooser.close();
-    }));
-
-    fc.show();
-}
-
-fn open_project(objects: &MainWindowObjectsPtr, path: &Path) {
-    let res = objects.project.borrow_mut().load(path);
-    if let Err(err) = res {
-        show_error_message(&err.to_string(), objects);
-        log::error!("'{}' during opening project", err.to_string());
-    } else {
-        update_project_tree(objects, true);
-        update_project_name_and_time_in_gui(objects, true, false);
-        log::info!("Project {} opened", path.to_str().unwrap_or(""));
-    }
-}
-
-fn action_save_project(objects: &MainWindowObjectsPtr) {
-    let file_name = objects.project.borrow().file_name().clone();
-    if let Some(file_name) = file_name {
-        save_project(objects, &file_name);
-    } else {
-        action_save_project_as(objects);
-    }
-}
-
-fn action_save_project_as(objects: &MainWindowObjectsPtr) {
-    let ff = create_file_filter_for_project();
-    let fc = gtk::FileChooserDialog::builder()
-        .action(gtk::FileChooserAction::Save)
-        .title(&gettext("Select project file to save"))
-        .filter(&ff)
-        .modal(true)
-        .transient_for(&objects.window)
-        .build();
-
-    if cfg!(target_os = "windows") {
-        fc.add_buttons(&[
-            (&gettext("_Save"), gtk::ResponseType::Accept),
-            (&gettext("_Cancel"), gtk::ResponseType::Cancel),
-        ]);
-    } else {
-        fc.add_buttons(&[
-            (&gettext("_Cancel"), gtk::ResponseType::Cancel),
-            (&gettext("_Save"), gtk::ResponseType::Accept),
-        ]);
-    }
-
-    if let Some(file_name) = objects.project.borrow().file_name() {
-        let _ = fc.set_file(&gio::File::for_path(file_name));
-    } else {
-        fc.set_current_folder(objects.config.borrow().last_path.clone());
-    }
-
-    let resp = fc.run();
-    fc.close();
-
-    if resp == gtk::ResponseType::Accept {
-        let file_name = fc.file().expect("Can't get file_name");
-        let path = file_name
-            .path()
-            .unwrap()
-            .with_extension("es_proj");
-        let project_name = path.with_extension("")
-            .file_name()
-            .and_then(|v| v.to_str())
-            .unwrap_or("")
-            .to_string();
-
-        if let Some(cur_folder) = fc.current_folder() {
-            objects.config.borrow_mut().last_path = cur_folder;
-        }
-
-        let mut new_conf = objects.project.borrow().config().clone();
-        new_conf.name = Some(project_name);
-        objects.project.borrow_mut().set_config(new_conf);
-
-        let ok = save_project(objects, &path);
-        if !ok { return; }
-
-        update_project_name_and_time_in_gui(objects, true, true);
-    }
-}
-
-fn save_project(objects: &MainWindowObjectsPtr, file_name: &Path) -> bool {
-    let res = objects.project.borrow_mut().save(file_name);
-    if let Err(err) = res {
-        show_error_message(&err.to_string(), objects);
-        log::error!("'{}' during saving project", err.to_string());
-        false
-    } else {
-        log::info!("Project {} saved", file_name.to_str().unwrap_or(""));
-        true
-    }
-}
-
-fn action_exit(objects: &MainWindowObjectsPtr) {
-    log::info!("Exit called");
-    objects.window.close();
-}
-
-fn action_add_light_files(objects: &MainWindowObjectsPtr) {
-    select_and_add_files_into_project(
-        objects,
-        ProjectFileType::Light,
-        gettext("Select LIGHT files"),
-        gettext("Add light files"),
-    );
-}
-
-fn action_add_dark_files(objects: &MainWindowObjectsPtr) {
-    select_and_add_files_into_project(
-        objects,
-        ProjectFileType::Dark,
-        gettext("Select DARK files"),
-        gettext("Add dark files"),
-    );
-}
-
-fn action_add_flat_files(objects: &MainWindowObjectsPtr) {
-    select_and_add_files_into_project(
-        objects,
-        ProjectFileType::Flat,
-        gettext("Select FLAT files"),
-        gettext("Add flat files"),
-    );
-}
-
-fn action_add_bias_files(objects: &MainWindowObjectsPtr) {
-    select_and_add_files_into_project(
-        objects,
-        ProjectFileType::Bias,
-        gettext("Select BIAS files"),
-        gettext("Add bias files"),
-    );
-}
-
-fn select_and_add_files_into_project(
-    objects:          &MainWindowObjectsPtr,
-    file_type:        ProjectFileType,
-    files_dialog_cap: String,
-    select_group_cap: String,
-) {
-    let fc = create_src_file_select_dialog(files_dialog_cap, objects, true);
-    fc.connect_response(clone!(@strong objects => move |file_chooser, response| {
-        if response == gtk::ResponseType::Accept {
-            let group_index = get_active_group_index(&objects, &select_group_cap).
-                or_else(|| {
-                    if objects.project.borrow().groups().is_empty() {
-                        Some(0)
-                    } else {
-                        None
-                    }
-                });
-
-            if let Some(group_index) = group_index {
-                let user_selected_files = get_filenames_from_file_vec(file_chooser.files());
-                log::info!("Dialog '{}' confirmed", select_group_cap);
-                add_files_into_project(
-                    user_selected_files,
-                    &objects,
-                    group_index,
-                    file_type
-                );
-            }
-            if let Some(cur_folder) = file_chooser.current_folder() {
-                objects.config.borrow_mut().last_path = cur_folder;
-            }
-        }
-        file_chooser.close();
-    }));
-    fc.show();
-
-    fn add_files_into_project(
-        mut file_names:   Vec<PathBuf>,
-        objects:          &MainWindowObjectsPtr,
-        group_iter_index: usize,
-        file_type:        ProjectFileType
-    ) {
-        {
-            let project = objects.project.borrow();
-            let group = project.groups().get(group_iter_index);
-            if let Some(group) = group {
-                let files = &group.get_file_list_by_type(file_type);
-                files.retain_files_if_they_are_not_here(&mut file_names);
-            }
-        }
-
-        exec_and_show_progress(
-            objects,
-            move |progress, cancel_flag| {
-                load_src_file_info_for_files(&file_names, cancel_flag, progress)
-            },
-            move |objects, result| {
-                let mut project = objects.project.borrow_mut();
-                project.add_default_group_if_empty();
-                let group = project.group_by_index_mut(group_iter_index);
-                let files = &mut group.file_list_by_type_mut(file_type);
-                log::info!("Added {} files", result.len());
-                files.add_files_from_src_file_info(result);
-                drop(project);
-                update_project_tree(objects, true);
-            }
-        );
-    }
-}
-
-fn create_file_filter_for_project() -> gtk::FileFilter {
-    let ff = gtk::FileFilter::new();
-    ff.set_name(Some("Electra stacking project"));
-    ff.add_pattern("*.es_proj");
-    ff
-}
-
-fn create_src_file_select_dialog(
-    title:       String,
-    objects:     &MainWindowObjectsPtr,
-    light_files: bool
-) -> gtk::FileChooserDialog {
-    let ff = gtk::FileFilter::new();
-    ff.set_name(Some("Source files"));
-    let add_exts = |exts| {
-        for ext in exts {
-            let mut pattern = format!("*.{}", ext).to_ascii_lowercase();
-            ff.add_pattern(&pattern);
-            pattern = pattern.to_ascii_uppercase();
-            ff.add_pattern(&pattern);
-        }
-    };
-    add_exts(RAW_EXTS);
-    if light_files {
-        add_exts(TIF_EXTS);
-        add_exts(FIT_EXTS);
-    }
-    let fc = FileChooserDialogBuilder::new()
-        .action(gtk::FileChooserAction::Open)
-        .title(&title)
-        .filter(&ff)
-        .modal(true)
-        .transient_for(&objects.window)
-        .select_multiple(true)
-        .build();
-
-    fc.set_current_folder(objects.config.borrow().last_path.clone());
-
-    if cfg!(target_os = "windows") {
-        fc.add_buttons(&[
-            (&gettext("_Open"), gtk::ResponseType::Accept),
-            (&gettext("_Cancel"), gtk::ResponseType::Cancel),
-        ]);
-    } else {
-        fc.add_buttons(&[
-            (&gettext("_Cancel"), gtk::ResponseType::Cancel),
-            (&gettext("_Open"), gtk::ResponseType::Accept),
-        ]);
-    }
-
-    fc
-}
-
-fn get_filenames_from_file_vec(files: Vec<gio::File>) -> Vec<PathBuf> {
-    files
-        .iter()
-        .filter_map(|f| f.path())
-        .collect()
-}
-
-fn action_register(objects: &MainWindowObjectsPtr) {
-    log::info!("Registering light files started");
-    let project_json = objects.project.borrow().to_json_string();
-    let cpu_load = objects.config.borrow().cpu_load;
-    exec_and_show_progress(
-        objects,
-        move |progress, cancel_flag| {
-            let project = Project::from_json_string(&project_json);
-            project.register_light_files(progress, cancel_flag, cpu_load)
-        },
-        move |objects, result| {
-            objects.project.borrow_mut().update_light_files_reg_info(result);
-            update_project_tree(objects, true);
-        }
-    );
-}
-
-fn action_light_theme(_: &MainWindowObjectsPtr) {
-    if cfg!(target_os = "windows") {
-        let settings = gtk::Settings::default().unwrap();
-        settings.set_property("gtk-theme-name", "Adwaita");
-        log::info!("Light theme selected");
-    }
-}
-
-fn action_dark_theme(_: &MainWindowObjectsPtr) {
-    if cfg!(target_os = "windows") {
-        let settings = gtk::Settings::default().unwrap();
-        settings.set_property("gtk-theme-name", "Skeuos-Blue-Dark");
-        log::info!("Dark theme selected");
-    }
-}
-
-fn show_message(
-    objects:  &MainWindowObjects,
-    title:    &str,
-    text:     &str,
-    msg_type: gtk::MessageType,
-) {
-    let dialog = gtk::MessageDialog::builder()
-        .transient_for(&objects.window)
-        .title(title)
-        .text(text)
-        .modal(true)
-        .message_type(msg_type)
-        .buttons(gtk::ButtonsType::Close)
-        .build();
-
-    dialog.show();
-
-    dialog.connect_response(move |dlg, _| {
-        dlg.close();
-    });
-}
-
-fn show_error_message(text: &str, objects: &MainWindowObjects) {
-    log::error!("Show error message: {}", text);
-    show_message(
-        objects,
-        &gettext("Error"),
-        text,
-        gtk::MessageType::Error,
-    );
-}
-fn get_project_title(project: &Project, markup: bool) -> String {
-    let mut result = project.config().name
-        .clone()
-        .unwrap_or_else(|| gettext("Unnamed project"));
-
-    if markup {
-        result = format!("<b>{}</b>", result);
-    }
-
-    if project.config().image_size == ImageSize::Bin2x2 {
-        result.push_str(" - bin 2x2");
-    }
-
-    let time = project.calc_time();
-    if time != 0.0 {
-        result.push_str(&format!(
-            " - {} total",
-            seconds_to_total_time_str(time)
-        ));
-    }
-
-    result
-}
-
-fn update_project_name_and_time_in_gui(objects: &MainWindowObjectsPtr, title: bool, tree: bool) {
-    if title {
-        let app_descr_text = {
-            let transl_descr = gettext("APP_DESCRIPTION");
-            if transl_descr == "APP_DESCRIPTION" {
-                env!("CARGO_PKG_DESCRIPTION").to_string()
-            } else {
-                transl_descr
-            }
-        };
-        objects.window.set_title(&format!(
-            "[{}] - Electra Stacking - {} v{}",
-            get_project_title(&objects.project.borrow(), false),
-            app_descr_text,
-            env!("CARGO_PKG_VERSION"),
-        ));
-    }
-
-    if tree {
-        update_project_tree(objects, false);
-    }
-}
-
-fn enable_progress_bar(objects: &MainWindowObjectsPtr, enable: bool) {
-    objects.progress_cont.set_visible(enable);
-    if enable {
-        objects.progress_bar.set_fraction(0.0);
-        objects.progress_bar.set_text(None);
-    }
-}
-
 const COLUMN_FILE_NAME:       u32 = 0;
 const COLUMN_FILE_PATH:       u32 = 1;
 const COLUMN_FILE_TIME:       u32 = 2;
@@ -1610,6 +981,803 @@ fn enable_actions(objects: &MainWindowObjectsPtr) {
     objects.mi_cpu_load.set_sensitive(!is_processing);
 }
 
+fn create_file_filter_for_project() -> gtk::FileFilter {
+    let ff = gtk::FileFilter::new();
+    ff.set_name(Some("Electra stacking project"));
+    ff.add_pattern("*.es_proj");
+    ff
+}
+
+fn show_message(
+    objects:  &MainWindowObjects,
+    title:    &str,
+    text:     &str,
+    msg_type: gtk::MessageType,
+) {
+    let dialog = gtk::MessageDialog::builder()
+        .transient_for(&objects.window)
+        .title(title)
+        .text(text)
+        .modal(true)
+        .message_type(msg_type)
+        .buttons(gtk::ButtonsType::Close)
+        .build();
+
+    dialog.show();
+
+    dialog.connect_response(move |dlg, _| {
+        dlg.close();
+    });
+}
+
+fn show_error_message(text: &str, objects: &MainWindowObjects) {
+    log::error!("Show error message: {}", text);
+    show_message(
+        objects,
+        &gettext("Error"),
+        text,
+        gtk::MessageType::Error,
+    );
+}
+
+fn confirm_dialog<F: Fn() + 'static>(
+    objects: &MainWindowObjectsPtr,
+    text:    String,
+    yes_fun: F
+) -> gtk::MessageDialog {
+    let dialog = gtk::MessageDialog::builder()
+        .modal(true)
+        .transient_for(&objects.window)
+        .message_type(gtk::MessageType::Question)
+        .buttons(gtk::ButtonsType::OkCancel)
+        .title(&gettext("Confirmation"))
+        .text(&text)
+        .build();
+    dialog.connect_response(clone!(@strong objects => move |dialog, response| {
+        dialog.close();
+        if response == gtk::ResponseType::Ok {
+            yes_fun();
+        }
+    }));
+    dialog
+}
+
+fn get_project_title(project: &Project, markup: bool) -> String {
+    let mut result = project.config().name
+        .clone()
+        .unwrap_or_else(|| gettext("Unnamed project"));
+
+    if markup {
+        result = format!("<b>{}</b>", result);
+    }
+
+    if project.config().image_size == ImageSize::Bin2x2 {
+        result.push_str(" - bin 2x2");
+    }
+
+    let time = project.calc_time();
+    if time != 0.0 {
+        result.push_str(&format!(
+            " - {} total",
+            seconds_to_total_time_str(time)
+        ));
+    }
+
+    result
+}
+
+fn update_project_name_and_time_in_gui(objects: &MainWindowObjectsPtr, title: bool, tree: bool) {
+    if title {
+        let app_descr_text = {
+            let transl_descr = gettext("APP_DESCRIPTION");
+            if transl_descr == "APP_DESCRIPTION" {
+                env!("CARGO_PKG_DESCRIPTION").to_string()
+            } else {
+                transl_descr
+            }
+        };
+        objects.window.set_title(&format!(
+            "[{}] - Electra Stacking - {} v{}",
+            get_project_title(&objects.project.borrow(), false),
+            app_descr_text,
+            env!("CARGO_PKG_VERSION"),
+        ));
+    }
+
+    if tree {
+        update_project_tree(objects, false);
+    }
+}
+
+fn enable_progress_bar(objects: &MainWindowObjectsPtr, enable: bool) {
+    objects.progress_cont.set_visible(enable);
+    if enable {
+        objects.progress_bar.set_fraction(0.0);
+        objects.progress_bar.set_text(None);
+    }
+}
+
+fn exec_and_show_progress<R, ExecFun, OkFun> (
+    objects:  &MainWindowObjectsPtr,
+    exec_fun: ExecFun,
+    ok_fun:   OkFun
+) where
+    R:       Sized + Send + 'static,
+    ExecFun: Fn(&ProgressTs, &Arc<AtomicBool>) -> anyhow::Result<R> + Send + 'static,
+    OkFun:   Fn(&MainWindowObjectsPtr, R) + 'static
+{
+    enum UiMessage<R: Sized> {
+        ProgressStage{ text: String },
+        ProgressPercent{ text: String, percent: usize },
+        Finished(R),
+        Error(String)
+    }
+
+    let (sender, receiver) = MainContext::channel(PRIORITY_DEFAULT);
+
+    objects.process_mode_flag.set(true);
+    let cancel_flag = Arc::clone(&objects.cancel_flag);
+    cancel_flag.store(false, Ordering::Relaxed);
+
+    /* Worker */
+    thread::spawn(move || {
+        let sndr1 = sender.clone();
+        let sndr2 = sender.clone();
+        let progress = ProgressCallBack::new_ts(
+            move |text: &str| {
+                sndr1.send(UiMessage::ProgressStage {
+                    text: text.to_string(),
+                }).unwrap();
+            },
+            move |percent, text: &str| {
+                sndr2.send(UiMessage::ProgressPercent {
+                    text: text.to_string(),
+                    percent
+                }).unwrap();
+            }
+        );
+        let result = exec_fun(&progress, &cancel_flag);
+        match result {
+            Ok(result) => sender.send(UiMessage::Finished(result)).unwrap(),
+            Err(error) => sender.send(UiMessage::Error(error.to_string())).unwrap(),
+        }
+    });
+
+    /* Ui events */
+    enable_progress_bar(objects, true);
+    enable_actions(objects);
+    receiver.attach(
+        None,
+        clone!(@strong objects => move |message| {
+            match message {
+                UiMessage::ProgressStage{ text } => {
+                    objects.progress_text.set_label(&text);
+                    objects.progress_bar.set_fraction(0.0);
+                    objects.progress_bar.set_text(None);
+                    Continue(true)
+                },
+                UiMessage::ProgressPercent { text, percent } => {
+                    let text = format!("{} {}%", text, percent);
+                    objects.progress_bar.set_fraction(percent as f64 / 100.0);
+                    objects.progress_bar.set_text(Some(&text));
+                    Continue(true)
+                },
+                UiMessage::Finished(reg_info) => {
+                    objects.process_mode_flag.set(false);
+                    if objects.trying_to_close.get() {
+                        objects.window.close();
+                    } else {
+                        enable_actions(&objects);
+                        enable_progress_bar(&objects, false);
+                        ok_fun(&objects, reg_info);
+                    }
+                    Continue(false)
+                },
+                UiMessage::Error(error) => {
+                    objects.process_mode_flag.set(false);
+                    if objects.trying_to_close.get() {
+                        objects.window.close();
+                    } else {
+                        enable_actions(&objects);
+                        enable_progress_bar(&objects, false);
+                        show_error_message(&error, &objects);
+                    }
+                    Continue(false)
+                },
+            }
+        }),
+    );
+}
+
+fn handler_project_tree_checked_changed(
+    objects:     &MainWindowObjectsPtr,
+    sorted_path: gtk::TreePath,
+    checked:     bool,
+) {
+    let sorted_model = objects.prj_tree
+        .model().unwrap()
+        .downcast::<gtk::TreeModelSort>().unwrap();
+    let tree_store = sorted_model
+        .model()
+        .downcast::<gtk::TreeStore>().unwrap();
+
+    let path = sorted_model.convert_path_to_child_path(&sorted_path).unwrap();
+
+    let item = get_selection_for_path(&path);
+
+    match item {
+        SelectedItem {
+            item_type: SelItemType::Group,
+            group_idx: Some(group_idx),
+            ..
+        } => {
+            let mut project = objects.project.borrow_mut();
+            let group = project.group_by_index_mut(group_idx);
+            group.set_used(checked);
+            let iter = tree_store.iter(&path).unwrap();
+            tree_store.set(&iter, &[(COLUMN_CHECKBOX, &checked)]);
+        },
+
+        SelectedItem {
+            item_type: SelItemType::File,
+            group_idx: Some(group_idx),
+            file_type: Some(file_type),
+            files,
+            ..
+        } => {
+            let mut project = objects.project.borrow_mut();
+            let file_list = project
+                .group_by_index_mut(group_idx)
+                .file_list_by_type_mut(file_type);
+            let project_file = &mut file_list.file_by_index_mut(files[0]);
+            project_file.set_used(checked);
+            let iter = tree_store.iter(&path).unwrap();
+            tree_store.set(&iter, &[(COLUMN_CHECKBOX, &checked)]);
+        },
+        _ => {
+            return;
+        },
+    };
+
+    update_project_name_and_time_in_gui(objects, true, true);
+}
+
+// widgets -> config
+fn assign_config(objects: &MainWindowObjectsPtr) {
+    let mut config = objects.config.borrow_mut();
+    config.prj_tree_width = objects.prj_img_paned.position();
+
+    if objects.mi_dark_theme.is_active() {
+        config.theme = Theme::Dark;
+    } else if objects.mi_light_theme.is_active() {
+        config.theme = Theme::Light;
+    }
+
+    config.prj_tree_cols.clear();
+    for col in objects.prj_tree.columns() {
+        config.prj_tree_cols.push(PrjTreeCol {
+            width: col.width(),
+            visible: col.is_visible(),
+            pos: -1,
+        })
+    }
+
+    let (width, height) = objects.window.size();
+    config.main_win_width = width;
+    config.main_win_height = height;
+    config.main_win_maximized = objects.window.is_maximized();
+}
+
+// config -> widgets
+fn apply_config(objects: &MainWindowObjectsPtr) {
+    let config = objects.config.borrow();
+
+    match config.theme {
+        Theme::Dark     => {
+            action_dark_theme(objects);
+            objects.mi_dark_theme.set_active(true);
+        },
+        Theme::Light    => {
+            action_light_theme(objects);
+            objects.mi_light_theme.set_active(true);
+        },
+        Theme::Other(_) => (),
+    }
+
+    match config.cpu_load {
+        CpuLoad::OneThread =>
+            objects.mi_cpu_load_min.set_active(true),
+        CpuLoad::HalfCPUs =>
+            objects.mi_cpu_load_half.set_active(true),
+        CpuLoad::AllCPUs =>
+            objects.mi_cpu_load_max.set_active(true),
+        _ => {},
+    };
+
+    if config.prj_tree_width != -1 {
+        objects.prj_img_paned.set_position(config.prj_tree_width);
+    }
+
+    if config.prj_tree_cols.len() == objects.prj_tree.n_columns() as usize {
+        for (i, col) in config.prj_tree_cols.iter().enumerate() {
+            let tree_col = objects.prj_tree.column(i as i32).unwrap();
+            tree_col.set_fixed_width(col.width);
+        }
+    }
+
+    if config.main_win_width != -1 && config.main_win_height != -1 {
+        objects.window.resize(config.main_win_width, config.main_win_height);
+    }
+
+    if config.main_win_maximized {
+        objects.window.maximize();
+    }
+
+    match config.preview_scale {
+        ImgScale::Original =>
+            objects.preview_img_scale.set_active(Some(0)),
+        ImgScale::FitWindow =>
+            objects.preview_img_scale.set_active(Some(1)),
+    }
+
+    objects.preview_auto_min.set_active(config.preview_auto_min);
+    objects.preview_auto_wb.set_active(config.preview_auto_wb);
+
+    objects.preview_img_gamma.set_value(config.preview_gamma as f64);
+}
+
+#[derive(PartialEq, Clone)]
+enum SelItemType {
+    None,
+    Project,
+    Group,
+    FileType,
+    File
+}
+
+#[derive(Clone)]
+struct SelectedItem {
+    item_type: SelItemType,
+    group_idx: Option<usize>,
+    file_type: Option<ProjectFileType>,
+    files: Vec<usize>,
+}
+
+impl SelectedItem {
+    fn new_empty() -> Self {
+        Self {
+            item_type: SelItemType::None,
+            group_idx: None,
+            file_type: None,
+            files: Vec::new(),
+        }
+    }
+}
+
+fn get_selection_for_path(path: &gtk::TreePath) -> SelectedItem {
+    let mut result = SelectedItem::new_empty();
+    let values = path.indices();
+
+    if values.len() >= 2 {
+        result.group_idx = Some(values[1] as usize);
+    }
+
+    if values.len() >= 3 {
+        result.file_type = Some(match values[2] {
+            0 => ProjectFileType::Light,
+            1 => ProjectFileType::Dark,
+            2 => ProjectFileType::Flat,
+            3 => ProjectFileType::Bias,
+            _ => panic!("Wrong folder index ({})", values[2]),
+        });
+    }
+
+    if values.len() >= 4 {
+        result.files.push(values[3] as usize);
+    }
+
+    match values.len() {
+        1 => result.item_type = SelItemType::Project,
+        2 => result.item_type = SelItemType::Group,
+        3 => result.item_type = SelItemType::FileType,
+        4 => result.item_type = SelItemType::File,
+        _ => (),
+    }
+
+    result
+}
+
+fn get_current_selection(objects: &MainWindowObjectsPtr) -> SelectedItem {
+    let model = match objects.prj_tree.model() {
+        Some(model) =>
+            model.downcast::<gtk::TreeModelSort>().unwrap(),
+        None =>
+            return SelectedItem::new_empty(),
+    };
+
+    let items = objects.prj_tree
+        .selection()
+        .selected_rows().0
+        .iter()
+        .filter_map(|path| model.convert_path_to_child_path(path))
+        .map(|path| get_selection_for_path(&path))
+        .collect::<Vec<_>>();
+
+    if items.len() == 1 {
+        return items[0].clone();
+    } else if items.len() > 1 {
+        let not_file_selection = items
+            .iter()
+            .find(|sel| sel.item_type != SelItemType::File || sel.files.len() != 1);
+
+        if not_file_selection.is_some() {
+            return SelectedItem::new_empty();
+        }
+
+        let group = items[0].group_idx;
+        let file_type = items[0].file_type;
+
+        let not_same_group_or_filetype = items
+            .iter()
+            .find(|sel| sel.group_idx != group || sel.file_type != file_type);
+
+        if not_same_group_or_filetype.is_some() {
+            return SelectedItem::new_empty();
+        }
+
+        let mut result = items[0].clone();
+        for item in items.iter().skip(1) {
+            result.files.push(item.files[0]);
+        }
+
+        return result;
+    }
+
+    SelectedItem::new_empty()
+}
+
+fn action_new_project(objects: &MainWindowObjectsPtr) {
+    let can_create_new_project = ask_user_to_save_project(objects);
+    if !can_create_new_project { return; }
+    let mut new_project = Project::default();
+    new_project.make_default();
+    *objects.project.borrow_mut() = new_project;
+    update_project_tree(objects, true);
+    log::info!("New project created");
+}
+
+fn action_open_project(objects: &MainWindowObjectsPtr) {
+    let can_opened = ask_user_to_save_project(objects);
+    if !can_opened { return; }
+
+    let ff = create_file_filter_for_project();
+    let fc = gtk::FileChooserDialog::builder()
+        .action(gtk::FileChooserAction::Open)
+        .title(&gettext("Select project file to open"))
+        .filter(&ff)
+        .modal(true)
+        .transient_for(&objects.window)
+        .build();
+
+    fc.set_current_folder(objects.config.borrow().last_path.clone());
+
+    if cfg!(target_os = "windows") {
+        fc.add_buttons(&[
+            (&gettext("_Open"), gtk::ResponseType::Accept),
+            (&gettext("_Cancel"), gtk::ResponseType::Cancel),
+        ]);
+    } else {
+        fc.add_buttons(&[
+            (&gettext("_Cancel"), gtk::ResponseType::Cancel),
+            (&gettext("_Open"), gtk::ResponseType::Accept),
+        ]);
+    }
+
+    fc.connect_response(clone!(@strong objects => move |file_chooser, response| {
+        if response == gtk::ResponseType::Accept {
+            let file_name = file_chooser.file().expect("Can't get file_name");
+            let path = file_name.path().unwrap();
+
+            if let Some(cur_folder) = file_chooser.current_folder() {
+                objects.config.borrow_mut().last_path = cur_folder;
+            }
+
+            open_project(&objects, &path);
+        }
+        file_chooser.close();
+    }));
+
+    fc.show();
+}
+
+fn open_project(objects: &MainWindowObjectsPtr, path: &Path) {
+    let res = objects.project.borrow_mut().load(path);
+    if let Err(err) = res {
+        show_error_message(&err.to_string(), objects);
+        log::error!("'{}' during opening project", err.to_string());
+    } else {
+        update_project_tree(objects, true);
+        update_project_name_and_time_in_gui(objects, true, false);
+        log::info!("Project {} opened", path.to_str().unwrap_or(""));
+    }
+}
+
+fn action_save_project(objects: &MainWindowObjectsPtr) {
+    let file_name = objects.project.borrow().file_name().clone();
+    if let Some(file_name) = file_name {
+        save_project(objects, &file_name);
+    } else {
+        action_save_project_as(objects);
+    }
+}
+
+fn action_save_project_as(objects: &MainWindowObjectsPtr) {
+    let ff = create_file_filter_for_project();
+    let fc = gtk::FileChooserDialog::builder()
+        .action(gtk::FileChooserAction::Save)
+        .title(&gettext("Select project file to save"))
+        .filter(&ff)
+        .modal(true)
+        .transient_for(&objects.window)
+        .build();
+
+    if cfg!(target_os = "windows") {
+        fc.add_buttons(&[
+            (&gettext("_Save"), gtk::ResponseType::Accept),
+            (&gettext("_Cancel"), gtk::ResponseType::Cancel),
+        ]);
+    } else {
+        fc.add_buttons(&[
+            (&gettext("_Cancel"), gtk::ResponseType::Cancel),
+            (&gettext("_Save"), gtk::ResponseType::Accept),
+        ]);
+    }
+
+    if let Some(file_name) = objects.project.borrow().file_name() {
+        let _ = fc.set_file(&gio::File::for_path(file_name));
+    } else {
+        fc.set_current_folder(objects.config.borrow().last_path.clone());
+    }
+
+    let resp = fc.run();
+    fc.close();
+
+    if resp == gtk::ResponseType::Accept {
+        let file_name = fc.file().expect("Can't get file_name");
+        let path = file_name
+            .path()
+            .unwrap()
+            .with_extension("es_proj");
+        let project_name = path.with_extension("")
+            .file_name()
+            .and_then(|v| v.to_str())
+            .unwrap_or("")
+            .to_string();
+
+        if let Some(cur_folder) = fc.current_folder() {
+            objects.config.borrow_mut().last_path = cur_folder;
+        }
+
+        let mut new_conf = objects.project.borrow().config().clone();
+        new_conf.name = Some(project_name);
+        objects.project.borrow_mut().set_config(new_conf);
+
+        let ok = save_project(objects, &path);
+        if !ok { return; }
+
+        update_project_name_and_time_in_gui(objects, true, true);
+    }
+}
+
+fn save_project(objects: &MainWindowObjectsPtr, file_name: &Path) -> bool {
+    let res = objects.project.borrow_mut().save(file_name);
+    if let Err(err) = res {
+        show_error_message(&err.to_string(), objects);
+        log::error!("'{}' during saving project", err.to_string());
+        false
+    } else {
+        log::info!("Project {} saved", file_name.to_str().unwrap_or(""));
+        true
+    }
+}
+
+fn action_exit(objects: &MainWindowObjectsPtr) {
+    log::info!("Exit called");
+    objects.window.close();
+}
+
+fn action_add_light_files(objects: &MainWindowObjectsPtr) {
+    select_and_add_files_into_project(
+        objects,
+        ProjectFileType::Light,
+        gettext("Select LIGHT files"),
+        gettext("Add light files"),
+    );
+}
+
+fn action_add_dark_files(objects: &MainWindowObjectsPtr) {
+    select_and_add_files_into_project(
+        objects,
+        ProjectFileType::Dark,
+        gettext("Select DARK files"),
+        gettext("Add dark files"),
+    );
+}
+
+fn action_add_flat_files(objects: &MainWindowObjectsPtr) {
+    select_and_add_files_into_project(
+        objects,
+        ProjectFileType::Flat,
+        gettext("Select FLAT files"),
+        gettext("Add flat files"),
+    );
+}
+
+fn action_add_bias_files(objects: &MainWindowObjectsPtr) {
+    select_and_add_files_into_project(
+        objects,
+        ProjectFileType::Bias,
+        gettext("Select BIAS files"),
+        gettext("Add bias files"),
+    );
+}
+
+fn select_and_add_files_into_project(
+    objects:          &MainWindowObjectsPtr,
+    file_type:        ProjectFileType,
+    files_dialog_cap: String,
+    select_group_cap: String,
+) {
+    let fc = create_src_file_select_dialog(
+        files_dialog_cap,
+        objects,
+        file_type == ProjectFileType::Light
+    );
+    fc.connect_response(clone!(@strong objects => move |file_chooser, response| {
+        if response == gtk::ResponseType::Accept {
+            let group_index = get_active_group_index(&objects, &select_group_cap).
+                or_else(|| {
+                    if objects.project.borrow().groups().is_empty() {
+                        Some(0)
+                    } else {
+                        None
+                    }
+                });
+
+            if let Some(group_index) = group_index {
+                let user_selected_files = file_chooser.files().iter()
+                    .filter_map(|f| f.path())
+                    .collect();
+
+                log::info!("Dialog '{}' confirmed", select_group_cap);
+                add_files_into_project(
+                    user_selected_files,
+                    &objects,
+                    group_index,
+                    file_type
+                );
+            }
+            if let Some(cur_folder) = file_chooser.current_folder() {
+                objects.config.borrow_mut().last_path = cur_folder;
+            }
+        }
+        file_chooser.close();
+    }));
+    fc.show();
+
+    fn create_src_file_select_dialog(
+        title:       String,
+        objects:     &MainWindowObjectsPtr,
+        light_files: bool
+    ) -> gtk::FileChooserDialog {
+        let ff = gtk::FileFilter::new();
+        ff.set_name(Some("Source files"));
+        let add_exts = |exts| {
+            for ext in exts {
+                let mut pattern = format!("*.{}", ext).to_ascii_lowercase();
+                ff.add_pattern(&pattern);
+                pattern = pattern.to_ascii_uppercase();
+                ff.add_pattern(&pattern);
+            }
+        };
+        add_exts(RAW_EXTS);
+        if light_files {
+            add_exts(TIF_EXTS);
+            add_exts(FIT_EXTS);
+        }
+        let fc = FileChooserDialogBuilder::new()
+            .action(gtk::FileChooserAction::Open)
+            .title(&title)
+            .filter(&ff)
+            .modal(true)
+            .transient_for(&objects.window)
+            .select_multiple(true)
+            .build();
+
+        fc.set_current_folder(objects.config.borrow().last_path.clone());
+
+        if cfg!(target_os = "windows") {
+            fc.add_buttons(&[
+                (&gettext("_Open"), gtk::ResponseType::Accept),
+                (&gettext("_Cancel"), gtk::ResponseType::Cancel),
+            ]);
+        } else {
+            fc.add_buttons(&[
+                (&gettext("_Cancel"), gtk::ResponseType::Cancel),
+                (&gettext("_Open"), gtk::ResponseType::Accept),
+            ]);
+        }
+
+        fc
+    }
+
+    fn add_files_into_project(
+        mut file_names:   Vec<PathBuf>,
+        objects:          &MainWindowObjectsPtr,
+        group_iter_index: usize,
+        file_type:        ProjectFileType
+    ) {
+        {
+            let project = objects.project.borrow();
+            let group = project.groups().get(group_iter_index);
+            if let Some(group) = group {
+                let files = &group.get_file_list_by_type(file_type);
+                files.retain_files_if_they_are_not_here(&mut file_names);
+            }
+        }
+
+        exec_and_show_progress(
+            objects,
+            move |progress, cancel_flag| {
+                load_src_file_info_for_files(&file_names, cancel_flag, progress)
+            },
+            move |objects, result| {
+                let mut project = objects.project.borrow_mut();
+                project.add_default_group_if_empty();
+                let group = project.group_by_index_mut(group_iter_index);
+                let files = &mut group.file_list_by_type_mut(file_type);
+                log::info!("Added {} files", result.len());
+                files.add_files_from_src_file_info(result);
+                drop(project);
+                update_project_tree(objects, true);
+            }
+        );
+    }
+}
+
+fn action_register(objects: &MainWindowObjectsPtr) {
+    log::info!("Registering light files started");
+    let project_json = objects.project.borrow().to_json_string();
+    let cpu_load = objects.config.borrow().cpu_load;
+    exec_and_show_progress(
+        objects,
+        move |progress, cancel_flag| {
+            let project = Project::from_json_string(&project_json);
+            project.register_light_files(progress, cancel_flag, cpu_load)
+        },
+        move |objects, result| {
+            objects.project.borrow_mut().update_light_files_reg_info(result);
+            update_project_tree(objects, true);
+        }
+    );
+}
+
+fn action_light_theme(_: &MainWindowObjectsPtr) {
+    if cfg!(target_os = "windows") {
+        let settings = gtk::Settings::default().unwrap();
+        settings.set_property("gtk-theme-name", "Adwaita");
+        log::info!("Light theme selected");
+    }
+}
+
+fn action_dark_theme(_: &MainWindowObjectsPtr) {
+    if cfg!(target_os = "windows") {
+        let settings = gtk::Settings::default().unwrap();
+        settings.set_property("gtk-theme-name", "Skeuos-Blue-Dark");
+        log::info!("Dark theme selected");
+    }
+}
+
 fn preview_selected_file(objects: &MainWindowObjectsPtr) {
     let (file_name, is_result_file) = {
         match get_current_selection(objects) {
@@ -1843,59 +2011,6 @@ fn show_preview_image(
     objects.preview_image.set_pixbuf(Some(&pixbuf));
 }
 
-fn handler_project_tree_checked_changed(
-    objects:     &MainWindowObjectsPtr,
-    sorted_path: gtk::TreePath,
-    checked:     bool,
-) {
-    let sorted_model = objects.prj_tree
-        .model().unwrap()
-        .downcast::<gtk::TreeModelSort>().unwrap();
-    let tree_store = sorted_model
-        .model()
-        .downcast::<gtk::TreeStore>().unwrap();
-
-    let path = sorted_model.convert_path_to_child_path(&sorted_path).unwrap();
-
-    let item = get_selection_for_path(&path);
-
-    match item {
-        SelectedItem {
-            item_type: SelItemType::Group,
-            group_idx: Some(group_idx),
-            ..
-        } => {
-            let mut project = objects.project.borrow_mut();
-            let group = project.group_by_index_mut(group_idx);
-            group.set_used(checked);
-            let iter = tree_store.iter(&path).unwrap();
-            tree_store.set(&iter, &[(COLUMN_CHECKBOX, &checked)]);
-        },
-
-        SelectedItem {
-            item_type: SelItemType::File,
-            group_idx: Some(group_idx),
-            file_type: Some(file_type),
-            files,
-            ..
-        } => {
-            let mut project = objects.project.borrow_mut();
-            let file_list = project
-                .group_by_index_mut(group_idx)
-                .file_list_by_type_mut(file_type);
-            let project_file = &mut file_list.file_by_index_mut(files[0]);
-            project_file.set_used(checked);
-            let iter = tree_store.iter(&path).unwrap();
-            tree_store.set(&iter, &[(COLUMN_CHECKBOX, &checked)]);
-        },
-        _ => {
-            return;
-        },
-    };
-
-    update_project_name_and_time_in_gui(objects, true, true);
-}
-
 fn action_new_group(objects: &MainWindowObjectsPtr) {
     let def_group_options = GroupOptions::default();
     let dialog = group_options_dialog(
@@ -1967,28 +2082,6 @@ fn action_delete_item(objects: &MainWindowObjectsPtr) {
 
         _ => (),
     }
-}
-
-fn confirm_dialog<F: Fn() + 'static>(
-    objects: &MainWindowObjectsPtr,
-    text:    String,
-    yes_fun: F
-) -> gtk::MessageDialog {
-    let dialog = gtk::MessageDialog::builder()
-        .modal(true)
-        .transient_for(&objects.window)
-        .message_type(gtk::MessageType::Question)
-        .buttons(gtk::ButtonsType::OkCancel)
-        .title(&gettext("Confirmation"))
-        .text(&text)
-        .build();
-    dialog.connect_response(clone!(@strong objects => move |dialog, response| {
-        dialog.close();
-        if response == gtk::ResponseType::Ok {
-            yes_fun();
-        }
-    }));
-    dialog
 }
 
 fn action_item_properties(objects: &MainWindowObjectsPtr) {
@@ -2484,98 +2577,6 @@ fn action_use_as_reference_image(objects: &MainWindowObjectsPtr) {
 
         update_project_tree(objects, true);
     }
-}
-
-fn exec_and_show_progress<R, ExecFun, OkFun> (
-    objects:  &MainWindowObjectsPtr,
-    exec_fun: ExecFun,
-    ok_fun:   OkFun
-) where
-    R:       Sized + Send + 'static,
-    ExecFun: Fn(&ProgressTs, &Arc<AtomicBool>) -> anyhow::Result<R> + Send + 'static,
-    OkFun:   Fn(&MainWindowObjectsPtr, R) + 'static
-{
-    enum UiMessage<R: Sized> {
-        ProgressStage{ text: String },
-        ProgressPercent{ text: String, percent: usize },
-        Finished(R),
-        Error(String)
-    }
-
-    let (sender, receiver) = MainContext::channel(PRIORITY_DEFAULT);
-
-    objects.process_mode_flag.set(true);
-    let cancel_flag = Arc::clone(&objects.cancel_flag);
-    cancel_flag.store(false, Ordering::Relaxed);
-
-    /* Worker */
-    thread::spawn(move || {
-        let sndr1 = sender.clone();
-        let sndr2 = sender.clone();
-        let progress = ProgressCallBack::new_ts(
-            move |text: &str| {
-                sndr1.send(UiMessage::ProgressStage {
-                    text: text.to_string(),
-                }).unwrap();
-            },
-            move |percent, text: &str| {
-                sndr2.send(UiMessage::ProgressPercent {
-                    text: text.to_string(),
-                    percent
-                }).unwrap();
-            }
-        );
-        let result = exec_fun(&progress, &cancel_flag);
-        match result {
-            Ok(result) => sender.send(UiMessage::Finished(result)).unwrap(),
-            Err(error) => sender.send(UiMessage::Error(error.to_string())).unwrap(),
-        }
-    });
-
-    /* Ui events */
-    enable_progress_bar(objects, true);
-    enable_actions(objects);
-    receiver.attach(
-        None,
-        clone!(@strong objects => move |message| {
-            match message {
-                UiMessage::ProgressStage{ text } => {
-                    objects.progress_text.set_label(&text);
-                    objects.progress_bar.set_fraction(0.0);
-                    objects.progress_bar.set_text(None);
-                    Continue(true)
-                },
-                UiMessage::ProgressPercent { text, percent } => {
-                    let text = format!("{} {}%", text, percent);
-                    objects.progress_bar.set_fraction(percent as f64 / 100.0);
-                    objects.progress_bar.set_text(Some(&text));
-                    Continue(true)
-                },
-                UiMessage::Finished(reg_info) => {
-                    objects.process_mode_flag.set(false);
-                    if objects.trying_to_close.get() {
-                        objects.window.close();
-                    } else {
-                        enable_actions(&objects);
-                        enable_progress_bar(&objects, false);
-                        ok_fun(&objects, reg_info);
-                    }
-                    Continue(false)
-                },
-                UiMessage::Error(error) => {
-                    objects.process_mode_flag.set(false);
-                    if objects.trying_to_close.get() {
-                        objects.window.close();
-                    } else {
-                        enable_actions(&objects);
-                        enable_progress_bar(&objects, false);
-                        show_error_message(&error, &objects);
-                    }
-                    Continue(false)
-                },
-            }
-        }),
-    );
 }
 
 fn action_change_file_to_light(objects: &MainWindowObjectsPtr) {
