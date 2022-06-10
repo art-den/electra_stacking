@@ -309,6 +309,21 @@ msgstr "Изменение типа файлов"
 msgid "No files to register"
 msgstr "Отсутствуют light-файлы для регистрации"
 
+msgid "Change type of {count} file(s) from {from_type} into {into_type}?"
+msgstr "Изменить тип {count} файлов из {from_type} на {into_type}?"
+
+msgid "Result file saved to {fn}"
+msgstr "Полученный результат записано в {fn}"
+
+msgid "Remove file '{fn}' from project?"
+msgstr "Убрать файл '{fn}' из проекта?"
+
+msgid "Remove {cnt} files from project?"
+msgstr "Убрать файлы в количестве {cnt} из проекта?"
+
+msgid "Remove group '{group}' from project?"
+msgstr "Удалить группу '{group}' из проекта?"
+
 ###########################################################
 
 # Project options Dialog
@@ -397,6 +412,9 @@ msgstr "Очистка"
 
 msgid "Cleanup light files result"
 msgstr "Результат очистки"
+
+msgid "Cleaned up {cleaned} files of {total} ({percent}%)"
+msgstr "Отключено {cleaned} файлов из {total} ({percent}%)"
 
 ###########################################################
 

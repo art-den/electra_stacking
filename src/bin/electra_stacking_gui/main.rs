@@ -4,6 +4,7 @@
 
 mod config;
 mod project;
+mod str_utils;
 
 use std::{rc::Rc, path::*, thread, collections::*, cell::*};
 use std::sync::{*, atomic::{AtomicBool, Ordering}};
@@ -28,7 +29,7 @@ use electra_stacking::{
     log_utils::*,
 };
 
-use crate::{config::*, project::*};
+use crate::{config::*, project::*, str_utils::*};
 
 fn main() -> anyhow::Result<()> {
     // localization
@@ -1715,14 +1716,13 @@ fn select_and_add_files_into_project(
         group_iter_index: usize,
         file_type:        ProjectFileType
     ) {
-        {
-            let project = objects.project.borrow();
-            let group = project.groups().get(group_iter_index);
-            if let Some(group) = group {
-                let files = &group.get_file_list_by_type(file_type);
-                files.retain_files_if_they_are_not_here(&mut file_names);
-            }
+        let project = objects.project.borrow();
+        let group = project.groups().get(group_iter_index);
+        if let Some(group) = group {
+            let files = &group.get_file_list_by_type(file_type);
+            files.retain_files_if_they_are_not_here(&mut file_names);
         }
+        drop(project);
 
         exec_and_show_progress(
             objects,
@@ -2037,7 +2037,10 @@ fn action_delete_item(objects: &MainWindowObjectsPtr) {
             let group = &project.groups()[group_idx];
             let dialog = confirm_dialog(
                 objects,
-                format!("Remove group '{}' from project?", group.name(group_idx)),
+                transl_and_replace(
+                    "Remove group '{group}' from project?",
+                    &[("{group}", group.name(group_idx))]
+                ),
                 clone!(@strong objects => move || {
                     let group = objects.project.borrow_mut().remove_group(group_idx);
                     update_project_tree(&objects, true);
@@ -2059,9 +2062,15 @@ fn action_delete_item(objects: &MainWindowObjectsPtr) {
                 let group = &project.groups()[group_idx];
                 let folder = &group.get_file_list_by_type(file_type);
                 let file = &folder.list()[files[0]];
-                format!("Remove file '{}' from project?", file.file_name().to_str().unwrap_or(""))
+                transl_and_replace(
+                    "Remove file '{fn}' from project?",
+                    &[("{fn}", path_to_string(file.file_name()))]
+                )
             } else {
-                format!("Remove {} files from project?", files.len())
+                transl_and_replace(
+                    "Remove {cnt} files from project?",
+                    &[("{cnt}", files.len().to_string())]
+                )
             };
             let dialog = confirm_dialog(
                 objects,
@@ -2496,15 +2505,18 @@ fn action_cleanup_light_files(objects: &MainWindowObjectsPtr) {
             match result {
                 Ok(cleaned_up_count) => {
                     let total_files = objects.project.borrow().get_total_light_files_count();
+
+                    let message = transl_and_replace(
+                        "Cleaned up {cleaned} files of {total} ({percent}%)", &[
+                        ("{cleaned}", cleaned_up_count.to_string()),
+                        ("{total}",   total_files.to_string()),
+                        ("{percent}", format!("{:.1}", 100.0 * cleaned_up_count as f64 / total_files as f64)),
+                    ]);
+
                     show_message(
                         &objects,
                         &gettext("Cleanup light files result"),
-                        &format!(
-                            "Cleaned up {0} files of {1} ({2:.1}%)",
-                            cleaned_up_count,
-                            total_files,
-                            100.0 * cleaned_up_count as f64 / total_files as f64
-                        ),
+                        &message,
                         gtk::MessageType::Info,
                     );
                 },
@@ -2548,7 +2560,10 @@ fn action_stack(objects: &MainWindowObjectsPtr) {
             show_message(
                 objects,
                 &gettext("Finished"),
-                &format!("Result file saved to {}", result.file_name.to_str().unwrap_or("")),
+                &transl_and_replace(
+                    "Result file saved to {fn}",
+                    &[("{fn}", path_to_string(&result.file_name))]
+                ),
                 gtk::MessageType::Info,
             )
         }
@@ -2602,11 +2617,12 @@ fn change_selected_files_type(
         return;
     }
 
-    let message = format!(
-        "Change type of {0:} file(s) into {1:?}?",
-        selection.files.len(),
-        new_type
-    );
+    let message = transl_and_replace(
+        "Change type of {count} file(s) from {from_type} into {into_type}?", &[
+        ("{count}",     selection.files.len().to_string()),
+        ("{from_type}", debug_to_str(&selection.file_type.unwrap())),
+        ("{into_type}", debug_to_str(&new_type))
+    ]);
 
     let dialog = gtk::MessageDialog::builder()
         .transient_for(&objects.window)
