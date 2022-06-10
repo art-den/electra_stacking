@@ -145,20 +145,18 @@ fn build_ui(application: &gtk::Application) {
             .clickable(true)
             .build();
 
-        if idx != COLUMN_FILE_NAME {
-            col.pack_start(&cell_text, true);
-            col.add_attribute(&cell_text, "markup", idx as i32);
-        } else {
+        if idx == COLUMN_FILE_NAME {
             let cell_img = gtk::CellRendererPixbuf::new();
-
             col.pack_start(&cell_check, false);
             col.pack_start(&cell_img, false);
             col.pack_start(&cell_text, true);
-
             col.add_attribute(&cell_text, "markup", idx as i32);
             col.add_attribute(&cell_img, "pixbuf", COLUMN_ICON as i32);
             col.add_attribute(&cell_check, "active", COLUMN_CHECKBOX as i32);
             col.add_attribute(&cell_check, "visible", COLUMN_CHECKBOX_VIS as i32);
+        } else {
+            col.pack_start(&cell_text, true);
+            col.add_attribute(&cell_text, "markup", idx as i32);
         }
 
         col.set_sort_column_id(sidx as i32);
