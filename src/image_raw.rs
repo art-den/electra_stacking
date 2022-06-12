@@ -1,4 +1,5 @@
 use std::{path::*, io::*, fs::*, collections::HashSet, hash::Hash};
+use itertools::izip;
 use rayon::prelude::*;
 use serde::{Serialize, Deserialize};
 use byteorder::*;
@@ -272,28 +273,26 @@ impl RawImage {
         }
 
         let mut inf_overexposures = flags.contains(RawLoadFlags::INF_OVEREXPOSURES);
+        let extract_black = flags.contains(RawLoadFlags::EXTRACT_BLACK);
 
-        let mut max_values = raw.whitelevels;
+        let mut max_values = [0_f32; 4];
         if inf_overexposures {
-            let max_image_value = data.iter()
-                .copied()
-                .max_by(cmp_f32)
-                .unwrap_or(0.0) as u16;
+            let clip_value = Self::find_clip_value(data.as_slice());
+            for i in 0..4 {
+                let white_value = raw.whitelevels[i] as f32;
 
-            for v in &mut max_values {
-                if *v < max_image_value {
-                    *v = max_image_value;
+                max_values[i] = if clip_value < white_value && white_value < 1.2 * clip_value {
+                    clip_value
+                } else {
+                    white_value
+                };
+
+                if max_values[i] < raw.blacklevels[i] as f32 {
+                    inf_overexposures = false;
                 }
             }
         }
 
-        for i in 0..max_values.len() {
-            if max_values[i] < raw.blacklevels[i] {
-                inf_overexposures = false;
-            }
-        }
-
-        let extract_black = flags.contains(RawLoadFlags::EXTRACT_BLACK);
         if inf_overexposures || extract_black {
             let mut correct_values = |color, black_level, max| {
                 for (x, y, v) in data.iter_crd_mut() {
@@ -306,29 +305,49 @@ impl RawImage {
                 }
             };
 
-            const MAX_K: f32 = 0.95;
+            const MAX_K: f32 = 0.99;
 
             if let Cfa::Mono = &info.cfa {
-                correct_values(CfaColor::Mono, raw.blacklevels[0] as f32, max_values[0] as f32 * MAX_K);
+                correct_values(CfaColor::Mono, raw.blacklevels[0] as f32, max_values[0] * MAX_K);
             } else {
-                correct_values(CfaColor::R, raw.blacklevels[0] as f32, max_values[0] as f32 * MAX_K);
-                correct_values(CfaColor::G, raw.blacklevels[1] as f32, max_values[1] as f32 * MAX_K);
-                correct_values(CfaColor::B, raw.blacklevels[2] as f32, max_values[2] as f32 * MAX_K);
+                correct_values(CfaColor::R, raw.blacklevels[0] as f32, max_values[0] * MAX_K);
+                correct_values(CfaColor::G, raw.blacklevels[1] as f32, max_values[1] * MAX_K);
+                correct_values(CfaColor::B, raw.blacklevels[2] as f32, max_values[2] * MAX_K);
             }
         }
 
         for i in 0..4 {
             if extract_black {
                 info.black_values[i] = 0.0;
-                info.max_values[i] = max_values[i] as f32 - raw.blacklevels[i] as f32;
+                info.max_values[i] = raw.whitelevels[i] as f32 - raw.blacklevels[i] as f32;
             } else {
                 info.black_values[i] = raw.blacklevels[i] as f32;
-                info.max_values[i] = max_values[i] as f32;
+                info.max_values[i] = raw.whitelevels[i] as f32;
             }
             info.wb[i] = if !raw.wb_coeffs[i].is_nan() { raw.wb_coeffs[i] } else { 0.0 };
         }
 
         Ok(RawImage{ info, data })
+    }
+
+    fn find_clip_value(data: &[f32]) -> f32 {
+        let mut max_value = 1e10;
+        loop {
+            let max_image_value = data.iter()
+                .copied()
+                .filter(|v| *v < max_value)
+                .max_by(cmp_f32)
+                .unwrap_or(0.0);
+
+            let count = data.iter()
+                .copied()
+                .filter(|v| *v >= max_image_value)
+                .count();
+
+            max_value = max_image_value;
+            if count > 10 { break; }
+        }
+        max_value
     }
 
     pub fn save_to_calibr_format_file(&self, file_name: &Path) -> anyhow::Result<()> {
@@ -372,7 +391,7 @@ impl RawImage {
         Ok(RawImage{ info, data: image })
     }
 
-    pub fn demosaic_linear(&self, fast: bool) -> anyhow::Result<Image> {
+    pub fn demosaic_bayer_linear(&self, mt: bool) -> anyhow::Result<Image> {
         if self.data.is_empty() {
             anyhow::bail!("Raw image is empty");
         }
@@ -401,11 +420,10 @@ impl RawImage {
                     };
                 }
 
-                const LIN_SAME:       &[(Crd, Crd)] = &[(0, 0)];
-                const LIN_UP_DOWN:    &[(Crd, Crd)] = &[(0, -1), (0, 1)];
-                const LIN_LEFT_RIGHT: &[(Crd, Crd)] = &[(-1, 0), (1, 0)];
-                const LIN_DIAG:       &[(Crd, Crd)] = &[(-1, -1), (1, -1), (-1, 1), (1, 1)];
-                const LIN_CROSS:      &[(Crd, Crd)] = &[(0, -1), (-1, 0), (1, 0), (0, 1)];
+                const PATH_VERT:  &[(Crd, Crd)] = &[(0, -1), (0, 1)];
+                const PATH_HORIZ: &[(Crd, Crd)] = &[(-1, 0), (1, 0)];
+                const PATH_DIAG:  &[(Crd, Crd)] = &[(-1, -1), (1, -1), (-1, 1), (1, 1)];
+                const PATH_CROSS: &[(Crd, Crd)] = &[(0, -1), (-1, 0), (1, 0), (0, 1)];
 
                 let demosaic_row = |y, d_row: &mut[f32], ct: CfaColor, k: f32| {
                     let s_row = self.data.row(y);
@@ -416,27 +434,28 @@ impl RawImage {
                         *d = k * if raw_ct == ct {
                             *s
                         } else {
-                            let pixels = match (raw_ct, ct) {
+                            let path = match (raw_ct, ct) {
                                 (_, CfaColor::G) =>
-                                    LIN_CROSS,
+                                    PATH_CROSS,
                                 (CfaColor::R, CfaColor::B) =>
-                                    LIN_DIAG,
+                                    PATH_DIAG,
                                 (CfaColor::B, CfaColor::R) =>
-                                    LIN_DIAG,
+                                    PATH_DIAG,
                                 (CfaColor::G, CfaColor::R) if p.get_color_type(x+1, y) == CfaColor::R =>
-                                    LIN_LEFT_RIGHT,
+                                    PATH_HORIZ,
                                 (CfaColor::G, CfaColor::R) =>
-                                    LIN_UP_DOWN,
+                                    PATH_VERT,
                                 (CfaColor::G, CfaColor::B) if p.get_color_type(x+1, y) == CfaColor::B =>
-                                    LIN_LEFT_RIGHT,
+                                    PATH_HORIZ,
                                 (CfaColor::G, CfaColor::B) =>
-                                    LIN_UP_DOWN,
-                                (_, _) => LIN_SAME,
+                                    PATH_VERT,
+                                (_, _) =>
+                                    panic!("Internal error"),
                             };
 
                             let mut sum = 0_f32;
                             let mut cnt = 0_u16;
-                            for crd in pixels { if let Some(v) = self.data.get(x+crd.0, y+crd.1) {
+                            for crd in path { if let Some(v) = self.data.get(x+crd.0, y+crd.1) {
                                 debug_assert!(p.get_color_type(x+crd.0, y+crd.1) == ct);
                                 sum += v;
                                 cnt += 1;
@@ -446,7 +465,7 @@ impl RawImage {
                     }
                 };
 
-                if !fast {
+                if !mt {
                     for y in 0..self.data.height() {
                         demosaic_row(y, result.r.row_mut(y), CfaColor::R, lin_coeffs[0]);
                         demosaic_row(y, result.g.row_mut(y), CfaColor::G, lin_coeffs[1]);
@@ -478,28 +497,192 @@ impl RawImage {
         Ok(result)
     }
 
+    pub fn demosaic_simple_rcd(&self, _mt: bool) -> anyhow::Result<Image> {
+        if self.data.is_empty() {
+            anyhow::bail!("Raw image is empty");
+        }
+
+        let result = if let Cfa::Pattern(p) = &self.info.cfa {
+            let mut result_image = Image::new_color(self.info.width, self.info.height);
+
+            let max_wb = self.info.wb
+                .iter()
+                .fold(0_f32, |a, v| if !v.is_nan() { a.max(*v) } else { a } );
+
+            let mut lin_coeffs = [0_f32; 4];
+            for i in 0..4 {
+                lin_coeffs[i] = if self.info.max_values[i] != 0.0 {
+                    self.info.wb[i] * 1.0 / (self.info.max_values[i] * max_wb)
+                } else {
+                    self.info.wb[i] / max_wb
+                };
+            }
+
+            let demosaic_green_row = |y, d_row: &mut[f32], ct: CfaColor| {
+                let s_row = self.data.row(y);
+                for (x, (d, s)) in d_row.iter_mut().zip(s_row).enumerate() {
+                    let x = x as Crd;
+                    let raw_ct = p.get_color_type(x, y);
+
+                    *d = if raw_ct == ct {
+                        *s
+                    } else {
+                        let g1 = self.data.get(x, y-1);
+                        let g2 = self.data.get(x, y+1);
+                        let g3 = self.data.get(x-1, y);
+                        let g4 = self.data.get(x+1, y);
+
+                        if let (Some(g1), Some(g2), Some(g3), Some(g4)) = (g1, g2, g3, g4) {
+                            let grad_v = (g1 - g2).abs();
+                            let grad_h = (g3 - g4).abs();
+                            if grad_h > 2.0 * grad_v {
+                                (g1 + g2) * 0.5
+                            } else if grad_v > 2.0 * grad_h {
+                                (g3 + g4) * 0.5
+                            } else {
+                                (g1 + g2 + g3 + g4) * 0.25
+                            }
+                        } else {
+                            let mut sum = 0_f32;
+                            let mut cnt = 0_u16;
+                            for v in [g1, g2, g3, g4] {
+                                if let Some(v) = v {
+                                    sum += v;
+                                    cnt += 1;
+                                }
+                            }
+                            if cnt != 0 { sum / cnt as f32 } else { 0.0 }
+                        }
+                    };
+                }
+            };
+
+            for y in 0..self.data.height() {
+                demosaic_green_row(y, result_image.g.row_mut(y), CfaColor::G);
+            }
+
+            const PATH_VERT:  &[(Crd, Crd)] = &[(0, -1), (0, 1)];
+            const PATH_HORIZ: &[(Crd, Crd)] = &[(-1, 0), (1, 0)];
+            const PATH_DIAG:  &[(Crd, Crd)] = &[(-1, -1), (1, -1), (-1, 1), (1, 1)];
+
+            let demosaic_red_blue_row = |y, d_row: &mut[f32], ct: CfaColor| {
+                let s_row = self.data.row(y);
+                let green_row = result_image.g.row(y);
+                for (x, (d, s, &green)) in izip!(d_row.iter_mut(), s_row, green_row).enumerate() {
+                    let x = x as Crd;
+                    let raw_ct = p.get_color_type(x, y);
+
+                    *d = if raw_ct == ct {
+                        *s
+                    } else {
+                        let path = match (raw_ct, ct) {
+                            (CfaColor::R, CfaColor::B) =>
+                                PATH_DIAG,
+                            (CfaColor::B, CfaColor::R) =>
+                                PATH_DIAG,
+                            (CfaColor::G, CfaColor::R) if p.get_color_type(x+1, y) == CfaColor::R =>
+                                PATH_HORIZ,
+                            (CfaColor::G, CfaColor::R) =>
+                                PATH_VERT,
+                            (CfaColor::G, CfaColor::B) if p.get_color_type(x+1, y) == CfaColor::B =>
+                                PATH_HORIZ,
+                            (CfaColor::G, CfaColor::B) =>
+                                PATH_VERT,
+                            (_, _) =>
+                                panic!("Internal error"),
+                        };
+
+                        let mut green_sum = 0_f32;
+                        let mut sum = 0_f32;
+                        let mut cnt = 0_u16;
+                        for crd in path {
+                            let (sx, sy) = (x+crd.0, y+crd.1);
+                            if let (Some(v), Some(g)) = (self.data.get(sx, sy), result_image.g.get(sx, sy)) {
+                                debug_assert!(p.get_color_type(x+crd.0, y+crd.1) == ct);
+                                green_sum += g;
+                                sum += v;
+                                cnt += 1;
+                            }
+                        }
+                        let aver = if cnt != 0 { sum / cnt as f32 } else { 0.0 };
+                        let green_aver = if cnt != 0 { green_sum / cnt as f32 } else { 0.0 };
+                        if !green.is_infinite()
+                        && !green_aver.is_infinite()
+                        && green_aver != 0.0
+                        && green != 0.0
+                        && aver / green_aver < 4.0
+                        && aver / green < 4.0 {
+                            aver * green / green_aver
+                        } else {
+                            aver
+                        }
+                    };
+                }
+            };
+
+            for y in 0..self.data.height() {
+                demosaic_red_blue_row(y, result_image.r.row_mut(y), CfaColor::R);
+                demosaic_red_blue_row(y, result_image.b.row_mut(y), CfaColor::B);
+            }
+
+            let correct_color = |layer: &mut ImageLayerF32, k: f32| {
+                for v in layer.iter_mut() {
+                    *v *= k;
+                }
+            };
+
+            correct_color(&mut result_image.r, lin_coeffs[0]);
+            correct_color(&mut result_image.g, lin_coeffs[1]);
+            correct_color(&mut result_image.b, lin_coeffs[2]);
+
+            result_image
+        } else {
+            panic!("Internal error")
+        };
+
+        Ok(result)
+    }
+
+
     pub fn find_hot_pixels_in_dark_file(&self) -> Vec<BadPixel> {
         const R: Crd = 2;
-        let mut result = Vec::new();
-        let max_dev = (self.info.max_values[0] * 0.005).powf(2.0);
+        let mut deviations = Vec::new();
+        let mut values_for_median = Vec::new();
         for (x, y, v) in self.data.iter_crd() {
-            let mut min: Option<f32> = None;
-            let mut max: Option<f32> = None;
-            let mut sum = 0_f32;
-            let mut cnt: usize = 0;
+            values_for_median.clear();
             for (_, _, sv) in self.data.iter_rect_crd(x-R, y-R, x+R, y+R) {
-                if let Some(ref mut min) = min { if sv < *min { *min = sv; } }
-                else { min = Some(sv); }
-                if let Some(ref mut max) = max { if sv > *max { *max = sv; } }
-                else { max = Some(sv); }
-                sum += sv;
-                cnt += 1;
+                values_for_median.push(sv);
             }
-            if cnt < 2 { continue; }
-            let mean = (sum - min.unwrap() - max.unwrap()) / ((cnt - 2) as f32);
-            let pt_dev = (mean - v) * (mean - v);
-            if pt_dev > max_dev { result.push(BadPixel{x, y}); }
+            let median = median_f32(&mut values_for_median).unwrap_or(0.0);
+            deviations.push((median - v) * (median - v));
         }
+
+        let high_10_pos = deviations.len() - 10;
+        let high_10_dev = *deviations.select_nth_unstable_by(high_10_pos, cmp_f32).1;
+
+        let mut max_dev = high_10_dev / 1000.0;
+
+        let mut result = Vec::new();
+        let max_result_size = deviations.len() / 100;
+        loop {
+            result.clear();
+            for (x, y, v) in self.data.iter_crd() {
+                values_for_median.clear();
+                for (_, _, sv) in self.data.iter_rect_crd(x-R, y-R, x+R, y+R) {
+                    values_for_median.push(sv);
+                }
+                let median = median_f32(&mut values_for_median).unwrap_or(0.0);
+                let deviation = (median - v) * (median - v);
+                if deviation > max_dev {
+                    result.push(BadPixel {x, y});
+                    if result.len() > max_result_size { break; }
+                }
+            }
+            log::info!("possible hot pixels count = {}", result.len());
+            if result.len() < max_result_size { break; }
+            max_dev *= 2.0;
+        }
+
         result
     }
 

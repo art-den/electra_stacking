@@ -21,7 +21,7 @@ pub fn normalize(
     ref_data:   &RefBgData,
     light_file: &mut LightFile
 ) -> anyhow::Result<NormResult> {
-    let mut grey_image = light_file.grey.clone();
+    let mut grey_image = light_file.image.create_greyscale_layer();
     let mut mask = ImageMask::new_empty();
 
     mask_stars(
@@ -161,7 +161,8 @@ pub fn calc_image_layer_bg(image: &ImageLayerF32, mask: &ImageMask) -> anyhow::R
                 y_sum += y as i64;
             }
         } else {
-            for ((x, y, v), (.., m)) in image.iter_area_crd(&area).zip(mask.iter_area_crd(&area)) {
+            for ((x, y, v), (.., m))
+            in image.iter_area_crd(&area).zip(mask.iter_area_crd(&area)) {
                 if m || v.is_infinite() { continue; }
                 values.push(v as f64);
                 x_sum += x as i64;
@@ -295,13 +296,14 @@ impl RefBgData {
             ref_file_name,
             cal_data,
             LoadLightFlags::STARS,
+            OpenMode::Processing,
             bin
         )?;
 
         let mut mask = ImageMask::new_empty();
         mask_stars(&mut mask, image.image.width(), image.image.height(), &image.stars);
 
-        let mut grey = image.grey.clone();
+        let mut grey = image.image.create_greyscale_layer();
         let grey_bg = calc_image_layer_bg(&grey, &mask)?;
         grey_bg.apply_to_image(&mut grey, true)?;
 

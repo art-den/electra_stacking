@@ -117,6 +117,13 @@ pub fn median_f64(values: &mut [f64]) -> Option<f64> {
     Some(values[median_index])
 }
 
+pub fn median_f32(values: &mut [f32]) -> Option<f32> {
+    if values.is_empty() { return None; }
+    let median_index = values.len() / 2;
+    values.select_nth_unstable_by(median_index, cmp_f32);
+    Some(values[median_index])
+}
+
 pub fn median_result(values: &mut [CalcValue]) -> Option<CalcResult> {
     if values.is_empty() { return None; }
 

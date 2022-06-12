@@ -1,7 +1,7 @@
 use std::{path::*, sync::*};
 use structopt::*;
 use serde::{Serialize, Deserialize};
-use crate::{consts::*, image_raw::*, progress::*, fs_utils::*, light_file::*, stars::*};
+use crate::{consts::*, image_raw::*, progress::*, fs_utils::*, light_file::*};
 
 #[derive(StructOpt, Debug)]
 pub struct CmdOptions {
@@ -58,16 +58,15 @@ pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
                 let light_file = LightFile::load_and_calc_params(
                     file_name,
                     &cal_data,
-                    LoadLightFlags::STARS
+                      LoadLightFlags::STARS
+                    | LoadLightFlags::STARS_STAT
                     | LoadLightFlags::NOISE
                     | LoadLightFlags::BACKGROUND,
+                    OpenMode::Processing,
                     1
                 ).expect("Can't load light file");
 
-                let stars_stat = calc_stars_stat(
-                    &light_file.stars,
-                    &light_file.grey
-                ).expect("Can't calculate stars statistics");
+                let stars_stat = light_file.stars_stat.unwrap();
 
                 let file_data = LightFileRegInfo {
                     file_name:   extract_file_name(file_name).to_string(),

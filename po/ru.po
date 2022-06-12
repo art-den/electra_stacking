@@ -270,7 +270,7 @@ msgstr "Загружается опорное изображение..."
 msgid "Can't find group with reference image"
 msgstr "Не могу найти группу с опорным кадром"
 
-msgid "Termimated"
+msgid "Terminated"
 msgstr "Прервано"
 
 msgid "No light files to stack"

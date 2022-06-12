@@ -463,8 +463,8 @@ fn create_temp_file_from_light_file(
     let mut light_file = LightFile::load_and_calc_params(
         file,
         cal_data,
-          LoadLightFlags::STARS
-        | LoadLightFlags::NOISE,
+        LoadLightFlags::STARS | LoadLightFlags::NOISE,
+        OpenMode::Processing,
         bin
     )?;
     log::info!("loaded light file {}!", file.to_str().unwrap_or(""));
@@ -500,7 +500,6 @@ fn create_temp_file_from_light_file(
             light_file.image.height()
         );
         rot_log.log("rotating image");
-        light_file.grey = light_file.image.create_greyscale_layer();
 
         let norm_log = TimeLogger::start();
         let norm_res = normalize(ref_data, &mut light_file)?;

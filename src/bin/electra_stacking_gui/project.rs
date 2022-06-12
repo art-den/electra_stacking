@@ -1,5 +1,6 @@
 use std::{path::*, io::*, fs::*, collections::*, rc::*, cell::*};
 use std::sync::{Arc, Mutex, atomic::AtomicBool, atomic::Ordering};
+use electra_stacking::log_utils::TimeLogger;
 use serde::*;
 use gettextrs::*;
 use chrono::prelude::*;
@@ -8,7 +9,6 @@ use electra_stacking::{
     progress::*,
     stacking_utils::*,
     light_file::*,
-    stars::*,
     image::*,
     image_raw::*,
     image_norm::*,
@@ -758,13 +758,18 @@ impl ProjectGroup {
                     || cur_result.lock().unwrap().is_err() {
                         return;
                     }
+
+                    let time_log = TimeLogger::start();
+
                     let load_light_file_res = LightFile::load_and_calc_params(
                         &file_name,
                         &cal_data,
-                        LoadLightFlags::STARS
+                          LoadLightFlags::STARS
+                        | LoadLightFlags::STARS_STAT
                         | LoadLightFlags::NOISE
                         | LoadLightFlags::BACKGROUND
                         | LoadLightFlags::SHARPNESS,
+                        OpenMode::Processing,
                         1
                     );
                     let light_file = match load_light_file_res {
@@ -779,18 +784,7 @@ impl ProjectGroup {
                         },
                     };
 
-                    let stars_stat_res = calc_stars_stat(&light_file.stars,&light_file.grey);
-                    let stars_stat = match stars_stat_res {
-                        Ok(stars_stat) => stars_stat,
-                        Err(err) => {
-                            *cur_result.lock().unwrap() = Err(anyhow::anyhow!(
-                                r#"Error "{}" during stars statistics calculation for file "{}""#,
-                                err.to_string(),
-                                file_name.to_str().unwrap_or("")
-                            ));
-                            return;
-                        }
-                    };
+                    let stars_stat = light_file.stars_stat.unwrap();
 
                     if save_star_img {
                         let common_star_img_fn = file_name.with_extension("common_star.tif");
@@ -823,6 +817,8 @@ impl ProjectGroup {
                             stars_r_dev: stars_stat.aver_r_dev,
                         }
                     );
+
+                    time_log.log("Register file TOTAL");
                 });
             }
         });

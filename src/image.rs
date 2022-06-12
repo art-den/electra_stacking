@@ -287,8 +287,10 @@ where T: Copy + Clone + ImgLayerDefValue<Type = T> {
     }
 }
 
-impl ImageLayer<f32> {
-    pub fn get_f64_crd(&self, x: f64, y: f64) -> Option<f32> {
+pub trait PixelsSource {
+    fn get_int_crd(&self, x: Crd, y: Crd) -> Option<f32>;
+
+    fn get_f64_crd(&self, x: f64, y: f64) -> Option<f32> {
         let mut ix = x as Crd;
         let mut dx = (x - ix as f64) as f32;
         if x.is_sign_negative() {
@@ -303,10 +305,10 @@ impl ImageLayer<f32> {
             dy = 1.0 - dy;
         }
 
-        let p11 = self.get(ix, iy);
-        let p21 = self.get(ix+1, iy);
-        let p12 = self.get(ix, iy+1);
-        let p22 = self.get(ix+1, iy+1);
+        let p11 = self.get_int_crd(ix, iy);
+        let p21 = self.get_int_crd(ix+1, iy);
+        let p12 = self.get_int_crd(ix, iy+1);
+        let p22 = self.get_int_crd(ix+1, iy+1);
 
         let s11 = if p11.is_some() { (1.0 - dx) * (1.0 - dy) } else { 0.0 };
         let s21 = if p21.is_some() { dx * (1.0 - dy) } else { 0.0 };
@@ -328,16 +330,50 @@ impl ImageLayer<f32> {
             if s22 > MIN_S { sum += s22 * p22.unwrap_or(0.0); }
         }
 
-        if p11.is_some() && p21.is_some() && p12.is_some() && p22.is_some() {
+        let s_sum = s11 + s21 + s12 + s22;
+        if s_sum >= 0.9999 {
             Some(sum)
         } else if p11.is_none() && p21.is_none() && p12.is_none() && p22.is_none() {
             None
         } else {
-            let result = sum / (s11 + s21 + s12 + s22);
+            let result = sum / s_sum;
             if !result.is_nan() { Some(result) } else { None }
         }
-    }
+    }}
 
+pub fn rotated_and_translated(
+    source:        &impl PixelsSource,
+    angle:         f64,
+    transl_x:      f64,
+    transl_y:      f64,
+    default_value: f32,
+    result_width:  Crd,
+    result_height: Crd
+) -> ImageLayerF32 {
+    let mut result = ImageLayerF32::new(result_width, result_height);
+    let center_x = (result_width as f64 - 1.0) / 2.0;
+    let center_y = (result_height as f64 - 1.0) / 2.0;
+    let cos_a = f64::cos(-angle);
+    let sin_a = f64::sin(-angle);
+    for (x, y, v) in result.iter_crd_mut() {
+        let x = x as f64 - transl_x;
+        let y = y as f64 - transl_y;
+        let dx = x - center_x;
+        let dy = y - center_y;
+        let rot_x = center_x + dx * cos_a - dy * sin_a;
+        let rot_y = center_y + dy * cos_a + dx * sin_a;
+        *v = source.get_f64_crd(rot_x, rot_y).unwrap_or(default_value);
+    }
+    result
+}
+
+impl PixelsSource for ImageLayer<f32> {
+    fn get_int_crd(&self, x: Crd, y: Crd) -> Option<f32> {
+        self.get(x, y)
+    }
+}
+
+impl ImageLayer<f32> {
     fn rotated_and_translated(
         &self,
         angle:         f64,
@@ -348,21 +384,7 @@ impl ImageLayer<f32> {
         result_height: Crd
     ) -> ImageLayerF32 {
         if self.is_empty() { return ImageLayerF32::new_empty(); }
-        let mut result = ImageLayerF32::new(result_width, result_height);
-        let center_x = (result_width as f64 - 1.0) / 2.0;
-        let center_y = (result_height as f64 - 1.0) / 2.0;
-        let cos_a = f64::cos(-angle);
-        let sin_a = f64::sin(-angle);
-        for (x, y, v) in result.iter_crd_mut() {
-            let x = x as f64 - transl_x;
-            let y = y as f64 - transl_y;
-            let dx = x - center_x;
-            let dy = y - center_y;
-            let rot_x = center_x + dx * cos_a - dy * sin_a;
-            let rot_y = center_y + dy * cos_a + dx * sin_a;
-            *v = self.get_f64_crd(rot_x, rot_y).unwrap_or(default_value);
-        }
-        result
+        rotated_and_translated(self, angle, transl_x, transl_y, default_value, result_width, result_height)
     }
 
     pub fn substract(&mut self, other: &ImageLayerF32) {
@@ -1011,9 +1033,14 @@ impl Image {
                 let mut r_thinned_out = get_thinned_out_values(self.r.as_slice());
                 let mut g_thinned_out = get_thinned_out_values(self.g.as_slice());
                 let mut b_thinned_out = get_thinned_out_values(self.b.as_slice());
+
                 let get_min = |values: &mut [f32]| -> f32 {
-                    let pos = values.len() / 100;
-                    values.select_nth_unstable_by(pos, cmp_f32).1.max(0.0)
+                    if !values.is_empty() {
+                        let pos = values.len() / 100;
+                        values.select_nth_unstable_by(pos, cmp_f32).1.max(0.0)
+                    } else {
+                        42.0
+                    }
                 };
 
                 let min = [
@@ -1030,8 +1057,12 @@ impl Image {
                 let range = 1.0/(1.0 - min);
                 if auto_wb {
                     let get_bg = |values: &mut [f32]| -> f32 {
-                        let pos = values.len() / 4;
-                        values.select_nth_unstable_by(pos, cmp_f32).1.max(0.0)
+                        if !values.is_empty() {
+                            let pos = values.len() / 4;
+                            values.select_nth_unstable_by(pos, cmp_f32).1.max(0.0)
+                        } else {
+                            0.0
+                        }
                     };
                     let r_bg = get_bg(&mut r_thinned_out);
                     let g_bg = get_bg(&mut g_thinned_out);
@@ -1085,16 +1116,20 @@ impl Image {
                 .zip_eq(self.g.as_slice().par_iter())
                 .zip_eq(self.b.as_slice().par_iter())
                 .map(|((&r, &g), &b)| {
-                    let mut r = (256.0 * fast_pow(((r-params.r_min)*params.range) as f64, gamma_div)) as i32;
-                    if r < 0 { r = 0; }
-                    if r > 255 { r = 255; }
-                    let mut g = (256.0 * fast_pow(((g-params.g_min)*params.range) as f64, gamma_div)) as i32;
-                    if g < 0 { g = 0; }
-                    if g > 255 { g = 255; }
-                    let mut b = (256.0 * fast_pow(((b-params.b_min)*params.range) as f64, gamma_div)) as i32;
-                    if b < 0 { b = 0; }
-                    if b > 255 { b = 255; }
-                    [r as u8, g as u8, b as u8]
+                    if !r.is_infinite() && !g.is_infinite() && !b.is_infinite() {
+                        let mut r = (256.0 * fast_pow(((r-params.r_min)*params.range) as f64, gamma_div)) as i32;
+                        if r < 0 { r = 0; }
+                        if r > 255 { r = 255; }
+                        let mut g = (256.0 * fast_pow(((g-params.g_min)*params.range) as f64, gamma_div)) as i32;
+                        if g < 0 { g = 0; }
+                        if g > 255 { g = 255; }
+                        let mut b = (256.0 * fast_pow(((b-params.b_min)*params.range) as f64, gamma_div)) as i32;
+                        if b < 0 { b = 0; }
+                        if b > 255 { b = 255; }
+                        [r as u8, g as u8, b as u8]
+                    } else {
+                        [0, 255, 0]
+                    }
                 })
                 .flatten_iter()
                 .collect()

@@ -1911,17 +1911,17 @@ fn preview_image_file(
         if cancel_flag.load(Ordering::Relaxed) { return; }
         let calibr_data = CalibrationData::new_empty();
 
-        let mut load_flags = if cfg!(debug_assertions) {
-            LoadLightFlags::STARS
+        let load_flags = if cfg!(debug_assertions) {
+            LoadLightFlags::empty() //LoadLightFlags::STARS
         } else {
             LoadLightFlags::empty()
         };
-        load_flags |= LoadLightFlags::FAST_DEMOSAIC;
 
         let light_file = LightFile::load_and_calc_params(
             &file_name,
             &calibr_data,
             load_flags,
+            OpenMode::Preview,
             bin
         );
 

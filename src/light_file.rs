@@ -3,19 +3,26 @@ use bitflags::bitflags;
 use itertools::Itertools;
 use crate::{image::*, image_formats::*, image_raw::*, stars::*, log_utils::*, calc::*};
 
+
 bitflags! { pub struct LoadLightFlags: u32 {
-    const STARS = 1;
-    const NOISE = 2;
-    const BACKGROUND = 4;
-    const SHARPNESS = 8;
-    const FAST_DEMOSAIC = 16;
+    const STARS       = 1;
+    const STARS_STAT  = 2;
+    const NOISE       = 4;
+    const BACKGROUND  = 8;
+    const SHARPNESS   = 16;
 }}
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum OpenMode {
+    Preview,
+    Processing,
+}
 
 pub struct LightFile {
     pub image:      Image,
     pub exif:       Exif,
-    pub grey:       ImageLayerF32,
     pub stars:      Stars,
+    pub stars_stat: Option<StarsStat>,
     pub noise:      f32,
     pub background: f32,
     pub sharpness:  f32,
@@ -23,20 +30,40 @@ pub struct LightFile {
 
 impl LightFile {
     pub fn load_and_calc_params(
-        file_name:  &Path,
-        cal_data:   &CalibrationData,
-        flags:      LoadLightFlags,
-        bin:        usize,
+        file_name: &Path,
+        cal_data:  &CalibrationData,
+        flags:     LoadLightFlags,
+        open_mode: OpenMode,
+        bin:       usize,
     ) -> anyhow::Result<LightFile> {
+        log::info!(
+            "LightFile::load_and_calc_params: file_name={}, flags={:?}, open_mode={:?}, bin={}",
+            file_name.to_str().unwrap_or(""),
+            flags,
+            open_mode,
+            bin
+        );
+
         let stars_flag = flags.contains(LoadLightFlags::STARS);
+        let stars_stat_flag = flags.contains(LoadLightFlags::STARS_STAT);
 
         let mut src_data = if is_image_file_name(file_name) {
             load_image_from_file(file_name)?
         } else {
+            let mut demosaic = match open_mode {
+                OpenMode::Preview => DemosaicAlgo::Linear,
+                OpenMode::Processing => DemosaicAlgo::SimpleRCD,
+            };
+
+            if bin == 2 {
+                demosaic = DemosaicAlgo::Linear;
+            }
+
             load_raw_light_file(
                 file_name,
                 cal_data,
-                flags.contains(LoadLightFlags::FAST_DEMOSAIC)
+                demosaic,
+                open_mode == OpenMode::Preview,
             )?
         };
 
@@ -46,7 +73,7 @@ impl LightFile {
             &src_data.image.g
         };
 
-        let noise = if stars_flag || flags.contains(LoadLightFlags::NOISE) {
+        let noise = if stars_flag || stars_stat_flag || flags.contains(LoadLightFlags::NOISE) {
             let noise_log = TimeLogger::start();
             let result = calc_noise(img_layer_to_calc);
             noise_log.log("noise calculation");
@@ -79,7 +106,7 @@ impl LightFile {
             bin_log.log("decreasing image 2x");
         }
 
-        let grey_image = if stars_flag {
+        let grey_image = if stars_flag || stars_stat_flag {
             let grey_log = TimeLogger::start();
             let mut result = src_data.image.create_greyscale_layer();
             grey_log.log("creating grey image");
@@ -91,7 +118,7 @@ impl LightFile {
             ImageLayerF32::new_empty()
         };
 
-        let stars = if stars_flag {
+        let stars = if stars_flag || stars_stat_flag {
             let stars_log = TimeLogger::start();
             let result = find_stars_on_image(
                 &grey_image,
@@ -106,11 +133,17 @@ impl LightFile {
             Stars::new()
         };
 
+        let stars_stat = if stars_stat_flag {
+            Some(calc_stars_stat(&stars, &grey_image)?)
+        } else {
+            None
+        };
+
         Ok(LightFile{
             exif: src_data.exif,
             image: src_data.image,
-            grey: grey_image,
             stars,
+            stars_stat,
             background,
             noise,
             sharpness,
@@ -155,17 +188,30 @@ fn check_raw_data(
     Ok(())
 }
 
+#[derive(Debug)]
+enum DemosaicAlgo {
+    Linear,
+    SimpleRCD,
+}
+
 fn load_raw_light_file(
-    file_name:     &Path,
-    cal_data:      &CalibrationData,
-    fast_demosaic: bool,
+    file_name:   &Path,
+    cal_data:    &CalibrationData,
+    demosaic:    DemosaicAlgo,
+    md_demosaic: bool
 ) -> anyhow::Result<SrcImageData> {
+    log::info!(
+        "Start to load raw file {}, demosaic={:?}, md_demosaic={}",
+        file_name.to_str().unwrap_or(""),
+        demosaic,
+        md_demosaic
+    );
+
     // load raw file
     let raw_log = TimeLogger::start();
     let mut raw_image = RawImage::load_camera_raw_file(
         file_name,
-          RawLoadFlags::EXTRACT_BLACK
-        | RawLoadFlags::INF_OVEREXPOSURES
+        RawLoadFlags::EXTRACT_BLACK | RawLoadFlags::INF_OVEREXPOSURES
     )?;
     raw_log.log("loading raw image");
 
@@ -190,14 +236,22 @@ fn load_raw_light_file(
     // remove hot pixels from RAW image
     raw_image.remove_bad_pixels(&cal_data.hot_pixels);
 
-    // do demosaic
-    let dem_log = TimeLogger::start();
-    let image = raw_image.demosaic_linear(fast_demosaic)?;
-    if fast_demosaic {
-        dem_log.log("fast demosaic");
-    } else {
+    let image = if raw_image.info.cfa != Cfa::Mono {
+        // do demosaic
+        let dem_log = TimeLogger::start();
+        let color_image = match demosaic {
+            DemosaicAlgo::Linear =>
+                raw_image.demosaic_bayer_linear(md_demosaic)?,
+            DemosaicAlgo::SimpleRCD =>
+                raw_image.demosaic_simple_rcd(md_demosaic)?,
+        };
         dem_log.log("demosaic");
-    }
+        color_image
+    } else {
+        let mut bw_image = Image::new();
+        bw_image.l = raw_image.data;
+        bw_image
+    };
 
     // return result
     Ok(SrcImageData {
