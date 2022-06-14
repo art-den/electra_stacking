@@ -54,7 +54,7 @@ impl LightFile {
                 DemosaicAlgo::Linear
             } else { match open_mode {
                 OpenMode::Preview => DemosaicAlgo::Linear,
-                OpenMode::Processing => DemosaicAlgo::SplineHint,
+                OpenMode::Processing => DemosaicAlgo::ColorRatio,
             }};
 
             load_raw_light_file(
@@ -198,8 +198,7 @@ fn check_raw_data(
 #[derive(Debug)]
 enum DemosaicAlgo {
     Linear,
-    SimpleRCD,
-    SplineHint,
+    ColorRatio,
 }
 
 fn load_raw_light_file(
@@ -244,16 +243,14 @@ fn load_raw_light_file(
     // remove hot pixels from RAW image
     raw_image.remove_bad_pixels(&cal_data.hot_pixels);
 
-    let image = if raw_image.info.cfa != Cfa::Mono {
+    let image = if let Cfa::Pattern(p) = &raw_image.info.cfa {
         // do demosaic
         let dem_log = TimeLogger::start();
         let color_image = match demosaic {
             DemosaicAlgo::Linear =>
-                raw_image.demosaic_bayer_linear(mt_demosaic)?,
-            DemosaicAlgo::SimpleRCD =>
-                raw_image.demosaic_bayer_simple_rcd(mt_demosaic)?,
-            DemosaicAlgo::SplineHint =>
-                raw_image.demosaic_bayer_spline(mt_demosaic)?,
+                raw_image.demosaic_bayer_linear(p, mt_demosaic)?,
+            DemosaicAlgo::ColorRatio =>
+                raw_image.demosaic_bayer_color_ratio(p, mt_demosaic)?,
         };
         dem_log.log("demosaic");
         color_image

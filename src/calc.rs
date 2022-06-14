@@ -1,4 +1,3 @@
-use itertools::Itertools;
 use structopt::*;
 use clap::arg_enum;
 use serde::{Serialize, Deserialize};
@@ -395,62 +394,3 @@ pub fn fast_pow(a: f64, b: f64) -> f64 {
     f64::from_bits(tmp2 as u64)
 }
 
-pub struct Hermite3Spline {
-    c0: f32,
-    c1: f32,
-    c2: f32,
-    c3: f32,
-}
-
-impl Hermite3Spline {
-    pub fn calc_coeffs(y_1: f32, y0: f32, y1: f32, y2: f32) -> Self {
-        let c1 = y1 - (1.0 / 3.0) * y_1 - (1.0 / 2.0) * y0 - (1.0 / 6.0) * y2;
-        let c2 = (1.0 / 2.0) * (y_1 + y1) - y0;
-        let c3 = (1.0 / 6.0) * (y2 - y_1) + (1.0 / 2.0) * (y0 - y1);
-        Self { c0: y0, c1, c2, c3 }
-    }
-
-    pub fn calc_value(&self, x: f32) -> f32 {
-        ((self.c3 * x + self.c2) * x + self.c1) * x + self.c0
-    }
-}
-
-#[inline(never)]
-pub fn interpolate_2x_hermite_spline(src: &[f32], dst: &mut Vec<f32>) {
-    dst.clear();
-
-    let start_spline = Hermite3Spline::calc_coeffs(
-        src[0],
-        src[1],
-        src[2],
-        src[3]
-    );
-    dst.push(start_spline.calc_value(-0.5));
-
-    for (v1, v2, v3, v4) in src.into_iter().tuple_windows() {
-        let spline = Hermite3Spline::calc_coeffs(*v1, *v2, *v3, *v4);
-        dst.push(spline.calc_value(0.5));
-    }
-
-    let end_values = &src[src.len()-4..];
-    let end_spline = Hermite3Spline::calc_coeffs(
-        end_values[0],
-        end_values[1],
-        end_values[2],
-        end_values[3]
-    );
-    dst.push(end_spline.calc_value(1.5));
-}
-
-#[test]
-fn test_hermite_spline() {
-    let spline = Hermite3Spline::calc_coeffs(0.0, 1.0, 2.0, 3.0);
-
-    assert!(spline.calc_value(-1.0) == 0.0);
-    assert!(spline.calc_value(-0.5) == 0.5);
-    assert!(spline.calc_value(0.0) == 1.0);
-    assert!(spline.calc_value(0.5) == 1.5);
-    assert!(spline.calc_value(1.0) == 2.0);
-    assert!(spline.calc_value(1.5) == 2.5);
-    assert!(spline.calc_value(2.0) == 3.0);
-}
