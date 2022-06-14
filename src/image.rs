@@ -88,6 +88,10 @@ where T: Copy + Clone + ImgLayerDefValue<Type = T> {
         self.height = 0;
     }
 
+    pub fn fill(&mut self, value: T) {
+        self.data.fill(value);
+    }
+
     pub fn is_empty(&self) -> bool {
         (self.width == 0) && self.data.is_empty()
     }
@@ -152,6 +156,96 @@ where T: Copy + Clone + ImgLayerDefValue<Type = T> {
 
     pub fn iter_col_mut(&mut self, x: Crd) -> std::iter::StepBy<std::slice::IterMut<T>> {
         self.data[x as usize..].iter_mut().step_by(self.width as usize)
+    }
+
+    fn get_end_for_from_top_iter_diag1(&self, x: Crd) -> usize {
+        let size_diff = self.width - self.height;
+        if x > size_diff {
+            (self.width * (self.height - (x - size_diff)) - 1) as usize
+        } else {
+            self.data.len() - 1
+        }
+    }
+
+    pub fn from_top_iter_diag1(&self, x: Crd) -> std::iter::StepBy<std::slice::Iter<T>> {
+        let end = self.get_end_for_from_top_iter_diag1(x);
+        self.data[x as usize ..= end]
+            .iter()
+            .step_by(self.width as usize + 1)
+    }
+
+    pub fn from_top_iter_diag1_mut(&mut self, x: Crd) -> std::iter::StepBy<std::slice::IterMut<T>> {
+        let end = self.get_end_for_from_top_iter_diag1(x);
+        self.data[x as usize ..= end]
+            .iter_mut()
+            .step_by(self.width as usize + 1)
+    }
+
+    fn get_end_for_from_left_diag1_iter(&self, y: Crd) -> usize {
+        let size_diff = self.height - self.width;
+        if y < size_diff {
+            (self.width * (self.height - (size_diff - y)) - 1) as usize
+        } else {
+            self.data.len() - 1
+        }
+    }
+
+    pub fn from_left_iter_diag1(&self, y: Crd) -> std::iter::StepBy<std::slice::Iter<T>> {
+        let end = self.get_end_for_from_left_diag1_iter(y);
+        self.data[(y*self.width) as usize ..= end]
+            .iter()
+            .step_by(self.width as usize + 1)
+    }
+
+    pub fn from_left_iter_diag1_mut(&mut self, y: Crd) -> std::iter::StepBy<std::slice::IterMut<T>> {
+        let end = self.get_end_for_from_left_diag1_iter(y);
+        self.data[(y*self.width) as usize ..= end]
+            .iter_mut()
+            .step_by(self.width as usize + 1)
+    }
+
+    fn get_end_for_from_top_iter_diag2(&self, x: Crd) -> usize {
+        if x < self.height {
+            (self.width * x) as usize
+        } else {
+            self.data.len() - 1
+        }
+    }
+
+    pub fn from_top_iter_diag2(&self, x: Crd) -> std::iter::StepBy<std::slice::Iter<T>> {
+        let end = self.get_end_for_from_top_iter_diag2(x);
+        self.data[x as usize ..= end]
+            .iter()
+            .step_by(self.width as usize - 1)
+    }
+
+    pub fn from_top_iter_diag2_mut(&mut self, x: Crd) -> std::iter::StepBy<std::slice::IterMut<T>> {
+        let end = self.get_end_for_from_top_iter_diag2(x);
+        self.data[x as usize ..= end]
+            .iter_mut()
+            .step_by(self.width as usize - 1)
+    }
+
+    fn get_end_for_from_right_iter_diag2(&self, y: Crd) -> usize {
+        if y <= self.height - self.width {
+            (self.width * (y + self.width-1)) as usize
+        } else {
+            self.data.len() - 1
+        }
+    }
+
+    pub fn from_right_iter_diag2(&self, y: Crd) -> std::iter::StepBy<std::slice::Iter<T>> {
+        let end = self.get_end_for_from_right_iter_diag2(y);
+        self.data[(y*self.width + self.width - 1) as usize ..= end]
+            .iter()
+            .step_by(self.width as usize - 1)
+    }
+
+    pub fn from_right_iter_diag2_mut(&mut self, y: Crd) -> std::iter::StepBy<std::slice::IterMut<T>> {
+        let end = self.get_end_for_from_right_iter_diag2(y);
+        self.data[(y*self.width + self.width - 1) as usize ..= end]
+            .iter_mut()
+            .step_by(self.width as usize - 1)
     }
 
     pub fn iter_crd(&self) -> ImageLayerIter1::<T> {

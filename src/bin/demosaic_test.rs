@@ -12,14 +12,19 @@ fn main() -> anyhow::Result<()> {
     let raw_image = maka_bayer_image(&test_file.image);
 
     let mut lin_result = raw_image.demosaic_bayer_linear(false)?;
-    correct_image(&mut lin_result);
     calc_and_show_error("Linear", &test_file.image, &lin_result);
+    correct_image(&mut lin_result);
     save_image_to_file(&lin_result, &Exif::new_empty(), &file_name.with_extension("linear.tif"))?;
 
-    let mut green_result = raw_image.demosaic_simple_rcd(false)?;
-    correct_image(&mut green_result);
+    let mut green_result = raw_image.demosaic_bayer_simple_rcd(false)?;
     calc_and_show_error("Green", &test_file.image, &green_result);
+    correct_image(&mut green_result);
     save_image_to_file(&green_result, &Exif::new_empty(), &file_name.with_extension("green.tif"))?;
+
+    let mut spline_result = raw_image.demosaic_bayer_spline(false)?;
+    calc_and_show_error("Spline", &test_file.image, &spline_result);
+    correct_image(&mut spline_result);
+    save_image_to_file(&spline_result, &Exif::new_empty(), &file_name.with_extension("spline.tif"))?;
 
     println!("Done!");
 

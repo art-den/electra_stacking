@@ -1,5 +1,5 @@
 use std::{path::*, io::*, fs::*, collections::HashSet, hash::Hash};
-use itertools::izip;
+use itertools::{izip};
 use rayon::prelude::*;
 use serde::{Serialize, Deserialize};
 use byteorder::*;
@@ -176,6 +176,7 @@ impl MasterFileInfo {
 pub struct RawImage {
     pub info: RawImageInfo,
     pub data: ImageLayerF32,
+    pub overexposured: Vec<(Crd, Crd)>,
 }
 
 #[derive(Hash, PartialEq, Eq, Clone)]
@@ -186,14 +187,18 @@ pub struct BadPixel {
 
 bitflags! { pub struct RawLoadFlags: u32 {
     const EXTRACT_BLACK = 1;
-    const INF_OVEREXPOSURES  = 2;
+    const STORE_OVEREXPOSURES  = 2;
 }}
 
 impl RawImage {
     pub fn new_from_info(info: RawImageInfo) -> RawImage {
         let width = info.width;
         let height = info.height;
-        RawImage { info, data: ImageLayerF32::new(width, height) }
+        RawImage {
+            info,
+            data: ImageLayer::new(width, height),
+            overexposured: Vec::new(),
+        }
     }
 
     pub fn load_camera_raw_file(
@@ -225,7 +230,7 @@ impl RawImage {
             exif,
         };
 
-        let mut data = ImageLayerF32::new(width, height);
+        let mut data = ImageLayer::<f32>::new(width, height);
 
         fn copy_raw_data<T: Into<f32> + Copy>(
             dst: &mut [f32],
@@ -272,34 +277,40 @@ impl RawImage {
             }
         }
 
-        let mut inf_overexposures = flags.contains(RawLoadFlags::INF_OVEREXPOSURES);
         let extract_black = flags.contains(RawLoadFlags::EXTRACT_BLACK);
 
+        let mut store_overexposures = flags.contains(RawLoadFlags::STORE_OVEREXPOSURES);
         let mut max_values = [0_f32; 4];
-        if inf_overexposures {
+        if store_overexposures {
             let clip_value = Self::find_clip_value(data.as_slice());
             for i in 0..4 {
                 let white_value = raw.whitelevels[i] as f32;
-
                 max_values[i] = if clip_value < white_value && white_value < 1.2 * clip_value {
                     clip_value
                 } else {
                     white_value
                 };
-
                 if max_values[i] < raw.blacklevels[i] as f32 {
-                    inf_overexposures = false;
+                    store_overexposures = false;
                 }
             }
         }
 
-        if inf_overexposures || extract_black {
+        let mut overexposured = Vec::new();
+
+        if store_overexposures || extract_black {
             let mut correct_values = |color, black_level, max| {
+
                 for (x, y, v) in data.iter_crd_mut() {
-                    if info.cfa.get_pixel_color(x, y) != color { continue; }
-                    if inf_overexposures && *v > max {
-                        *v = f32::INFINITY;
-                    } else if extract_black {
+                    if info.cfa.get_pixel_color(x, y) != color {
+                        continue;
+                    }
+
+                    if store_overexposures && *v > max {
+                        overexposured.push((x, y));
+                    }
+
+                    if extract_black {
                         *v -= black_level;
                     }
                 }
@@ -327,7 +338,7 @@ impl RawImage {
             info.wb[i] = if !raw.wb_coeffs[i].is_nan() { raw.wb_coeffs[i] } else { 0.0 };
         }
 
-        Ok(RawImage{ info, data })
+        Ok(RawImage{ info, overexposured, data })
     }
 
     fn find_clip_value(data: &[f32]) -> f32 {
@@ -388,7 +399,11 @@ impl RawImage {
         let info = RawImageInfo::read_from(&mut file)?;
         let mut image = ImageLayerF32::new(info.width, info.height);
         for v in image.iter_mut() { *v = file.read_f32::<BigEndian>()?; }
-        Ok(RawImage{ info, data: image })
+        Ok(RawImage{
+            info,
+            data: image,
+            overexposured: Vec::new(),
+        })
     }
 
     pub fn demosaic_bayer_linear(&self, mt: bool) -> anyhow::Result<Image> {
@@ -396,108 +411,101 @@ impl RawImage {
             anyhow::bail!("Raw image is empty");
         }
 
-        let mut result = Image::new();
-        match &self.info.cfa {
-            Cfa::Mono => {
-                result.make_grey(self.info.width, self.info.height);
-                let range = 1.0 / self.info.max_values[0];
-                for (d, s) in result.l.iter_mut().zip(self.data.iter()) {
-                    *d = range * *s;
-                }
-            }
-            Cfa::Pattern(p) => {
-                result.make_color(self.info.width, self.info.height);
-                let max_wb = self.info.wb
-                    .iter()
-                    .fold(0_f32, |a, v| if !v.is_nan() { a.max(*v) } else { a } );
+        let result = if let Cfa::Pattern(p) = &self.info.cfa {
+            let mut result = Image::new_color(self.info.width, self.info.height);
+            let max_wb = self.info.wb
+                .iter()
+                .fold(0_f32, |a, v| if !v.is_nan() { a.max(*v) } else { a } );
 
-                let mut lin_coeffs = [0_f32; 4];
-                for i in 0..4 {
-                    lin_coeffs[i] = if self.info.max_values[i] != 0.0 {
-                        self.info.wb[i] * 1.0 / (self.info.max_values[i] * max_wb)
+            let mut lin_coeffs = [0_f32; 4];
+            for i in 0..4 {
+                lin_coeffs[i] = if self.info.max_values[i] != 0.0 {
+                    self.info.wb[i] * 1.0 / (self.info.max_values[i] * max_wb)
+                } else {
+                    self.info.wb[i] / max_wb
+                };
+            }
+
+            const PATH_VERT:  &[(Crd, Crd)] = &[(0, -1), (0, 1)];
+            const PATH_HORIZ: &[(Crd, Crd)] = &[(-1, 0), (1, 0)];
+            const PATH_DIAG:  &[(Crd, Crd)] = &[(-1, -1), (1, -1), (-1, 1), (1, 1)];
+            const PATH_CROSS: &[(Crd, Crd)] = &[(0, -1), (-1, 0), (1, 0), (0, 1)];
+
+            let demosaic_row = |y, d_row: &mut[f32], ct: CfaColor, k: f32| {
+                let s_row = self.data.row(y);
+                for (x, (d, s)) in d_row.iter_mut().zip(s_row).enumerate() {
+                    let x = x as Crd;
+                    let raw_ct = p.get_color_type(x, y);
+
+                    *d = k * if raw_ct == ct {
+                        *s
                     } else {
-                        self.info.wb[i] / max_wb
+                        let path = match (raw_ct, ct) {
+                            (_, CfaColor::G) =>
+                                PATH_CROSS,
+                            (CfaColor::R, CfaColor::B) =>
+                                PATH_DIAG,
+                            (CfaColor::B, CfaColor::R) =>
+                                PATH_DIAG,
+                            (CfaColor::G, CfaColor::R) if p.get_color_type(x+1, y) == CfaColor::R =>
+                                PATH_HORIZ,
+                            (CfaColor::G, CfaColor::R) =>
+                                PATH_VERT,
+                            (CfaColor::G, CfaColor::B) if p.get_color_type(x+1, y) == CfaColor::B =>
+                                PATH_HORIZ,
+                            (CfaColor::G, CfaColor::B) =>
+                                PATH_VERT,
+                            (_, _) =>
+                                panic!("Internal error"),
+                        };
+
+                        let mut sum = 0_f32;
+                        let mut cnt = 0_u16;
+                        for crd in path { if let Some(v) = self.data.get(x+crd.0, y+crd.1) {
+                            debug_assert!(p.get_color_type(x+crd.0, y+crd.1) == ct);
+                            sum += v;
+                            cnt += 1;
+                        }}
+                        if cnt != 0 { sum / cnt as f32 } else { 0.0 }
                     };
                 }
+            };
 
-                const PATH_VERT:  &[(Crd, Crd)] = &[(0, -1), (0, 1)];
-                const PATH_HORIZ: &[(Crd, Crd)] = &[(-1, 0), (1, 0)];
-                const PATH_DIAG:  &[(Crd, Crd)] = &[(-1, -1), (1, -1), (-1, 1), (1, 1)];
-                const PATH_CROSS: &[(Crd, Crd)] = &[(0, -1), (-1, 0), (1, 0), (0, 1)];
-
-                let demosaic_row = |y, d_row: &mut[f32], ct: CfaColor, k: f32| {
-                    let s_row = self.data.row(y);
-                    for (x, (d, s)) in d_row.iter_mut().zip(s_row).enumerate() {
-                        let x = x as Crd;
-                        let raw_ct = p.get_color_type(x, y);
-
-                        *d = k * if raw_ct == ct {
-                            *s
-                        } else {
-                            let path = match (raw_ct, ct) {
-                                (_, CfaColor::G) =>
-                                    PATH_CROSS,
-                                (CfaColor::R, CfaColor::B) =>
-                                    PATH_DIAG,
-                                (CfaColor::B, CfaColor::R) =>
-                                    PATH_DIAG,
-                                (CfaColor::G, CfaColor::R) if p.get_color_type(x+1, y) == CfaColor::R =>
-                                    PATH_HORIZ,
-                                (CfaColor::G, CfaColor::R) =>
-                                    PATH_VERT,
-                                (CfaColor::G, CfaColor::B) if p.get_color_type(x+1, y) == CfaColor::B =>
-                                    PATH_HORIZ,
-                                (CfaColor::G, CfaColor::B) =>
-                                    PATH_VERT,
-                                (_, _) =>
-                                    panic!("Internal error"),
-                            };
-
-                            let mut sum = 0_f32;
-                            let mut cnt = 0_u16;
-                            for crd in path { if let Some(v) = self.data.get(x+crd.0, y+crd.1) {
-                                debug_assert!(p.get_color_type(x+crd.0, y+crd.1) == ct);
-                                sum += v;
-                                cnt += 1;
-                            }}
-                            if cnt != 0 { sum / cnt as f32 } else { 0.0 }
-                        };
-                    }
-                };
-
-                if !mt {
-                    for y in 0..self.data.height() {
-                        demosaic_row(y, result.r.row_mut(y), CfaColor::R, lin_coeffs[0]);
-                        demosaic_row(y, result.g.row_mut(y), CfaColor::G, lin_coeffs[1]);
-                        demosaic_row(y, result.b.row_mut(y), CfaColor::B, lin_coeffs[2]);
-                    }
-                } else {
-                    let width = self.data.width() as usize;
-
-                    result.r.as_slice_mut().par_chunks_mut(width)
-                        .enumerate()
-                        .for_each(|(y, d)| {
-                            demosaic_row(y as Crd, d, CfaColor::R, lin_coeffs[0]);
-                        });
-
-                    result.g.as_slice_mut().par_chunks_mut(width)
-                        .enumerate()
-                        .for_each(|(y, d)| {
-                            demosaic_row(y as Crd, d, CfaColor::G, lin_coeffs[1]);
-                        });
-
-                    result.b.as_slice_mut().par_chunks_mut(width)
-                        .enumerate()
-                        .for_each(|(y, d)| {
-                            demosaic_row(y as Crd, d, CfaColor::B, lin_coeffs[2]);
-                        });
+            if !mt {
+                for y in 0..self.data.height() {
+                    demosaic_row(y, result.r.row_mut(y), CfaColor::R, lin_coeffs[0]);
+                    demosaic_row(y, result.g.row_mut(y), CfaColor::G, lin_coeffs[1]);
+                    demosaic_row(y, result.b.row_mut(y), CfaColor::B, lin_coeffs[2]);
                 }
+            } else {
+                let width = self.data.width() as usize;
+
+                result.r.as_slice_mut().par_chunks_mut(width)
+                    .enumerate()
+                    .for_each(|(y, d)| {
+                        demosaic_row(y as Crd, d, CfaColor::R, lin_coeffs[0]);
+                    });
+
+                result.g.as_slice_mut().par_chunks_mut(width)
+                    .enumerate()
+                    .for_each(|(y, d)| {
+                        demosaic_row(y as Crd, d, CfaColor::G, lin_coeffs[1]);
+                    });
+
+                result.b.as_slice_mut().par_chunks_mut(width)
+                    .enumerate()
+                    .for_each(|(y, d)| {
+                        demosaic_row(y as Crd, d, CfaColor::B, lin_coeffs[2]);
+                    });
             }
-        }
+            result
+        } else {
+            panic!("Work only with bayer pattern");
+        };
         Ok(result)
     }
 
-    pub fn demosaic_simple_rcd(&self, _mt: bool) -> anyhow::Result<Image> {
+    pub fn demosaic_bayer_simple_rcd(&self, _mt: bool) -> anyhow::Result<Image> {
         if self.data.is_empty() {
             anyhow::bail!("Raw image is empty");
         }
@@ -518,13 +526,13 @@ impl RawImage {
                 };
             }
 
-            let demosaic_green_row = |y, d_row: &mut[f32], ct: CfaColor| {
+            let demosaic_green_row = |y, d_row: &mut[f32]| {
                 let s_row = self.data.row(y);
                 for (x, (d, s)) in d_row.iter_mut().zip(s_row).enumerate() {
                     let x = x as Crd;
                     let raw_ct = p.get_color_type(x, y);
 
-                    *d = if raw_ct == ct {
+                    *d = if raw_ct == CfaColor::G {
                         *s
                     } else {
                         let g1 = self.data.get(x, y-1);
@@ -558,7 +566,7 @@ impl RawImage {
             };
 
             for y in 0..self.data.height() {
-                demosaic_green_row(y, result_image.g.row_mut(y), CfaColor::G);
+                demosaic_green_row(y, result_image.g.row_mut(y));
             }
 
             const PATH_VERT:  &[(Crd, Crd)] = &[(0, -1), (0, 1)];
@@ -643,6 +651,238 @@ impl RawImage {
         Ok(result)
     }
 
+    pub fn demosaic_bayer_spline(&self, _mt: bool) -> anyhow::Result<Image> {
+        if self.data.is_empty() {
+            anyhow::bail!("Raw image is empty");
+        }
+        let result = if let Cfa::Pattern(p) = &self.info.cfa {
+            let mut tmp = Image::new_color(self.info.width, self.info.height);
+
+            tmp.r.fill(f32::NAN);
+            tmp.g.fill(f32::NAN);
+            tmp.b.fill(f32::NAN);
+
+            let max_wb = self.info.wb
+                .iter()
+                .fold(0_f32, |a, v| if !v.is_nan() { a.max(*v) } else { a } );
+
+            let mut lin_coeffs = [0_f32; 4];
+            for i in 0..4 {
+                lin_coeffs[i] = if self.info.max_values[i] != 0.0 {
+                    self.info.wb[i] * 1.0 / (self.info.max_values[i] * max_wb)
+                } else {
+                    self.info.wb[i] / max_wb
+                };
+            }
+
+            let mut spline_demosaic = SplineDemosaic::new();
+
+            let mut demosaic_color = |ct: CfaColor, img: &mut ImageLayerF32, plus_diagonal: bool| {
+                // vertical ⬍
+                for x in 0..self.data.width() {
+                    let hit0 = self.info.cfa.get_pixel_color(x, 0) == ct;
+                    let hit1 = self.info.cfa.get_pixel_color(x, 1) == ct;
+                    if hit0 || hit1 {
+                        spline_demosaic.process(
+                            hit0,
+                            self.data.iter_col(x),
+                            img.iter_col_mut(x)
+                        );
+                    }
+                }
+
+                // horizontal ⬌
+                for y in 0..self.data.height() {
+                    let hit0 = self.info.cfa.get_pixel_color(0, y) == ct;
+                    let hit1 = self.info.cfa.get_pixel_color(1, y) == ct;
+                    if hit0 || hit1 {
+                        spline_demosaic.process(
+                            hit0,
+                            self.data.iter_row(y),
+                            img.iter_row_mut(y)
+                        );
+                    }
+                }
+
+                if !plus_diagonal {
+                    return;
+                }
+
+                // diagonal-1 ⤡
+                for x in 0..self.data.width() {
+                    let hit0 = self.info.cfa.get_pixel_color(x, 0) == ct;
+                    let hit1 = self.info.cfa.get_pixel_color(x+1, 1) == ct;
+
+                    if hit0 || hit1 {
+                        spline_demosaic.process(
+                            hit0,
+                            self.data.from_top_iter_diag1(x),
+                            img.from_top_iter_diag1_mut(x)
+                        );
+                    }
+                }
+
+                for y in 1..self.data.height() {
+                    let hit0 = self.info.cfa.get_pixel_color(0, y) == ct;
+                    let hit1 = self.info.cfa.get_pixel_color(1, y+1) == ct;
+
+                    if hit0 || hit1 {
+                        spline_demosaic.process(
+                            hit0,
+                            self.data.from_left_iter_diag1(y),
+                            img.from_left_iter_diag1_mut(y)
+                        );
+                    }
+                }
+
+                // diagonal-2 ⤢
+                for x in 0..self.data.width() {
+                    let hit0 = self.info.cfa.get_pixel_color(x, 0) == ct;
+                    let hit1 = self.info.cfa.get_pixel_color(x-1, 1) == ct;
+
+                    if hit0 || hit1 {
+                        spline_demosaic.process(
+                            hit0,
+                            self.data.from_top_iter_diag2(x),
+                            img.from_top_iter_diag2_mut(x)
+                        );
+                    }
+                }
+
+                let right = self.data.width()-1;
+                for y in 1..self.data.height() {
+                    let hit0 = self.info.cfa.get_pixel_color(right, y) == ct;
+                    let hit1 = self.info.cfa.get_pixel_color(right-1, y+1) == ct;
+
+                    if hit0 || hit1 {
+                        spline_demosaic.process(
+                            hit0,
+                            self.data.from_right_iter_diag2(y),
+                            img.from_right_iter_diag2_mut(y)
+                        );
+                    }
+                }
+            };
+
+            demosaic_color(CfaColor::G, &mut tmp.g, false);
+            demosaic_color(CfaColor::R, &mut tmp.r, true);
+            demosaic_color(CfaColor::B, &mut tmp.b, true);
+
+            let calc_linear = |x, y, ct: CfaColor| -> f32 {
+                let (sum, cnt) = self.data
+                    .iter_rect_crd(x-1, y-1, x+1, y+1)
+                    .filter(|(x, y, _)| self.info.cfa.get_pixel_color(*x, *y) == ct)
+                    .fold((0_f32, 0_u16), |(sum, cnt), (_, _, v)| { (sum + v, cnt + 1) });
+                if cnt != 0 { sum / cnt as f32 } else { 0.0 }
+            };
+
+            let right_crd = self.data.width()-1;
+            let bottom_crd = self.data.height()-1;
+            for ((x, y, r, g, b), s) in
+            tmp.iter_rgb_crd_mut().zip(self.data.iter()) {
+                let is_border =
+                    x == 0 || y == 0 ||
+                    x == right_crd || y == bottom_crd;
+                match p.get_color_type(x, y) {
+                    CfaColor::R => {
+                        *r = *s;
+                        *b *= 0.5;
+                        if !is_border { *g *= 0.5; }
+                    },
+                    CfaColor::G => {
+                        *g = *s;
+                    },
+                    CfaColor::B => {
+                        *b = *s;
+                        *r *= 0.5;
+                        if !is_border { *g *= 0.5; }
+                    },
+                    _ => {},
+                }
+                if r.is_nan() { *r = calc_linear(x, y, CfaColor::R); }
+                if g.is_nan() { *g = calc_linear(x, y, CfaColor::G); }
+                if b.is_nan() { *b = calc_linear(x, y, CfaColor::B); }
+            }
+
+            let mut result = Image::new_color(self.info.width, self.info.height);
+
+            const PATH_VERT:  &[(Crd, Crd)] = &[(0, -1), (0, 1)];
+            const PATH_HORIZ: &[(Crd, Crd)] = &[(-1, 0), (1, 0)];
+            const PATH_DIAG:  &[(Crd, Crd)] = &[(-1, -1), (1, -1), (-1, 1), (1, 1)];
+            const PATH_CROSS: &[(Crd, Crd)] = &[(0, -1), (-1, 0), (1, 0), (0, 1)];
+
+            let demosaic_row = |y, d_row: &mut[f32], ct: CfaColor, k: f32| {
+                let s_row = self.data.row(y);
+                for (x, (d, s)) in d_row.iter_mut().zip(s_row).enumerate() {
+                    let x = x as Crd;
+                    let raw_ct = p.get_color_type(x, y);
+
+                    let hint_layer = match raw_ct {
+                        CfaColor::R => &tmp.r,
+                        CfaColor::G => &tmp.g,
+                        CfaColor::B => &tmp.b,
+                        _ => panic!("Internal error")
+                    };
+
+                    *d = k * if raw_ct == ct {
+                        *s
+                    } else {
+                        let path = match (raw_ct, ct) {
+                            (_, CfaColor::G) =>
+                                PATH_CROSS,
+                            (CfaColor::R, CfaColor::B) =>
+                                PATH_DIAG,
+                            (CfaColor::B, CfaColor::R) =>
+                                PATH_DIAG,
+                            (CfaColor::G, CfaColor::R) if p.get_color_type(x+1, y) == CfaColor::R =>
+                                PATH_HORIZ,
+                            (CfaColor::G, CfaColor::R) =>
+                                PATH_VERT,
+                            (CfaColor::G, CfaColor::B) if p.get_color_type(x+1, y) == CfaColor::B =>
+                                PATH_HORIZ,
+                            (CfaColor::G, CfaColor::B) =>
+                                PATH_VERT,
+                            (_, _) =>
+                                panic!("Internal error"),
+                        };
+
+                        let mut sum = 0_f32;
+                        let mut hint_sum = 0_f32;
+                        let mut cnt = 0_u16;
+                        for crd in path {
+                            let (sx, sy) = (x+crd.0, y+crd.1);
+                            if let (Some(v), Some(h)) = (self.data.get(sx, sy), hint_layer.get(sx, sy)) {
+                                debug_assert!(p.get_color_type(sx, sy) == ct);
+                                sum += v;
+                                hint_sum += h;
+                                cnt += 1;
+                            }
+                        }
+                        let aver = if cnt != 0 { sum / cnt as f32 } else { 0.0 };
+                        let hint_aver = if cnt != 0 { hint_sum / cnt as f32 } else { 0.0 };
+                        let hint = *s;
+
+                        if 4.0 * aver > hint {
+                            aver * hint / hint_aver
+                        } else {
+                            aver
+                        }
+                    };
+                }
+            };
+
+            for y in 0..self.data.height() {
+                demosaic_row(y, result.r.row_mut(y), CfaColor::R, lin_coeffs[0]);
+                demosaic_row(y, result.g.row_mut(y), CfaColor::G, lin_coeffs[1]);
+                demosaic_row(y, result.b.row_mut(y), CfaColor::B, lin_coeffs[2]);
+            }
+
+            result
+        } else {
+            panic!("Work only with bayer pattern");
+        };
+        Ok(result)
+    }
 
     pub fn find_hot_pixels_in_dark_file(&self) -> Vec<BadPixel> {
         const R: Crd = 2;
@@ -805,3 +1045,51 @@ impl CalibrationData {
         })
     }
 }
+
+struct SplineDemosaic {
+    values_to_interpolate: Vec<f32>,
+    interpolated: Vec<f32>,
+}
+
+impl SplineDemosaic {
+    fn new() -> Self {
+        Self {
+            values_to_interpolate: Vec::new(),
+            interpolated: Vec::new()
+        }
+    }
+
+    fn process<'a>(
+        &'a mut self,
+        start_at_first: bool,
+        s_iter: impl Iterator<Item = &'a f32> + Clone,
+        d_iter: impl Iterator<Item = &'a mut f32>)
+    {
+        self.values_to_interpolate.clear();
+
+        let start_src_col = if start_at_first {0} else {1};
+        for s in s_iter.clone().skip(start_src_col).step_by(2) {
+            self.values_to_interpolate.push(*s);
+        }
+
+        if self.values_to_interpolate.len() < 4 {
+            return;
+        }
+
+        interpolate_2x_hermite_spline(&self.values_to_interpolate, &mut self.interpolated);
+
+        let start_dest_index = if start_at_first {1} else {2};
+        for (d, i) in
+            d_iter.skip(start_dest_index).step_by(2)
+            .zip(&self.interpolated)
+        {
+            if !d.is_nan() {
+                *d += *i;
+            } else {
+                *d = *i;
+            }
+        }
+
+    }
+}
+

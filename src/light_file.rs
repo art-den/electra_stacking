@@ -50,14 +50,12 @@ impl LightFile {
         let mut src_data = if is_image_file_name(file_name) {
             load_image_from_file(file_name)?
         } else {
-            let mut demosaic = match open_mode {
+            let demosaic = if bin == 2 {
+                DemosaicAlgo::Linear
+            } else { match open_mode {
                 OpenMode::Preview => DemosaicAlgo::Linear,
-                OpenMode::Processing => DemosaicAlgo::SimpleRCD,
-            };
-
-            if bin == 2 {
-                demosaic = DemosaicAlgo::Linear;
-            }
+                OpenMode::Processing => DemosaicAlgo::SplineHint,
+            }};
 
             load_raw_light_file(
                 file_name,
@@ -100,28 +98,24 @@ impl LightFile {
             0.0
         };
 
+        drop(img_layer_to_calc);
+
         if bin == 2 {
             let bin_log = TimeLogger::start();
             src_data.image = src_data.image.decrease_2x();
             bin_log.log("decreasing image 2x");
         }
 
-        let grey_image = if stars_flag || stars_stat_flag {
-            let grey_log = TimeLogger::start();
-            let mut result = src_data.image.create_greyscale_layer();
-            grey_log.log("creating grey image");
-            let infareas_log = TimeLogger::start();
-            result.fill_inf_areas();
-            infareas_log.log("fill_inf_areas");
-            result
+        let img_layer_to_calc = if src_data.image.is_greyscale() {
+            &src_data.image.l
         } else {
-            ImageLayerF32::new_empty()
+            &src_data.image.g
         };
 
         let stars = if stars_flag || stars_stat_flag {
             let stars_log = TimeLogger::start();
             let result = find_stars_on_image(
-                &grey_image,
+                &img_layer_to_calc,
                 Some(&src_data.image),
                 Some(noise),
                 true
@@ -134,10 +128,23 @@ impl LightFile {
         };
 
         let stars_stat = if stars_stat_flag {
-            Some(calc_stars_stat(&stars, &grey_image)?)
+            Some(calc_stars_stat(&stars, &img_layer_to_calc)?)
         } else {
             None
         };
+
+        drop(img_layer_to_calc);
+
+        for (mut x, mut y) in src_data.overexposured {
+            if bin == 2 {
+                x /= 2;
+                y /= 2;
+            }
+            src_data.image.l.set_safe(x, y, f32::INFINITY);
+            src_data.image.r.set_safe(x, y, f32::INFINITY);
+            src_data.image.g.set_safe(x, y, f32::INFINITY);
+            src_data.image.b.set_safe(x, y, f32::INFINITY);
+        }
 
         Ok(LightFile{
             exif: src_data.exif,
@@ -192,26 +199,27 @@ fn check_raw_data(
 enum DemosaicAlgo {
     Linear,
     SimpleRCD,
+    SplineHint,
 }
 
 fn load_raw_light_file(
     file_name:   &Path,
     cal_data:    &CalibrationData,
     demosaic:    DemosaicAlgo,
-    md_demosaic: bool
+    mt_demosaic: bool
 ) -> anyhow::Result<SrcImageData> {
     log::info!(
         "Start to load raw file {}, demosaic={:?}, md_demosaic={}",
         file_name.to_str().unwrap_or(""),
         demosaic,
-        md_demosaic
+        mt_demosaic
     );
 
     // load raw file
     let raw_log = TimeLogger::start();
     let mut raw_image = RawImage::load_camera_raw_file(
         file_name,
-        RawLoadFlags::EXTRACT_BLACK | RawLoadFlags::INF_OVEREXPOSURES
+        RawLoadFlags::EXTRACT_BLACK | RawLoadFlags::STORE_OVEREXPOSURES
     )?;
     raw_log.log("loading raw image");
 
@@ -241,9 +249,11 @@ fn load_raw_light_file(
         let dem_log = TimeLogger::start();
         let color_image = match demosaic {
             DemosaicAlgo::Linear =>
-                raw_image.demosaic_bayer_linear(md_demosaic)?,
+                raw_image.demosaic_bayer_linear(mt_demosaic)?,
             DemosaicAlgo::SimpleRCD =>
-                raw_image.demosaic_simple_rcd(md_demosaic)?,
+                raw_image.demosaic_bayer_simple_rcd(mt_demosaic)?,
+            DemosaicAlgo::SplineHint =>
+                raw_image.demosaic_bayer_spline(mt_demosaic)?,
         };
         dem_log.log("demosaic");
         color_image
@@ -257,6 +267,7 @@ fn load_raw_light_file(
     Ok(SrcImageData {
         image,
         exif: raw_image.info.exif,
+        overexposured: raw_image.overexposured,
     })
 }
 
@@ -266,9 +277,7 @@ fn calc_noise(image: &ImageLayerF32) -> f64 {
     for (b1, b2, v, a1, a2) in image.iter().copied().tuple_windows() {
         let back = (b1 + b2 + a1 + a2) * 0.25;
         let diff = v - back;
-        if !diff.is_nan() && !diff.is_infinite() {
-            temp_values.push(diff*diff);
-        }
+        temp_values.push(diff*diff);
     }
 
     // use lower 25% of noise_values to calc noise
@@ -283,9 +292,7 @@ fn calc_noise(image: &ImageLayerF32) -> f64 {
 
 fn calc_background(image: &ImageLayerF32) -> f32 {
     let mut temp_values = Vec::with_capacity(image.as_slice().len());
-    for v in image.as_slice() { if !v.is_infinite() {
-        temp_values.push(*v);
-    }}
+    for v in image.as_slice() { temp_values.push(*v); }
     let pos = temp_values.len() / 4;
     *temp_values.select_nth_unstable_by(pos, cmp_f32).1
 }
@@ -305,9 +312,6 @@ fn calc_sharpness(image: &ImageLayerF32) -> f32 {
                 for (v1, v2, v3, v4, v5, v6, v7, v8, v9, v10) in values.iter().tuple_windows() {
                     let high = (v4+v5-v6-v7).abs() / 2.0;
                     let mid = (v1+v2+v3+v4+v5-v6-v7-v8-v9-v10).abs() / 5.0;
-                    if high.is_infinite() || mid.is_infinite() || high.is_nan() || mid.is_nan() {
-                        continue;
-                    }
                     high_freq.push(high);
                     mid_freq.push(mid);
                 }

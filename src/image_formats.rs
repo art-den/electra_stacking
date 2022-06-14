@@ -61,6 +61,7 @@ pub fn is_image_file_name(file_name: &Path) -> bool {
 pub struct SrcImageData {
     pub image: Image,
     pub exif:  Exif,
+    pub overexposured: Vec<(Crd, Crd)>,
 }
 
 fn err_format_not_supported<R>(ext: &str) -> anyhow::Result<R> {
@@ -296,6 +297,7 @@ pub fn load_image_from_tiff_file(file_name: &Path) -> anyhow::Result<SrcImageDat
     Ok(SrcImageData{
         image,
         exif: Exif::new_empty(),
+        overexposured: Vec::new(),
     })
 }
 
@@ -479,6 +481,7 @@ pub fn load_image_from_fits_file(file_name: &Path) -> anyhow::Result<SrcImageDat
             Ok(SrcImageData{
                 image,
                 exif: Exif::new_empty(),
+                overexposured: Vec::new(),
             }),
         None =>
             Err(anyhow::anyhow!(

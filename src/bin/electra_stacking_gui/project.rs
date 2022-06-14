@@ -909,27 +909,29 @@ impl ProjectGroup {
 
     fn cleanup_by_conf<F: Fn(&RegInfo) -> f32>(
         &mut self,
-        conf: &ClenupConfItem,
-        remove_min: bool,
-        remove_max: bool,
-        flags: FileFlags,
-        fun: F,
+        conf:         &ClenupConfItem,
+        remove_min:   bool,
+        remove_max:   bool,
+        flags_to_set: FileFlags,
+        fun:          F,
     )  -> anyhow::Result<()> {
         match conf.mode {
             CleanupMode::SigmaClipping =>
-                self.cleanup_by_sigma_clipping(conf, remove_min, remove_max, flags, fun),
+                self.cleanup_by_sigma_clipping(conf, remove_min, remove_max, flags_to_set, fun),
             CleanupMode::Percent =>
-                self.cleanup_by_percent(conf, remove_min, remove_max, flags, fun),
+                self.cleanup_by_percent(conf, remove_min, remove_max, flags_to_set, fun),
+            CleanupMode::MinMax =>
+                self.cleanup_by_min_max(conf, flags_to_set, fun),
         }
     }
 
     fn cleanup_by_sigma_clipping<F: Fn(&RegInfo) -> f32>(
         &mut self,
-        conf: &ClenupConfItem,
-        remove_min: bool,
-        remove_max: bool,
-        flags: FileFlags,
-        fun: F,
+        conf:         &ClenupConfItem,
+        remove_min:   bool,
+        remove_max:   bool,
+        flags_to_set: FileFlags,
+        fun:          F,
     ) -> anyhow::Result<()> {
         if !conf.used { return Ok(()); }
 
@@ -969,7 +971,7 @@ impl ProjectGroup {
 
                 if (remove_min && value < min) || (remove_max && value > max) {
                     item.set_used(false);
-                    item.set_flags(*item.flags() | flags);
+                    item.set_flags(*item.flags() | flags_to_set);
                     *to_exclude = true;
                 }
             }
@@ -980,11 +982,11 @@ impl ProjectGroup {
 
     fn cleanup_by_percent<F: Fn(&RegInfo) -> f32>(
         &mut self,
-        conf: &ClenupConfItem,
-        remove_min: bool,
-        remove_max: bool,
-        flags: FileFlags,
-        fun: F,
+        conf:         &ClenupConfItem,
+        remove_min:   bool,
+        remove_max:   bool,
+        flags_to_set: FileFlags,
+        fun:          F,
     ) -> anyhow::Result<()> {
         if !conf.used { return Ok(()); }
         if self.light_files.list.is_empty() {
@@ -1011,12 +1013,33 @@ impl ProjectGroup {
             for (idx, _) in &items[items.len()-percent_cnt..] {
                 let item = &mut self.light_files.list[*idx];
                 item.set_used(false);
-                item.set_flags(*item.flags() | flags);
+                item.set_flags(*item.flags() | flags_to_set);
             }
         }
 
         Ok(())
     }
+
+    fn cleanup_by_min_max<F: Fn(&RegInfo) -> f32>(
+        &mut self,
+        conf:         &ClenupConfItem,
+        flags_to_set: FileFlags,
+        fun:          F,
+    ) -> anyhow::Result<()> {
+        for file in &mut self.light_files.list {
+            let value = fun(file.reg_info.as_ref().unwrap());
+            if let Some(min) = conf.min { if value < min {
+                file.used = false;
+                file.flags |= flags_to_set;
+            }}
+            if let Some(max) = conf.max { if value > max {
+                file.used = false;
+                file.flags |= flags_to_set;
+            }}
+        }
+        Ok(())
+    }
+
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -1319,6 +1342,7 @@ impl ProjectFile {
 pub enum CleanupMode {
     SigmaClipping,
     Percent,
+    MinMax,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -1329,6 +1353,8 @@ pub struct ClenupConfItem {
     pub kappa: f32,
     pub repeats: u32,
     pub percent: u32,
+    pub min: Option<f32>,
+    pub max: Option<f32>,
 }
 
 impl ClenupConfItem {
@@ -1345,6 +1371,8 @@ impl Default for ClenupConfItem {
             kappa: 1.8,
             repeats: 10,
             percent: 5,
+            min: None,
+            max: None,
         }
     }
 }
