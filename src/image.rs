@@ -425,7 +425,7 @@ pub trait PixelsSource {
         }
 
         let s_sum = s11 + s21 + s12 + s22;
-        if s_sum >= 0.9999 {
+        if s_sum >= 0.9999 && !sum.is_nan() {
             Some(sum)
         } else if p11.is_none() && p21.is_none() && p12.is_none() && p22.is_none() {
             None
@@ -573,12 +573,12 @@ impl ImageLayer<f32> {
         check_nan: bool,
         name:      &str
     ) -> anyhow::Result<()> {
-        for v in self.data.iter() {
+        for (x, y, v) in self.iter_crd() {
             if check_inf && v.is_infinite() {
-                anyhow::bail!("Image contain INF in {} layer", name);
+                anyhow::bail!("Image contain INF in {} layer at ({}, {}) point", name, x, y);
             }
             if check_nan && v.is_nan() {
-                anyhow::bail!("Image contain NAN in {} layer", name);
+                anyhow::bail!("Image contain NAN in {} layer at ({}, {}) point", name, x, y);
             }
         }
         Ok(())

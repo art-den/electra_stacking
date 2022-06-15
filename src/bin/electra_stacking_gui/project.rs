@@ -767,8 +767,7 @@ impl ProjectGroup {
                           LoadLightFlags::STARS
                         | LoadLightFlags::STARS_STAT
                         | LoadLightFlags::NOISE
-                        | LoadLightFlags::BACKGROUND
-                        | LoadLightFlags::SHARPNESS,
+                        | LoadLightFlags::BACKGROUND,
                         OpenMode::Processing,
                         1
                     );
@@ -811,7 +810,6 @@ impl ProjectGroup {
                         RegInfo {
                             noise:       light_file.noise,
                             background:  light_file.background,
-                            sharpness:   light_file.sharpness,
                             fwhm:        stars_stat.fwhm,
                             stars:       light_file.stars.len(),
                             stars_r_dev: stars_stat.aver_r_dev,
@@ -872,14 +870,6 @@ impl ProjectGroup {
             true,
             FILE_FLAG_CLEANUP_STARS,
             |reg_info: &RegInfo| reg_info.stars as f32
-        )?;
-
-        self.cleanup_by_conf(
-            &conf.img_sharpness,
-            true,
-            false,
-            FILE_FLAG_CLEANUP_SHARPNESS,
-            |reg_info: &RegInfo| reg_info.sharpness
         )?;
 
         self.cleanup_by_conf(
@@ -1191,7 +1181,6 @@ pub struct RegInfo {
     pub fwhm: f32,
     pub stars: usize,
     pub stars_r_dev: f32,
-    pub sharpness: f32,
 }
 
 impl Default for RegInfo {
@@ -1202,7 +1191,6 @@ impl Default for RegInfo {
             fwhm: 0.0,
             stars: 0,
             stars_r_dev: 0.0,
-            sharpness: 0.0
         }
     }
 }
@@ -1211,9 +1199,8 @@ pub type FileFlags = u8;
 pub const FILE_FLAG_CLEANUP_R_DEV:     FileFlags = 1 << 0;
 pub const FILE_FLAG_CLEANUP_FWHM:      FileFlags = 1 << 1;
 pub const FILE_FLAG_CLEANUP_STARS:     FileFlags = 1 << 2;
-pub const FILE_FLAG_CLEANUP_SHARPNESS: FileFlags = 1 << 3;
-pub const FILE_FLAG_CLEANUP_NOISE:     FileFlags = 1 << 4;
-pub const FILE_FLAG_CLEANUP_BG:        FileFlags = 1 << 5;
+pub const FILE_FLAG_CLEANUP_NOISE:     FileFlags = 1 << 3;
+pub const FILE_FLAG_CLEANUP_BG:        FileFlags = 1 << 4;
 
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(default)]
@@ -1384,7 +1371,6 @@ pub struct ClenupConf {
     pub stars_r_dev: ClenupConfItem,
     pub stars_fwhm: ClenupConfItem,
     pub stars_count: ClenupConfItem,
-    pub img_sharpness: ClenupConfItem,
     pub noise: ClenupConfItem,
     pub background: ClenupConfItem,
 }
@@ -1396,7 +1382,6 @@ impl Default for ClenupConf {
             stars_r_dev: Default::default(),
             stars_fwhm: Default::default(),
             stars_count: ClenupConfItem{ kappa: 3.0, .. ClenupConfItem::default() },
-            img_sharpness: ClenupConfItem::new(false, CleanupMode::Percent),
             noise: ClenupConfItem::new(false, CleanupMode::Percent),
             background: ClenupConfItem::new(false, CleanupMode::Percent),
         }

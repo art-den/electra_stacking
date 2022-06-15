@@ -35,7 +35,7 @@
           </packing>
         </child>
         <child>
-          <!-- n-columns=7 n-rows=9 -->
+          <!-- n-columns=7 n-rows=8 -->
           <object class="GtkGrid">
             <property name="visible">True</property>
             <property name="can-focus">False</property>
@@ -81,32 +81,6 @@
                 <property name="left-attach">0</property>
                 <property name="top-attach">1</property>
                 <property name="width">7</property>
-              </packing>
-            </child>
-            <child>
-              <object class="GtkCheckButton" id="chb_noise">
-                <property name="label" translatable="yes">By noise</property>
-                <property name="visible">True</property>
-                <property name="can-focus">True</property>
-                <property name="receives-default">False</property>
-                <property name="draw-indicator">True</property>
-              </object>
-              <packing>
-                <property name="left-attach">0</property>
-                <property name="top-attach">7</property>
-              </packing>
-            </child>
-            <child>
-              <object class="GtkCheckButton" id="chb_bg">
-                <property name="label" translatable="yes">By background</property>
-                <property name="visible">True</property>
-                <property name="can-focus">True</property>
-                <property name="receives-default">False</property>
-                <property name="draw-indicator">True</property>
-              </object>
-              <packing>
-                <property name="left-attach">0</property>
-                <property name="top-attach">8</property>
               </packing>
             </child>
             <child>
@@ -218,28 +192,6 @@
               </packing>
             </child>
             <child>
-              <object class="GtkEntry" id="e_noise_percent">
-                <property name="visible">True</property>
-                <property name="can-focus">True</property>
-                <property name="width-chars">5</property>
-              </object>
-              <packing>
-                <property name="left-attach">4</property>
-                <property name="top-attach">7</property>
-              </packing>
-            </child>
-            <child>
-              <object class="GtkEntry" id="e_bg_percent">
-                <property name="visible">True</property>
-                <property name="can-focus">True</property>
-                <property name="width-chars">5</property>
-              </object>
-              <packing>
-                <property name="left-attach">4</property>
-                <property name="top-attach">8</property>
-              </packing>
-            </child>
-            <child>
               <object class="GtkComboBoxText" id="cbt_fwhm">
                 <property name="visible">True</property>
                 <property name="can-focus">False</property>
@@ -247,26 +199,6 @@
               <packing>
                 <property name="left-attach">1</property>
                 <property name="top-attach">4</property>
-              </packing>
-            </child>
-            <child>
-              <object class="GtkComboBoxText" id="cbt_noise">
-                <property name="visible">True</property>
-                <property name="can-focus">False</property>
-              </object>
-              <packing>
-                <property name="left-attach">1</property>
-                <property name="top-attach">7</property>
-              </packing>
-            </child>
-            <child>
-              <object class="GtkComboBoxText" id="cbt_bg">
-                <property name="visible">True</property>
-                <property name="can-focus">False</property>
-              </object>
-              <packing>
-                <property name="left-attach">1</property>
-                <property name="top-attach">8</property>
               </packing>
             </child>
             <child>
@@ -338,51 +270,6 @@
               </packing>
             </child>
             <child>
-              <object class="GtkCheckButton" id="chb_sharp">
-                <property name="label" translatable="yes">By image sharpness</property>
-                <property name="visible">True</property>
-                <property name="can-focus">True</property>
-                <property name="receives-default">False</property>
-                <property name="draw-indicator">True</property>
-              </object>
-              <packing>
-                <property name="left-attach">0</property>
-                <property name="top-attach">6</property>
-              </packing>
-            </child>
-            <child>
-              <object class="GtkComboBoxText" id="cbt_sharp">
-                <property name="visible">True</property>
-                <property name="can-focus">False</property>
-              </object>
-              <packing>
-                <property name="left-attach">1</property>
-                <property name="top-attach">6</property>
-              </packing>
-            </child>
-            <child>
-              <object class="GtkEntry" id="e_sharp_kappa">
-                <property name="visible">True</property>
-                <property name="can-focus">True</property>
-                <property name="width-chars">5</property>
-              </object>
-              <packing>
-                <property name="left-attach">2</property>
-                <property name="top-attach">6</property>
-              </packing>
-            </child>
-            <child>
-              <object class="GtkEntry" id="e_sharp_repeats">
-                <property name="visible">True</property>
-                <property name="can-focus">True</property>
-                <property name="width-chars">5</property>
-              </object>
-              <packing>
-                <property name="left-attach">3</property>
-                <property name="top-attach">6</property>
-              </packing>
-            </child>
-            <child>
               <object class="GtkCheckButton" id="chb_stars">
                 <property name="label" translatable="yes">By stars count</property>
                 <property name="visible">True</property>
@@ -439,17 +326,6 @@
               </packing>
             </child>
             <child>
-              <object class="GtkEntry" id="e_sharp_percent">
-                <property name="visible">True</property>
-                <property name="can-focus">True</property>
-                <property name="width-chars">5</property>
-              </object>
-              <packing>
-                <property name="left-attach">4</property>
-                <property name="top-attach">6</property>
-              </packing>
-            </child>
-            <child>
               <object class="GtkEntry" id="e_fwhm_percent">
                 <property name="visible">True</property>
                 <property name="can-focus">True</property>
@@ -458,50 +334,6 @@
               <packing>
                 <property name="left-attach">4</property>
                 <property name="top-attach">4</property>
-              </packing>
-            </child>
-            <child>
-              <object class="GtkEntry" id="e_noise_kappa">
-                <property name="visible">True</property>
-                <property name="can-focus">True</property>
-                <property name="width-chars">5</property>
-              </object>
-              <packing>
-                <property name="left-attach">2</property>
-                <property name="top-attach">7</property>
-              </packing>
-            </child>
-            <child>
-              <object class="GtkEntry" id="e_noise_repeats">
-                <property name="visible">True</property>
-                <property name="can-focus">True</property>
-                <property name="width-chars">5</property>
-              </object>
-              <packing>
-                <property name="left-attach">3</property>
-                <property name="top-attach">7</property>
-              </packing>
-            </child>
-            <child>
-              <object class="GtkEntry" id="e_bg_kappa">
-                <property name="visible">True</property>
-                <property name="can-focus">True</property>
-                <property name="width-chars">5</property>
-              </object>
-              <packing>
-                <property name="left-attach">2</property>
-                <property name="top-attach">8</property>
-              </packing>
-            </child>
-            <child>
-              <object class="GtkEntry" id="e_bg_repeats">
-                <property name="visible">True</property>
-                <property name="can-focus">True</property>
-                <property name="width-chars">5</property>
-              </object>
-              <packing>
-                <property name="left-attach">3</property>
-                <property name="top-attach">8</property>
               </packing>
             </child>
             <child>
@@ -593,24 +425,58 @@
               </packing>
             </child>
             <child>
-              <object class="GtkEntry" id="e_sharp_min">
+              <object class="GtkCheckButton" id="chb_noise">
+                <property name="label" translatable="yes">By noise</property>
                 <property name="visible">True</property>
                 <property name="can-focus">True</property>
-                <property name="width-chars">5</property>
+                <property name="receives-default">False</property>
+                <property name="draw-indicator">True</property>
               </object>
               <packing>
-                <property name="left-attach">5</property>
+                <property name="left-attach">0</property>
                 <property name="top-attach">6</property>
               </packing>
             </child>
             <child>
-              <object class="GtkEntry" id="e_sharp_max">
+              <object class="GtkComboBoxText" id="cbt_noise">
+                <property name="visible">True</property>
+                <property name="can-focus">False</property>
+              </object>
+              <packing>
+                <property name="left-attach">1</property>
+                <property name="top-attach">6</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkEntry" id="e_noise_kappa">
                 <property name="visible">True</property>
                 <property name="can-focus">True</property>
                 <property name="width-chars">5</property>
               </object>
               <packing>
-                <property name="left-attach">6</property>
+                <property name="left-attach">2</property>
+                <property name="top-attach">6</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkEntry" id="e_noise_repeats">
+                <property name="visible">True</property>
+                <property name="can-focus">True</property>
+                <property name="width-chars">5</property>
+              </object>
+              <packing>
+                <property name="left-attach">3</property>
+                <property name="top-attach">6</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkEntry" id="e_noise_percent">
+                <property name="visible">True</property>
+                <property name="can-focus">True</property>
+                <property name="width-chars">5</property>
+              </object>
+              <packing>
+                <property name="left-attach">4</property>
                 <property name="top-attach">6</property>
               </packing>
             </child>
@@ -622,7 +488,7 @@
               </object>
               <packing>
                 <property name="left-attach">5</property>
-                <property name="top-attach">7</property>
+                <property name="top-attach">6</property>
               </packing>
             </child>
             <child>
@@ -633,6 +499,62 @@
               </object>
               <packing>
                 <property name="left-attach">6</property>
+                <property name="top-attach">6</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkCheckButton" id="chb_bg">
+                <property name="label" translatable="yes">By background</property>
+                <property name="visible">True</property>
+                <property name="can-focus">True</property>
+                <property name="receives-default">False</property>
+                <property name="draw-indicator">True</property>
+              </object>
+              <packing>
+                <property name="left-attach">0</property>
+                <property name="top-attach">7</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkComboBoxText" id="cbt_bg">
+                <property name="visible">True</property>
+                <property name="can-focus">False</property>
+              </object>
+              <packing>
+                <property name="left-attach">1</property>
+                <property name="top-attach">7</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkEntry" id="e_bg_kappa">
+                <property name="visible">True</property>
+                <property name="can-focus">True</property>
+                <property name="width-chars">5</property>
+              </object>
+              <packing>
+                <property name="left-attach">2</property>
+                <property name="top-attach">7</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkEntry" id="e_bg_repeats">
+                <property name="visible">True</property>
+                <property name="can-focus">True</property>
+                <property name="width-chars">5</property>
+              </object>
+              <packing>
+                <property name="left-attach">3</property>
+                <property name="top-attach">7</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkEntry" id="e_bg_percent">
+                <property name="visible">True</property>
+                <property name="can-focus">True</property>
+                <property name="width-chars">5</property>
+              </object>
+              <packing>
+                <property name="left-attach">4</property>
                 <property name="top-attach">7</property>
               </packing>
             </child>
@@ -644,7 +566,7 @@
               </object>
               <packing>
                 <property name="left-attach">5</property>
-                <property name="top-attach">8</property>
+                <property name="top-attach">7</property>
               </packing>
             </child>
             <child>
@@ -655,7 +577,7 @@
               </object>
               <packing>
                 <property name="left-attach">6</property>
-                <property name="top-attach">8</property>
+                <property name="top-attach">7</property>
               </packing>
             </child>
             <child>

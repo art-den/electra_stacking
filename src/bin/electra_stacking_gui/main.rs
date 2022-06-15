@@ -564,21 +564,19 @@ const COLUMN_BG_STR:          u32 = 9;
 const COLUMN_STARS_STR:       u32 = 10;
 const COLUMN_FWHM_STR:        u32 = 11;
 const COLUMN_STARS_R_DEV_STR: u32 = 12;
-const COLUMN_SHARPNESS_STR:   u32 = 13;
-const COLUMN_ICON:            u32 = 14;
-const COLUMN_CHECKBOX:        u32 = 15;
-const COLUMN_CHECKBOX_VIS:    u32 = 16;
-const COLUMN_ISO:             u32 = 17;
-const COLUMN_EXP:             u32 = 18;
-const COLUMN_NOISE:           u32 = 19;
-const COLUMN_BG:              u32 = 20;
-const COLUMN_STARS:           u32 = 21;
-const COLUMN_FWHM:            u32 = 22;
-const COLUMN_STARS_R_DEV:     u32 = 23;
-const COLUMN_SHARPNESS:       u32 = 24;
-const COLUMN_GUID:            u32 = 25;
+const COLUMN_ICON:            u32 = 13;
+const COLUMN_CHECKBOX:        u32 = 14;
+const COLUMN_CHECKBOX_VIS:    u32 = 15;
+const COLUMN_ISO:             u32 = 16;
+const COLUMN_EXP:             u32 = 17;
+const COLUMN_NOISE:           u32 = 18;
+const COLUMN_BG:              u32 = 19;
+const COLUMN_STARS:           u32 = 20;
+const COLUMN_FWHM:            u32 = 21;
+const COLUMN_STARS_R_DEV:     u32 = 22;
+const COLUMN_GUID:            u32 = 23;
 
-fn get_prj_tree_store_columns() -> [(String, u32, u32, glib::Type); 26] {
+fn get_prj_tree_store_columns() -> [(String, u32, u32, glib::Type); 24] {
     const EMPT: String = String::new();
     [
         // Column name in tree       | Model column          | Sort model column | Model column type
@@ -595,7 +593,6 @@ fn get_prj_tree_store_columns() -> [(String, u32, u32, glib::Type); 26] {
         (gettext("Stars"),             COLUMN_STARS_STR,       COLUMN_STARS,       String::static_type()),
         (gettext("FWHM"),              COLUMN_FWHM_STR,        COLUMN_FWHM,        String::static_type()),
         (gettext("Ovality"),           COLUMN_STARS_R_DEV_STR, COLUMN_STARS_R_DEV, String::static_type()),
-        (gettext("Sharpness"),         COLUMN_SHARPNESS_STR,   COLUMN_SHARPNESS,   String::static_type()),
 
         // columns below are used for sorting, icons, checkboxes and lookup during tree building
         (EMPT,                         COLUMN_ICON,            0,                  gdk_pixbuf::Pixbuf::static_type()),
@@ -608,7 +605,6 @@ fn get_prj_tree_store_columns() -> [(String, u32, u32, glib::Type); 26] {
         (EMPT,                         COLUMN_STARS,           0,                  u32::static_type()),
         (EMPT,                         COLUMN_FWHM,            0,                  f32::static_type()),
         (EMPT,                         COLUMN_STARS_R_DEV,     0,                  f32::static_type()),
-        (EMPT,                         COLUMN_SHARPNESS,       0,                  f32::static_type()),
         (EMPT,                         COLUMN_GUID,            0,                  String::static_type()),
     ]
 }
@@ -834,7 +830,7 @@ fn update_project_tree(objects: &MainWindowObjectsPtr, update_files: bool) {
                         };
 
                         let (noise_str, noise, bg_str, bg, stars_cnt_str, stars_cnt,
-                             fwhm_str, fwhm, star_r_dev_str, star_r_dev, sharpness_str, sharpness)
+                             fwhm_str, fwhm, star_r_dev_str, star_r_dev)
                             = if let Some(reg_info) = file.reg_info() {(
                                 format!("{:.2}%", reg_info.noise * 100.0),
                                 reg_info.noise,
@@ -846,8 +842,6 @@ fn update_project_tree(objects: &MainWindowObjectsPtr, update_files: bool) {
                                 reg_info.fwhm,
                                 format!("{:.3}", reg_info.stars_r_dev),
                                 reg_info.stars_r_dev,
-                                format!("{:.3}", reg_info.sharpness),
-                                reg_info.sharpness,
                             )} else {(
                                 String::new(),
                                 0.0,
@@ -855,8 +849,6 @@ fn update_project_tree(objects: &MainWindowObjectsPtr, update_files: bool) {
                                 0.0,
                                 String::new(),
                                 0,
-                                String::new(),
-                                0.0,
                                 String::new(),
                                 0.0,
                                 String::new(),
@@ -878,7 +870,6 @@ fn update_project_tree(objects: &MainWindowObjectsPtr, update_files: bool) {
                         let fwhm_str = make_important(fwhm_str, file.flags(), FILE_FLAG_CLEANUP_FWHM);
                         let stars_cnt_str = make_important(stars_cnt_str, file.flags(), FILE_FLAG_CLEANUP_STARS);
                         let noise_str = make_important(noise_str, file.flags(), FILE_FLAG_CLEANUP_NOISE);
-                        let sharpness_str = make_important(sharpness_str, file.flags(), FILE_FLAG_CLEANUP_SHARPNESS);
                         let bg_str = make_important(bg_str, file.flags(), FILE_FLAG_CLEANUP_BG);
 
                         tree_store.set(&file_iter, &[
@@ -905,8 +896,6 @@ fn update_project_tree(objects: &MainWindowObjectsPtr, update_files: bool) {
                             (COLUMN_FWHM,            &fwhm),
                             (COLUMN_STARS_R_DEV_STR, &star_r_dev_str),
                             (COLUMN_STARS_R_DEV,     &star_r_dev),
-                            (COLUMN_SHARPNESS_STR,   &sharpness_str),
-                            (COLUMN_SHARPNESS,       &sharpness),
                         ]);
 
                         if !tree_store.iter_next(&file_iter) { break; }
@@ -2456,8 +2445,6 @@ fn action_cleanup_light_files(objects: &MainWindowObjectsPtr) {
         show_line(&project.cleanup_conf().stars_fwhm, "chb_fwhm", "cbt_fwhm", "e_fwhm_kappa", "e_fwhm_repeats", "e_fwhm_percent", "e_fwhm_min", "e_fwhm_max");
     let (chb_stars, cbt_stars, e_stars_kappa, e_stars_repeats, e_stars_percent, e_stars_min, e_stars_max) =
         show_line(&project.cleanup_conf().stars_count, "chb_stars", "cbt_stars", "e_stars_kappa", "e_stars_repeats", "e_stars_percent", "e_stars_min", "e_stars_max");
-    let (chb_sharp, cbt_sharp, e_sharp_kappa, e_sharp_repeats, e_sharp_percent, e_sharp_min, e_sharp_max) =
-        show_line(&project.cleanup_conf().img_sharpness, "chb_sharp", "cbt_sharp", "e_sharp_kappa", "e_sharp_repeats", "e_sharp_percent", "e_sharp_min", "e_sharp_max");
     let (chb_noise, cbt_noise, e_noise_kappa, e_noise_repeats, e_noise_percent, e_noise_min, e_noise_max) =
         show_line(&project.cleanup_conf().noise, "chb_noise", "cbt_noise", "e_noise_kappa", "e_noise_repeats", "e_noise_percent", "e_noise_min", "e_noise_max");
     let (chb_bg, cbt_bg, e_bg_kappa, e_bg_repeats, e_bg_percent, e_bg_min, e_bg_max) =
@@ -2513,7 +2500,6 @@ fn action_cleanup_light_files(objects: &MainWindowObjectsPtr) {
             get_line(&mut cleanup_conf.stars_r_dev,   &chb_rdev,  &cbt_rdev,  &e_rdev_kappa,  &e_rdev_repeats,  &e_rdev_percent,  &e_rdev_min,  &e_rdev_max);
             get_line(&mut cleanup_conf.stars_fwhm,    &chb_fwhm,  &cbt_fwhm,  &e_fwhm_kappa,  &e_fwhm_repeats,  &e_fwhm_percent,  &e_fwhm_min,  &e_fwhm_max);
             get_line(&mut cleanup_conf.stars_count,   &chb_stars, &cbt_stars, &e_stars_kappa, &e_stars_repeats, &e_stars_percent, &e_stars_min, &e_stars_max);
-            get_line(&mut cleanup_conf.img_sharpness, &chb_sharp, &cbt_sharp, &e_sharp_kappa, &e_sharp_repeats, &e_sharp_percent, &e_sharp_min, &e_sharp_max);
             get_line(&mut cleanup_conf.noise,         &chb_noise, &cbt_noise, &e_noise_kappa, &e_noise_repeats, &e_noise_percent, &e_noise_min, &e_noise_max);
             get_line(&mut cleanup_conf.background,    &chb_bg,    &cbt_bg,    &e_bg_kappa,    &e_bg_repeats,    &e_bg_percent,    &e_bg_min,    &e_bg_max);
 

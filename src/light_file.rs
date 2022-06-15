@@ -9,7 +9,6 @@ bitflags! { pub struct LoadLightFlags: u32 {
     const STARS_STAT  = 2;
     const NOISE       = 4;
     const BACKGROUND  = 8;
-    const SHARPNESS   = 16;
 }}
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -25,7 +24,6 @@ pub struct LightFile {
     pub stars_stat: Option<StarsStat>,
     pub noise:      f32,
     pub background: f32,
-    pub sharpness:  f32,
 }
 
 impl LightFile {
@@ -57,7 +55,7 @@ impl LightFile {
                 OpenMode::Processing => DemosaicAlgo::ColorRatio,
             }};
 
-            load_raw_light_file(
+            load_and_demosaic_raw_file(
                 file_name,
                 cal_data,
                 demosaic,
@@ -84,15 +82,6 @@ impl LightFile {
             let bg_log = TimeLogger::start();
             let result = calc_background(img_layer_to_calc);
             bg_log.log("background calculation");
-            result
-        } else {
-            0.0
-        };
-
-        let sharpness = if flags.contains(LoadLightFlags::SHARPNESS) {
-            let f_log = TimeLogger::start();
-            let result = calc_sharpness(img_layer_to_calc);
-            f_log.log("freq calculation");
             result
         } else {
             0.0
@@ -153,119 +142,8 @@ impl LightFile {
             stars_stat,
             background,
             noise,
-            sharpness,
         })
     }
-}
-
-fn check_raw_data(
-    raw_info:    &RawImageInfo,
-    cal_info:    &RawImageInfo,
-    mode:        &str,
-    master_dark: bool
-) -> anyhow::Result<()> {
-    let compare = |
-        item,
-        raw: &dyn std::fmt::Display,
-        cal: &dyn std::fmt::Display
-    | -> anyhow::Result<()> {
-        if raw.to_string() != cal.to_string() {
-            anyhow::bail!(
-                "{} differs for {}: ('{}' != '{}')",
-                item, mode, raw, cal
-            );
-        }
-        Ok(())
-    };
-
-    compare("Width", &raw_info.width, &cal_info.width)?;
-    compare("Height", &raw_info.height, &cal_info.height)?;
-    let raw_cam = raw_info.exif.camera.as_ref().map(|v| &v[..]).unwrap_or("");
-    let cal_cam = cal_info.exif.camera.as_ref().map(|v| &v[..]).unwrap_or("");
-    compare("Camera model", &raw_cam, &cal_cam)?;
-    compare("Color pattern", &raw_info.cfa, &cal_info.cfa)?;
-
-    if master_dark {
-        compare("ISO", &raw_info.exif.iso.unwrap_or(0), &cal_info.exif.iso.unwrap_or(0))?;
-        let raw_exp_time = format!("{:.1}", raw_info.exif.exp_time.unwrap_or(0.0));
-        let cal_exp_time = format!("{:.1}", cal_info.exif.exp_time.unwrap_or(0.0));
-        compare("Exposure time", &raw_exp_time, &cal_exp_time)?;
-    }
-
-    Ok(())
-}
-
-#[derive(Debug)]
-enum DemosaicAlgo {
-    Linear,
-    ColorRatio,
-}
-
-fn load_raw_light_file(
-    file_name:   &Path,
-    cal_data:    &CalibrationData,
-    demosaic:    DemosaicAlgo,
-    mt_demosaic: bool
-) -> anyhow::Result<SrcImageData> {
-    log::info!(
-        "Start to load raw file {}, demosaic={:?}, md_demosaic={}",
-        file_name.to_str().unwrap_or(""),
-        demosaic,
-        mt_demosaic
-    );
-
-    // load raw file
-    let raw_log = TimeLogger::start();
-    let mut raw_image = RawImage::load_camera_raw_file(
-        file_name,
-        RawLoadFlags::EXTRACT_BLACK | RawLoadFlags::STORE_OVEREXPOSURES
-    )?;
-    raw_log.log("loading raw image");
-
-    // extract master-bias image
-    if let Some(bias) = &cal_data.bias_image {
-        check_raw_data(&raw_image.info, &bias.info, "master bias", false)?;
-        raw_image.data -= &bias.data;
-    }
-
-    // extract master-dark image
-    if let Some(dark) = &cal_data.dark_image {
-        check_raw_data(&raw_image.info, &dark.info, "master dark", true)?;
-        raw_image.data -= &dark.data;
-    }
-
-    // flatten by master-flat
-    if let Some(flat) = &cal_data.flat_image {
-        check_raw_data(&raw_image.info, &flat.info, "master flat", false)?;
-        raw_image.data *= &flat.data;
-    }
-
-    // remove hot pixels from RAW image
-    raw_image.remove_bad_pixels(&cal_data.hot_pixels);
-
-    let image = if let Cfa::Pattern(p) = &raw_image.info.cfa {
-        // do demosaic
-        let dem_log = TimeLogger::start();
-        let color_image = match demosaic {
-            DemosaicAlgo::Linear =>
-                raw_image.demosaic_bayer_linear(p, mt_demosaic)?,
-            DemosaicAlgo::ColorRatio =>
-                raw_image.demosaic_bayer_color_ratio(p, mt_demosaic)?,
-        };
-        dem_log.log("demosaic");
-        color_image
-    } else {
-        let mut bw_image = Image::new();
-        bw_image.l = raw_image.data;
-        bw_image
-    };
-
-    // return result
-    Ok(SrcImageData {
-        image,
-        exif: raw_image.info.exif,
-        overexposured: raw_image.overexposured,
-    })
 }
 
 #[inline(never)]
@@ -292,65 +170,4 @@ fn calc_background(image: &ImageLayerF32) -> f32 {
     for v in image.as_slice() { temp_values.push(*v); }
     let pos = temp_values.len() / 4;
     *temp_values.select_nth_unstable_by(pos, cmp_f32).1
-}
-
-fn calc_sharpness(image: &ImageLayerF32) -> f32 {
-    let all_values_cnt = image.as_slice().len();
-    let mut high_freq = Vec::with_capacity(all_values_cnt);
-    let mut mid_freq = Vec::with_capacity(all_values_cnt);
-    let mut calc_values = Vec::new();
-
-    let mut calc_by_dir = |dir| {
-        high_freq.clear();
-        mid_freq.clear();
-        image.foreach_row_and_col(
-            dir,
-            |values, _, _| {
-                for (v1, v2, v3, v4, v5, v6, v7, v8, v9, v10) in values.iter().tuple_windows() {
-                    let high = (v4+v5-v6-v7).abs() / 2.0;
-                    let mid = (v1+v2+v3+v4+v5-v6-v7-v8-v9-v10).abs() / 5.0;
-                    high_freq.push(high);
-                    mid_freq.push(mid);
-                }
-            }
-        );
-
-        let top_pos = high_freq.len() - high_freq.len() / 1000;
-        let low_pos = high_freq.len() / 10;
-
-        high_freq.select_nth_unstable_by(top_pos, cmp_f32);
-        calc_values.clear();
-        for v in &high_freq[top_pos..] {
-            calc_values.push(*v as f64);
-        }
-        let top_high = mean_f64(&calc_values);
-
-        high_freq.select_nth_unstable_by(low_pos, cmp_f32);
-        calc_values.clear();
-        for v in &high_freq[..low_pos] {
-            calc_values.push(*v as f64);
-        }
-        let low_high = mean_f64(&calc_values);
-
-        mid_freq.select_nth_unstable_by(top_pos, cmp_f32);
-        calc_values.clear();
-        for v in &mid_freq[top_pos..] {
-            calc_values.push(*v as f64);
-        }
-        let top_mid = mean_f64(&calc_values);
-
-        mid_freq.select_nth_unstable_by(low_pos, cmp_f32);
-        calc_values.clear();
-        for v in &mid_freq[..low_pos] {
-            calc_values.push(*v as f64);
-        }
-        let low_mid = mean_f64(&calc_values);
-
-        (top_high - low_high) / (top_mid - low_mid)
-    };
-
-    let by_cols_value = calc_by_dir(IterType::Cols);
-    let by_rows_value = calc_by_dir(IterType::Rows);
-
-    by_cols_value.min(by_rows_value) as f32
 }

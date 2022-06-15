@@ -4,7 +4,7 @@ use fitrs::*;
 use itertools::*;
 use bitstream_io::{BigEndian, BitWriter, BitWrite, BitReader};
 use chrono::prelude::*;
-use crate::{image::*, image_raw::*, fs_utils::*, compression::*, progress::ProgressTs};
+use crate::{image::*, image_raw::*, fs_utils::*, compression::*, progress::*, log_utils::*};
 
 pub const FIT_EXTS: &[&str] = &["fit", "fits", "fts"];
 pub const TIF_EXTS: &[&str] = &["tif", "tiff"];
@@ -161,6 +161,122 @@ pub fn load_src_file_info_raw(file_name: &Path) -> anyhow::Result<SrcFileInfo> {
         cfa_type,
         fnumber,
         camera,
+    })
+}
+
+fn check_raw_data(
+    raw_info:    &RawImageInfo,
+    cal_info:    &RawImageInfo,
+    mode:        &str,
+    master_dark: bool
+) -> anyhow::Result<()> {
+    let compare = |
+        item,
+        raw: &dyn std::fmt::Display,
+        cal: &dyn std::fmt::Display
+    | -> anyhow::Result<()> {
+        if raw.to_string() != cal.to_string() {
+            anyhow::bail!(
+                "{} differs for {}: ('{}' != '{}')",
+                item, mode, raw, cal
+            );
+        }
+        Ok(())
+    };
+
+    compare("Width", &raw_info.width, &cal_info.width)?;
+    compare("Height", &raw_info.height, &cal_info.height)?;
+    let raw_cam = raw_info.exif.camera.as_ref().map(|v| &v[..]).unwrap_or("");
+    let cal_cam = cal_info.exif.camera.as_ref().map(|v| &v[..]).unwrap_or("");
+    compare("Camera model", &raw_cam, &cal_cam)?;
+    compare("Color pattern", &raw_info.cfa, &cal_info.cfa)?;
+
+    if master_dark {
+        compare("ISO", &raw_info.exif.iso.unwrap_or(0), &cal_info.exif.iso.unwrap_or(0))?;
+
+        if let (Some(raw_exp_time), Some(cal_exp_time)) = (raw_info.exif.exp_time, cal_info.exif.exp_time) {
+            if raw_exp_time != 0.0 && cal_exp_time != 0.0
+            && (raw_exp_time/cal_exp_time > 1.2 || cal_exp_time/raw_exp_time > 1.2) { // max diff for time is 20%
+                let raw_exp_time_str = format!("{:.0}", raw_exp_time);
+                let cal_exp_time_str = format!("{:.0}", cal_exp_time);
+                compare("Exposure time", &raw_exp_time_str, &cal_exp_time_str)?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+#[derive(Debug)]
+pub enum DemosaicAlgo {
+    Linear,
+    ColorRatio,
+}
+
+pub fn load_and_demosaic_raw_file(
+    file_name:   &Path,
+    cal_data:    &CalibrationData,
+    demosaic:    DemosaicAlgo,
+    mt_demosaic: bool
+) -> anyhow::Result<SrcImageData> {
+    log::info!(
+        "Start to load raw file {}, demosaic={:?}, md_demosaic={}",
+        file_name.to_str().unwrap_or(""),
+        demosaic,
+        mt_demosaic
+    );
+
+    // load raw file
+    let raw_log = TimeLogger::start();
+    let mut raw_image = RawImage::load_camera_raw_file(
+        file_name,
+        RawLoadFlags::EXTRACT_BLACK | RawLoadFlags::STORE_OVEREXPOSURES
+    )?;
+    raw_log.log("loading raw image");
+
+    // extract master-bias image
+    if let Some(bias) = &cal_data.bias_image {
+        check_raw_data(&raw_image.info, &bias.info, "master bias", false)?;
+        raw_image.data -= &bias.data;
+    }
+
+    // extract master-dark image
+    if let Some(dark) = &cal_data.dark_image {
+        check_raw_data(&raw_image.info, &dark.info, "master dark", true)?;
+        raw_image.data -= &dark.data;
+    }
+
+    // flatten by master-flat
+    if let Some(flat) = &cal_data.flat_image {
+        check_raw_data(&raw_image.info, &flat.info, "master flat", false)?;
+        raw_image.data *= &flat.data;
+    }
+
+    // remove hot pixels from RAW image
+    raw_image.remove_bad_pixels(&cal_data.hot_pixels);
+
+    let image = if let Cfa::Pattern(p) = &raw_image.info.cfa {
+        // do demosaic
+        let dem_log = TimeLogger::start();
+        let color_image = match demosaic {
+            DemosaicAlgo::Linear =>
+                raw_image.demosaic_bayer_linear(p, mt_demosaic)?,
+            DemosaicAlgo::ColorRatio =>
+                raw_image.demosaic_bayer_color_ratio(p, mt_demosaic)?,
+        };
+        dem_log.log("demosaic");
+        color_image
+    } else {
+        let mut bw_image = Image::new();
+        bw_image.l = raw_image.data;
+        bw_image
+    };
+
+    // return result
+    Ok(SrcImageData {
+        image,
+        exif: raw_image.info.exif,
+        overexposured: raw_image.overexposured,
     })
 }
 
