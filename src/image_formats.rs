@@ -250,7 +250,8 @@ pub fn load_and_demosaic_raw_file(
         check_raw_data(&raw_image.info, &dark.info, "master dark", true)?;
         if can_use_master_dark_for_light_file(&raw_image.info, &dark.info) {
             raw_image.data -= &dark.data;
-            println!("Extract dark");
+        } else {
+            log::info!("Master dark is used only for hot bixels because exposures differ")
         }
     }
 

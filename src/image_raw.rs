@@ -698,10 +698,13 @@ impl RawImage {
             deviations.push((median - v) * (median - v));
         }
 
-        let high_10_pos = deviations.len() - 10;
-        let high_10_dev = *deviations.select_nth_unstable_by(high_10_pos, cmp_f32).1;
+        let last_10_pos = deviations.len() - 10;
+        let last_10_dev = *deviations.select_nth_unstable_by(last_10_pos, cmp_f32).1;
 
-        let mut max_dev = high_10_dev / 1000.0;
+        let high_99_pos = 99 * deviations.len() / 100;
+        let high_99_dev = *deviations.select_nth_unstable_by(high_99_pos, cmp_f32).1;
+
+        let mut max_dev = f32::min(high_99_dev * 100.0, last_10_dev / 100.0);
 
         let mut result = HashSet::new();
         let max_result_size = deviations.len() / 100;
