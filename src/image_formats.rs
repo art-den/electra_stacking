@@ -193,18 +193,20 @@ fn check_raw_data(
 
     if master_dark {
         compare("ISO", &raw_info.exif.iso.unwrap_or(0), &cal_info.exif.iso.unwrap_or(0))?;
-
-        if let (Some(raw_exp_time), Some(cal_exp_time)) = (raw_info.exif.exp_time, cal_info.exif.exp_time) {
-            if raw_exp_time != 0.0 && cal_exp_time != 0.0
-            && (raw_exp_time/cal_exp_time > 1.2 || cal_exp_time/raw_exp_time > 1.2) { // max diff for time is 20%
-                let raw_exp_time_str = format!("{:.0}", raw_exp_time);
-                let cal_exp_time_str = format!("{:.0}", cal_exp_time);
-                compare("Exposure time", &raw_exp_time_str, &cal_exp_time_str)?;
-            }
-        }
     }
 
     Ok(())
+}
+
+fn can_use_master_dark_for_light_file(raw_info: &RawImageInfo, cal_info: &RawImageInfo) -> bool {
+    if let (Some(raw_exp_time), Some(cal_exp_time)) = (raw_info.exif.exp_time, cal_info.exif.exp_time) {
+        if raw_exp_time != 0.0 && cal_exp_time != 0.0
+        && (raw_exp_time/cal_exp_time > 1.2 || cal_exp_time/raw_exp_time > 1.2) { // max diff for time is 20%
+            return false;
+        }
+    }
+
+    true
 }
 
 #[derive(Debug)]
@@ -234,6 +236,9 @@ pub fn load_and_demosaic_raw_file(
     )?;
     raw_log.log("loading raw image");
 
+    // remove hot pixels from overexposured pixels list
+    raw_image.overexposured.retain(|&(x, y)| !cal_data.hot_pixels.contains(&BadPixel {x, y}));
+
     // extract master-bias image
     if let Some(bias) = &cal_data.bias_image {
         check_raw_data(&raw_image.info, &bias.info, "master bias", false)?;
@@ -243,7 +248,10 @@ pub fn load_and_demosaic_raw_file(
     // extract master-dark image
     if let Some(dark) = &cal_data.dark_image {
         check_raw_data(&raw_image.info, &dark.info, "master dark", true)?;
-        raw_image.data -= &dark.data;
+        if can_use_master_dark_for_light_file(&raw_image.info, &dark.info) {
+            raw_image.data -= &dark.data;
+            println!("Extract dark");
+        }
     }
 
     // flatten by master-flat

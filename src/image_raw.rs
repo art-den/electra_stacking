@@ -685,7 +685,7 @@ impl RawImage {
         Ok(result_image)
     }
 
-    pub fn find_hot_pixels_in_dark_file(&self) -> Vec<BadPixel> {
+    pub fn find_hot_pixels_in_dark_file(&self) -> HashSet<BadPixel> {
         const R: Crd = 2;
         let mut deviations = Vec::new();
         let mut values_for_median = Vec::new();
@@ -703,7 +703,7 @@ impl RawImage {
 
         let mut max_dev = high_10_dev / 1000.0;
 
-        let mut result = Vec::new();
+        let mut result = HashSet::new();
         let max_result_size = deviations.len() / 100;
         loop {
             result.clear();
@@ -715,7 +715,7 @@ impl RawImage {
                 let median = median_f32(&mut values_for_median).unwrap_or(0.0);
                 let deviation = (median - v) * (median - v);
                 if deviation > max_dev {
-                    result.push(BadPixel {x, y});
+                    result.insert(BadPixel {x, y});
                     if result.len() > max_result_size { break; }
                 }
             }
@@ -727,7 +727,7 @@ impl RawImage {
         result
     }
 
-    pub fn remove_bad_pixels(&mut self, hot_pixels: &[BadPixel]) {
+    pub fn remove_bad_pixels(&mut self, hot_pixels: &HashSet<BadPixel>) {
         if hot_pixels.is_empty() { return; }
         let mut hot_pixels_index: HashSet<BadPixel> = HashSet::from_iter(hot_pixels.iter().cloned());
         for hp in hot_pixels {
@@ -775,7 +775,7 @@ pub struct CalibrationData {
     pub dark_image: Option<RawImage>,
     pub flat_image: Option<RawImage>,
     pub bias_image: Option<RawImage>,
-    pub hot_pixels: Vec<BadPixel>,
+    pub hot_pixels: HashSet<BadPixel>,
 }
 
 impl CalibrationData {
@@ -784,7 +784,7 @@ impl CalibrationData {
             dark_image: None,
             flat_image: None,
             bias_image: None,
-            hot_pixels: Vec::new(),
+            hot_pixels: HashSet::new(),
         }
     }
 
@@ -818,7 +818,7 @@ impl CalibrationData {
                 log::info!("hot pixels count = {}", hot_pixels.len());
                 (Some(image), hot_pixels)
             },
-            None => (None, Vec::new()),
+            None => (None, HashSet::new()),
         };
 
         let flat_image = match master_flat {
