@@ -341,6 +341,7 @@ fn save_temp_file(mut args: SaveTempFileData) -> anyhow::Result<()> {
         let file_name = args.file_name.with_extension(format!("aligned.{}", ext));
         log::info!("Saving aligned image to {:?} file", file_name);
 
+        args.image.set_novalue_as_zero();
         args.image.fill_inf_areas();
         save_image_to_file(
             &args.image,

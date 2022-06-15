@@ -389,14 +389,14 @@ pub trait PixelsSource {
         let mut dx = (x - ix as f64) as f32;
         if x.is_sign_negative() {
             ix -= 1;
-            dx = 1.0 - dx;
+            dx = 1.0+dx;
         }
 
         let mut iy = y as Crd;
         let mut dy = (y - iy as f64) as f32;
         if y.is_sign_negative() {
             iy -= 1;
-            dy = 1.0 - dy;
+            dy = 1.0+dy;
         }
 
         let p11 = self.get_int_crd(ix, iy);
@@ -557,6 +557,14 @@ impl ImageLayer<f32> {
                     sum_w += w;
                 }
                 self.set(dst_x, dst_y, (sum / sum_w) as f32);
+            }
+        }
+    }
+
+    pub fn set_novalue_as_zero(&mut self) {
+        for v in &mut self.data {
+            if *v == NO_VALUE_F32 {
+                *v = 0.0;
             }
         }
     }
@@ -1035,6 +1043,13 @@ impl Image {
         self.r.fill_inf_areas();
         self.g.fill_inf_areas();
         self.b.fill_inf_areas();
+    }
+
+    pub fn set_novalue_as_zero(&mut self) {
+        self.l.set_novalue_as_zero();
+        self.r.set_novalue_as_zero();
+        self.g.set_novalue_as_zero();
+        self.b.set_novalue_as_zero();
     }
 
     pub fn fill_inf_areas_with_one(&mut self) {
