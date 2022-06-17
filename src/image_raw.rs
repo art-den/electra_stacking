@@ -3,12 +3,11 @@ use itertools::{izip};
 use rayon::prelude::*;
 use serde::{Serialize, Deserialize};
 use byteorder::*;
-use bitflags::bitflags;
-use crate::{image::*, fs_utils, log_utils::*, calc::*, compression::*,};
+use crate::{image::*, fs_utils, log_utils::*, calc::*, compression::*, image_formats::*};
 use bitstream_io::{BitWriter, BitWrite};
 
-const CALIBR_FILE_SIG: &[u8] = b"calibr-file-2";
-const MASTER_FILE_SIG: &[u8] = b"master-file-2";
+const CALIBR_FILE_SIG: &[u8] = b"calibr-file-3";
+const MASTER_FILE_SIG: &[u8] = b"master-file-3";
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq)]
 pub enum CfaColor {
@@ -24,6 +23,28 @@ pub enum CfaType {
     RGGB,
     BGGR,
     GRBG,
+}
+
+impl CfaType {
+    pub fn from_string(text: &str) -> Option<CfaType> {
+        match text {
+            "GBRG" => Some(CfaType::GBRG),
+            "RGGB" => Some(CfaType::RGGB),
+            "BGGR" => Some(CfaType::BGGR),
+            "GRBG" => Some(CfaType::GRBG),
+            _ => None,
+        }
+    }
+
+    pub fn get_arr(self) -> CfaArr {
+        use CfaColor::*;
+        match self {
+            CfaType::GBRG => [[G, B], [R, G]],
+            CfaType::RGGB => [[R, G], [G, B]],
+            CfaType::BGGR => [[B, G], [G, R]],
+            CfaType::GRBG => [[G, R], [B, G]],
+        }
+    }
 }
 
 type CfaArr = [[CfaColor; 2]; 2];
@@ -49,36 +70,23 @@ pub enum Cfa {
     Pattern(CfaPattern),
 }
 
+impl Default for Cfa {
+    fn default() -> Self {
+        Cfa::Mono
+    }
+}
+
 impl Cfa {
     pub fn from_str(cfa_str: &str, start_left: Crd, start_top: Crd) -> Cfa {
-        use CfaColor::*;
-
-        match cfa_str {
-            "GBRG" => Cfa::Pattern(CfaPattern {
+        if let Some(ct) = CfaType::from_string(cfa_str) {
+            Cfa::Pattern(CfaPattern {
                 start_left,
                 start_top,
-                pattern_type: CfaType::GBRG,
-                arr: [[G, B], [R, G]]
-            }),
-            "RGGB" => Cfa::Pattern(CfaPattern {
-                start_left,
-                start_top,
-                pattern_type: CfaType::RGGB,
-                arr: [[R, G], [G, B]]
-            }),
-            "BGGR" => Cfa::Pattern(CfaPattern {
-                start_left,
-                start_top,
-                pattern_type: CfaType::BGGR,
-                arr: [[B, G], [G, R]]
-            }),
-            "GRBG" => Cfa::Pattern(CfaPattern {
-                start_left,
-                start_top,
-                pattern_type: CfaType::GRBG,
-                arr: [[G, R], [B, G]]
-            }),
-            _  => Cfa::Mono
+                pattern_type: ct,
+                arr: ct.get_arr()
+            })
+        } else {
+            Cfa::Mono
         }
     }
 
@@ -97,7 +105,13 @@ impl std::fmt::Display for Cfa {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Debug, Clone, Copy)]
+pub enum DemosaicAlgo {
+    Linear,
+    ColorRatio,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct RawImageInfo {
     pub width: Crd,
     pub height: Crd,
@@ -105,7 +119,9 @@ pub struct RawImageInfo {
     pub black_values: [f32; 4],
     pub wb: [f32; 4],
     pub cfa: Cfa,
-    pub exif: Exif,
+    camera: Option<String>,
+    exposure: Option<f32>,
+    iso: Option<u32>,
 }
 
 impl RawImageInfo {
@@ -176,7 +192,6 @@ impl MasterFileInfo {
 pub struct RawImage {
     pub info: RawImageInfo,
     pub data: ImageLayerF32,
-    pub overexposured: Vec<(Crd, Crd)>,
 }
 
 #[derive(Hash, PartialEq, Eq, Clone)]
@@ -185,26 +200,17 @@ pub struct BadPixel {
     pub y: Crd,
 }
 
-bitflags! { pub struct RawLoadFlags: u32 {
-    const EXTRACT_BLACK = 1;
-    const STORE_OVEREXPOSURES  = 2;
-}}
-
 impl RawImage {
     pub fn new_from_info(info: RawImageInfo) -> RawImage {
         let width = info.width;
         let height = info.height;
         RawImage {
             info,
-            data: ImageLayer::new(width, height),
-            overexposured: Vec::new(),
+            data: ImageLayer::new(width, height)
         }
     }
 
-    pub fn load_camera_raw_file(
-        file_name:  &Path,
-        flags:      RawLoadFlags,
-    ) -> anyhow::Result<RawImage> {
+    pub fn load(file_name: &Path) -> anyhow::Result<(RawImage, ImageInfo)> {
         let raw = rawloader::decode_file(file_name)?;
 
         let crop_left = raw.crops[3] as Crd;
@@ -212,22 +218,24 @@ impl RawImage {
         let width = raw.width as Crd - raw.crops[1] as Crd - crop_left;
         let height = raw.height as Crd - raw.crops[2] as Crd - crop_top;
 
-        let mut exif = Exif::new_empty();
+        let mut info = ImageInfo::default();
         if let Some(raw_exif) = raw.exif {
-            exif.exp_time = raw_exif.get_rational(rawloader::Tag::ExposureTime);
-            exif.fnumber = raw_exif.get_rational(rawloader::Tag::FNumber);
-            exif.iso = raw_exif.get_uint(rawloader::Tag::ISOSpeed);
-            exif.focal_len = raw_exif.get_rational(rawloader::Tag::FocalLength);
-            exif.camera = raw_exif.get_str(rawloader::Tag::Model).map(|v| v.to_string());
+            info.exp = raw_exif.get_rational(rawloader::Tag::ExposureTime);
+            info.fnumber = raw_exif.get_rational(rawloader::Tag::FNumber);
+            info.iso = raw_exif.get_uint(rawloader::Tag::ISOSpeed);
+            info.focal_len = raw_exif.get_rational(rawloader::Tag::FocalLength);
+            info.camera = raw_exif.get_str(rawloader::Tag::Model).map(|v| v.to_string());
         }
 
-        let mut info = RawImageInfo {
+        let mut raw_info = RawImageInfo {
             width, height,
             max_values:   [0.0; 4],
             black_values: [0.0; 4],
             wb:           [0.0; 4],
             cfa:          Cfa::from_str(&raw.cfa.name[..], crop_left, crop_top),
-            exif,
+            camera:       info.camera.clone(),
+            exposure:     info.exp,
+            iso:          info.iso,
         };
 
         let mut data = ImageLayer::<f32>::new(width, height);
@@ -277,68 +285,106 @@ impl RawImage {
             }
         }
 
-        let extract_black = flags.contains(RawLoadFlags::EXTRACT_BLACK);
+        for i in 0..4 {
+            raw_info.black_values[i] = raw.blacklevels[i] as f32;
+            raw_info.max_values[i] = raw.whitelevels[i] as f32;
+            raw_info.wb[i] = if !raw.wb_coeffs[i].is_nan() { raw.wb_coeffs[i] } else { 0.0 };
+        }
 
-        let mut store_overexposures = flags.contains(RawLoadFlags::STORE_OVEREXPOSURES);
+        Ok((RawImage{ info: raw_info, data }, info))
+    }
+
+    pub fn get_overexposures(&self) -> Vec<(Crd, Crd)> {
         let mut max_values = [0_f32; 4];
-        if store_overexposures {
-            let clip_value = Self::find_clip_value(data.as_slice());
-            for i in 0..4 {
-                let white_value = raw.whitelevels[i] as f32;
-                max_values[i] = if clip_value < white_value && white_value < 1.2 * clip_value {
-                    clip_value
-                } else {
-                    white_value
-                };
-                if max_values[i] < raw.blacklevels[i] as f32 {
-                    store_overexposures = false;
-                }
-            }
-        }
 
-        let mut overexposured = Vec::new();
-
-        if store_overexposures || extract_black {
-            let mut correct_values = |color, black_level, max| {
-
-                for (x, y, v) in data.iter_crd_mut() {
-                    if info.cfa.get_pixel_color(x, y) != color {
-                        continue;
-                    }
-
-                    if store_overexposures && *v > max {
-                        overexposured.push((x, y));
-                    }
-
-                    if extract_black {
-                        *v -= black_level;
-                    }
-                }
-            };
-
-            const MAX_K: f32 = 0.99;
-
-            if let Cfa::Mono = &info.cfa {
-                correct_values(CfaColor::Mono, raw.blacklevels[0] as f32, max_values[0] * MAX_K);
+        let clip_value = Self::find_clip_value(self.data.as_slice());
+        for i in 0..4 {
+            let white_value = self.info.max_values[i];
+            max_values[i] = if clip_value < white_value && white_value < 1.2 * clip_value {
+                clip_value
             } else {
-                correct_values(CfaColor::R, raw.blacklevels[0] as f32, max_values[0] * MAX_K);
-                correct_values(CfaColor::G, raw.blacklevels[1] as f32, max_values[1] * MAX_K);
-                correct_values(CfaColor::B, raw.blacklevels[2] as f32, max_values[2] * MAX_K);
+                white_value
+            };
+            if max_values[i] < self.info.max_values[i] {
+                return Vec::new();
             }
         }
+
+        let mut overexposures = Vec::new();
+        let mut calc = |color, max| {
+            for (x, y, v) in self.data.iter_crd() {
+                if self.info.cfa.get_pixel_color(x, y) != color {
+                    continue;
+                }
+
+                if v > max {
+                    overexposures.push((x, y));
+                }
+            }
+        };
+
+        calc(CfaColor::Mono, max_values[0]);
+        calc(CfaColor::R, max_values[0]);
+        calc(CfaColor::G, max_values[1]);
+        calc(CfaColor::B, max_values[2]);
+
+        overexposures
+    }
+
+    pub fn extract_black(&mut self) {
+        let mut extract = |color, black_level| {
+            for (x, y, v) in self.data.iter_crd_mut() {
+                if self.info.cfa.get_pixel_color(x, y) != color {
+                    continue;
+                }
+
+                *v -= black_level;
+            }
+        };
+
+        extract(CfaColor::Mono, self.info.black_values[0]);
+        extract(CfaColor::R, self.info.black_values[0]);
+        extract(CfaColor::G, self.info.black_values[1]);
+        extract(CfaColor::B, self.info.black_values[2]);
 
         for i in 0..4 {
-            if extract_black {
-                info.black_values[i] = 0.0;
-                info.max_values[i] = raw.whitelevels[i] as f32 - raw.blacklevels[i] as f32;
-            } else {
-                info.black_values[i] = raw.blacklevels[i] as f32;
-                info.max_values[i] = raw.whitelevels[i] as f32;
-            }
-            info.wb[i] = if !raw.wb_coeffs[i].is_nan() { raw.wb_coeffs[i] } else { 0.0 };
+            self.info.max_values[i] -= self.info.black_values[i];
+            self.info.black_values[i] = 0.0;
+        }
+    }
+
+    pub fn calibrate(&mut self, cal_data: &CalibrationData) -> anyhow::Result<()> {
+        // extract master-bias image
+        if let Some(bias) = &cal_data.bias_image {
+            CalibrationData::is_usable_for_raw(&self.info, &bias.info, "master bias", false)?;
+            self.data -= &bias.data;
         }
 
-        Ok(RawImage{ info, overexposured, data })
+        // extract master-dark image
+        if let Some(dark) = &cal_data.dark_image {
+            CalibrationData::is_usable_for_raw(&self.info, &dark.info, "master dark", true)?;
+
+            // Allow 20% of difference in exposure times
+            let cal_exp = dark.info.exposure.unwrap_or(0.0);
+            let exp = self.info.exposure.unwrap_or(0.0);
+            let exp_diff = (cal_exp - exp).abs();
+            if exp_diff == 0.0 || exp_diff < exp * 0.2 {
+                self.data -= &dark.data;
+            } else {
+                log::info!("Master dark is used only for hot bixels because exposures differ")
+            }
+        }
+
+        // flatten by master-flat
+        if let Some(flat) = &cal_data.flat_image {
+            CalibrationData::is_usable_for_raw(&self.info, &flat.info, "master flat", false)?;
+            self.data *= &flat.data;
+        }
+
+        // remove hot pixels from RAW image
+        self.remove_bad_pixels(&cal_data.hot_pixels);
+
+        Ok(())
     }
 
     fn find_clip_value(data: &[f32]) -> f32 {
@@ -401,12 +447,30 @@ impl RawImage {
         for v in image.iter_mut() { *v = file.read_f32::<BigEndian>()?; }
         Ok(RawImage{
             info,
-            data: image,
-            overexposured: Vec::new(),
+            data: image
         })
     }
 
-    pub fn demosaic_bayer_linear(&self, p: &CfaPattern, mt: bool) -> anyhow::Result<Image> {
+    pub fn demosaic(&self, demosaic_algo: DemosaicAlgo, mt: bool) -> anyhow::Result<Image> {
+        if let Cfa::Pattern(p) = &self.info.cfa {
+            match demosaic_algo {
+                DemosaicAlgo::Linear =>
+                    self.demosaic_bayer_linear(p, mt),
+                DemosaicAlgo::ColorRatio =>
+                    self.demosaic_bayer_color_ratio(p, mt),
+            }
+        } else {
+            let mut grayscale = Image::new_grey(self.info.width, self.info.height);
+            grayscale.l = self.data.clone();
+            let k = 1.0/self.info.black_values[0];
+            for v in grayscale.l.iter_mut() {
+                *v *= k;
+            }
+            Ok(grayscale)
+        }
+    }
+
+    fn demosaic_bayer_linear(&self, p: &CfaPattern, mt: bool) -> anyhow::Result<Image> {
         if self.data.is_empty() {
             anyhow::bail!("Raw image is empty");
         }
@@ -501,7 +565,7 @@ impl RawImage {
         Ok(result)
     }
 
-    pub fn demosaic_bayer_color_ratio(&self, p: &CfaPattern, _mt: bool) -> anyhow::Result<Image> {
+    fn demosaic_bayer_color_ratio(&self, p: &CfaPattern, _mt: bool) -> anyhow::Result<Image> {
         if self.data.is_empty() {
             anyhow::bail!("Raw image is empty");
         }
@@ -730,7 +794,7 @@ impl RawImage {
         result
     }
 
-    pub fn remove_bad_pixels(&mut self, hot_pixels: &HashSet<BadPixel>) {
+    fn remove_bad_pixels(&mut self, hot_pixels: &HashSet<BadPixel>) {
         if hot_pixels.is_empty() { return; }
         let mut hot_pixels_index: HashSet<BadPixel> = HashSet::from_iter(hot_pixels.iter().cloned());
         for hp in hot_pixels {
@@ -848,4 +912,41 @@ impl CalibrationData {
             hot_pixels
         })
     }
+
+    fn is_usable_for_raw(
+        info:        &RawImageInfo,
+        cal_info:    &RawImageInfo,
+        mode:        &str,
+        master_dark: bool
+    ) -> anyhow::Result<()> {
+        let compare = |
+            item,
+            raw: &dyn std::fmt::Display,
+            cal: &dyn std::fmt::Display
+        | -> anyhow::Result<()> {
+            if raw.to_string() != cal.to_string() {
+                anyhow::bail!(
+                    "{} differs for {}: ('{}' != '{}')",
+                    item, mode, raw, cal
+                );
+            }
+            Ok(())
+        };
+
+        compare("Width", &info.width, &cal_info.width)?;
+        compare("Height", &info.height, &cal_info.height)?;
+        let raw_cam = info.camera.as_ref().map(String::as_str).unwrap_or("");
+        let cal_cam = cal_info.camera.as_ref().map(String::as_str).unwrap_or("");
+        compare("Camera model", &raw_cam, &cal_cam)?;
+
+        compare("Color pattern", &info.cfa, &cal_info.cfa)?;
+        if master_dark {
+            compare("ISO", &info.iso.unwrap_or(0), &cal_info.iso.unwrap_or(0))?;
+        }
+
+        Ok(())
+    }
+
 }
+
+

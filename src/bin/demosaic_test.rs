@@ -7,37 +7,32 @@ fn main() -> anyhow::Result<()> {
     let args: Vec<_> = std::env::args().collect();
     let file_name = Path::new(&args[1]);
 
-    let test_file = load_image_from_file(file_name)?;
-
-    let raw_image = maka_bayer_image(&test_file.image);
-
-    if let Cfa::Pattern(p) = &raw_image.info.cfa {
-        let mut lin_result = raw_image.demosaic_bayer_linear(p, false)?;
-        calc_and_show_error("Linear", &test_file.image, &lin_result);
+    if let RawOrImage::Image(image) = load_image_from_file(file_name)?.image {
+        let mut lin_result = make_bayer_image(&image).demosaic(DemosaicAlgo::Linear, false)?;
+        calc_and_show_error("Linear", &image, &lin_result);
         correct_image(&mut lin_result);
-        save_image_to_file(&lin_result, &Exif::new_empty(), &file_name.with_extension("linear.tif"))?;
+        save_image_to_file(&lin_result, &ImageInfo::default(), &file_name.with_extension("linear.tif"))?;
 
-        let mut green_result = raw_image.demosaic_bayer_color_ratio(p, false)?;
-        calc_and_show_error("Color ratio", &test_file.image, &green_result);
+        let mut green_result = make_bayer_image(&image).demosaic(DemosaicAlgo::ColorRatio, false)?;
+        calc_and_show_error("Color ratio", &image, &green_result);
         correct_image(&mut green_result);
-        save_image_to_file(&green_result, &Exif::new_empty(), &file_name.with_extension("color-ratio.tif"))?;
-    }
+        save_image_to_file(&green_result, &ImageInfo::default(), &file_name.with_extension("color-ratio.tif"))?;
 
-    println!("Done!");
+        println!("Done!");
+    }
 
     Ok(())
 }
 
-fn maka_bayer_image(image: &Image) -> RawImage {
-    let info = RawImageInfo {
-        width: image.width(),
-        height: image.height(),
-        max_values: [1.0; 4],
-        black_values: [0.0; 4],
-        wb: [1.0; 4],
-        cfa: Cfa::from_str("RGGB", 0, 0),
-        exif: Exif::new_empty(),
-    };
+fn make_bayer_image(image: &Image) -> RawImage {
+    let mut info = RawImageInfo::default();
+
+    info.width = image.width();
+    info.height = image.height();
+    info.max_values = [1.0; 4];
+    info.black_values = [0.0; 4];
+    info.wb = [1.0; 4];
+    info.cfa = Cfa::from_str("RGGB", 0, 0);
 
     let mut raw = RawImage::new_from_info(info);
 

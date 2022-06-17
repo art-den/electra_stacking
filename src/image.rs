@@ -1,6 +1,5 @@
 use std::collections::{VecDeque,HashSet};
 use itertools::izip;
-use serde::{Serialize, Deserialize};
 use rayon::prelude::*;
 use crate::calc::*;
 
@@ -13,27 +12,6 @@ pub enum IterType {
     Cols,
     Rows,
     Both,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct Exif {
-    pub iso:       Option<u32>,
-    pub exp_time:  Option<f32>,
-    pub focal_len: Option<f32>,
-    pub fnumber:   Option<f32>,
-    pub camera:    Option<String>,
-}
-
-impl Exif {
-    pub fn new_empty() -> Exif {
-        Exif {
-            iso: None,
-            exp_time: None,
-            focal_len: None,
-            fnumber: None,
-            camera: None,
-        }
-    }
 }
 
 /*****************************************************************************/
@@ -608,6 +586,12 @@ impl ImageLayer<f32> {
         }
         result
     }
+
+    pub fn mark_overexposures(&mut self, overexposures: &Vec<(Crd, Crd)>) {
+        for &(x, y) in overexposures {
+            self.set_safe(x, y, f32::INFINITY);
+        }
+    }
 }
 
 impl std::ops::SubAssign<&ImageLayerF32> for ImageLayerF32 {
@@ -1038,6 +1022,13 @@ impl Image {
         }
     }
 
+    pub fn mark_overexposures(&mut self, overexposures: &Vec<(Crd, Crd)>) {
+        self.l.mark_overexposures(overexposures);
+        self.r.mark_overexposures(overexposures);
+        self.g.mark_overexposures(overexposures);
+        self.b.mark_overexposures(overexposures);
+    }
+
     pub fn fill_inf_areas(&mut self) {
         self.l.fill_inf_areas();
         self.r.fill_inf_areas();
@@ -1156,9 +1147,10 @@ impl Image {
                     get_min(&mut r_thinned_out),
                     get_min(&mut g_thinned_out),
                     get_min(&mut b_thinned_out)
-                ].into_iter()
-                .min_by(cmp_f32)
-                .unwrap_or(0.0);
+                    ].into_iter()
+                    .filter(|v| *v != NO_VALUE_F32)
+                    .min_by(cmp_f32)
+                    .unwrap_or(0.0);
 
                 let mut r_min = min;
                 let mut g_min = min;

@@ -34,7 +34,6 @@ pub fn create_master_dark_or_bias_file(
         files_list,
         calc_opts,
         result_file,
-        RawLoadFlags::EXTRACT_BLACK,
         |_| true,
         progress,
         thread_pool,
@@ -152,7 +151,6 @@ pub fn create_master_flat_file(
         files_list,
         calc_opts,
         result_file,
-        RawLoadFlags::EXTRACT_BLACK,
         move |img| postprocess_single_flat_image(img, bias_image.as_ref()),
         progress,
         thread_pool,
@@ -165,7 +163,6 @@ fn create_master_calibr_file<PF>(
     files_list:          &[PathBuf],
     calc_opts:           &CalcOpts,
     result_file:         &Path,
-    load_raw_flags:      RawLoadFlags,
     postprocess_fun:     PF,
     progress:            &ProgressTs,
     thread_pool:         &rayon::ThreadPool,
@@ -200,11 +197,7 @@ where
                 || cur_result.lock().unwrap().is_err() {
                     return;
                 }
-                let raw_res = RawImage::load_camera_raw_file(
-                    file_path,
-                    load_raw_flags
-                );
-                let mut raw = match raw_res {
+                let (mut raw, _) = match RawImage::load(file_path) {
                     Ok(raw) => raw,
                     Err(err) => {
                         *cur_result.lock().unwrap() = Err(anyhow::anyhow!(
@@ -215,6 +208,7 @@ where
                         return;
                     }
                 };
+                raw.extract_black();
                 let is_ok = postprocess_fun(&mut raw);
                 if !is_ok { return; }
                 let temp_fn = file_path.with_extension("temp_raw");
@@ -309,7 +303,7 @@ pub struct TempFileData {
     file_name:    PathBuf,
     range_factor: f32,
     noise:        f32,
-    exif:         Exif,
+    info:         ImageInfo,
     img_offset:   ImageOffset,
     group_idx:    usize,
 }
@@ -324,6 +318,7 @@ pub enum SaveAlignedImageMode {
 struct SaveTempFileData {
     file_name:    PathBuf,
     image:        Image,
+    info:         ImageInfo,
     save_aligned: SaveAlignedImageMode,
     orig_fn:      PathBuf,
 }
@@ -345,7 +340,7 @@ fn save_temp_file(mut args: SaveTempFileData) -> anyhow::Result<()> {
         args.image.fill_inf_areas();
         save_image_to_file(
             &args.image,
-            &Exif::new_empty(),
+            &args.info,
             &file_name
         )?;
     }
@@ -472,7 +467,7 @@ fn create_temp_file_from_light_file(
     load_log.log("loading light file TOTAL");
 
     log::info!("noise = {:.8}", light_file.noise);
-    log::info!("exif = {:?}", light_file.exif);
+    log::info!("info = {:?}", light_file.info);
 
     let diff_log = TimeLogger::start();
     let img_offset = calc_image_offset_by_stars(
@@ -516,6 +511,7 @@ fn create_temp_file_from_light_file(
             file_name:    temp_file_name.clone(),
             orig_fn:      file.to_path_buf(),
             image:        light_file.image,
+            info:         light_file.info.clone(),
             save_aligned,
         })?;
         log::info!("Sending image into saving queue... OK!");
@@ -526,7 +522,7 @@ fn create_temp_file_from_light_file(
             file_name:    temp_file_name,
             range_factor: norm_res.range_factor,
             noise:        light_file.noise * norm_res.range_factor,
-            exif:         light_file.exif,
+            info:         light_file.info,
             img_offset,
             group_idx,
         });
@@ -570,28 +566,28 @@ pub fn merge_temp_light_files(
     }
 
     log::info!(
-        "| {:7} | {:7} | {:6} | {:6} | {:6} | {:9} | {:6} | {:8} | {:7} | {:7} | {}",
+        "| {:7} | {:7} | {:7} | {:6} | {:6} | {:9} | {:6} | {:8} | {:7} | {:7} | {}",
         "X offs.", "Y offs.", "Angle", "Weight", "Range", "Noise", "ISO", "Exp.time", "Foc.len", "F.Numb.", "File name"
     );
     let mut total_time = 0_f64;
     let mut weighted_time = 0_f64;
     for temp_file in temp_file_names.iter() {
         let weight = min_noise.powf(2.0) / temp_file.noise.powf(2.0);
-        total_time += temp_file.exif.exp_time.unwrap_or(0.0) as f64;
-        weighted_time += (weight * temp_file.exif.exp_time.unwrap_or(0.0)) as f64;
+        total_time += temp_file.info.exp.unwrap_or(0.0) as f64;
+        weighted_time += (weight * temp_file.info.exp.unwrap_or(0.0)) as f64;
 
         log::info!(
-            "| {:7.1} | {:7.1} | {:6.2} | {:6.3} | {:6.3} | {:9.7} | {:6} | {:8.1} | {:7.1} | {:7} | {}",
+            "| {:7.1} | {:7.1} | {:7.2} | {:6.3} | {:6.3} | {:9.7} | {:6} | {:8.1} | {:7.1} | {:7} | {}",
             temp_file.img_offset.offset_x,
             temp_file.img_offset.offset_y,
             180.0 * temp_file.img_offset.angle / PI,
             weight,
             temp_file.range_factor,
             temp_file.noise,
-            temp_file.exif.iso.unwrap_or(0),
-            temp_file.exif.exp_time.unwrap_or(0.0),
-            temp_file.exif.focal_len.unwrap_or(0.0),
-            format!("f/{:.1}", temp_file.exif.fnumber.unwrap_or(0.0)),
+            temp_file.info.iso.unwrap_or(0),
+            temp_file.info.exp.unwrap_or(0.0),
+            temp_file.info.focal_len.unwrap_or(0.0),
+            format!("f/{:.1}", temp_file.info.fnumber.unwrap_or(0.0)),
             extract_file_name(&temp_file.orig_file)
         );
 
@@ -704,9 +700,9 @@ pub fn merge_temp_light_files(
     result_image.check_contains_inf_or_nan(true, true)?;
 
     log::info!("Saving image into file {}", result_file.to_str().unwrap_or(""));
-    let mut dst_exif = Exif::new_empty();
-    dst_exif.exp_time = Some(weighted_time as f32);
-    save_image_to_file(&result_image, &dst_exif, result_file)?;
+    let mut dst_info = ImageInfo::default();
+    dst_info.exp = Some(weighted_time as f32);
+    save_image_to_file(&result_image, &dst_info, result_file)?;
 
     progress.lock().unwrap().percent(100, 100, "Done!");
 

@@ -24,8 +24,8 @@ msgstr "Разрешение"
 msgid "Camera"
 msgstr "Камера"
 
-msgid "ISO"
-msgstr "ISO"
+msgid "ISO/Gain"
+msgstr "ISO/Gain"
 
 msgid "Exposure"
 msgstr "Выдержка"

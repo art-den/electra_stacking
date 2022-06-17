@@ -585,7 +585,7 @@ fn get_prj_tree_store_columns() -> [(String, u32, u32, glib::Type); 24] {
         (gettext("File time"),         COLUMN_FILE_TIME,       COLUMN_FILE_TIME,   String::static_type()),
         (gettext("Dimensions"),        COLUMN_DIM,             COLUMN_DIM,         String::static_type()),
         (gettext("Camera"),            COLUMN_CAMERA,          COLUMN_CAMERA,      String::static_type()),
-        (gettext("ISO"),               COLUMN_ISO_STR,         COLUMN_ISO,         String::static_type()),
+        (gettext("ISO/Gain"),          COLUMN_ISO_STR,         COLUMN_ISO,         String::static_type()),
         (gettext("Exposure"),          COLUMN_EXP_STR,         COLUMN_EXP,         String::static_type()),
         (gettext("FNumber"),           COLUMN_FNUMBER,         COLUMN_FNUMBER,     String::static_type()),
         (gettext("Noise"),             COLUMN_NOISE_STR,       COLUMN_NOISE,       String::static_type()),
@@ -1669,9 +1669,9 @@ fn select_and_add_files_into_project(
             }
         };
         add_exts(RAW_EXTS);
+        add_exts(FIT_EXTS);
         if light_files {
             add_exts(TIF_EXTS);
-            add_exts(FIT_EXTS);
         }
         let fc = FileChooserDialogBuilder::new()
             .action(gtk::FileChooserAction::Open)

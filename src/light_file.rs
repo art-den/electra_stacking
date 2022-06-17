@@ -19,7 +19,7 @@ pub enum OpenMode {
 
 pub struct LightFile {
     pub image:      Image,
-    pub exif:       Exif,
+    pub info:       ImageInfo,
     pub stars:      Stars,
     pub stars_stat: Option<StarsStat>,
     pub noise:      f32,
@@ -45,28 +45,44 @@ impl LightFile {
         let stars_flag = flags.contains(LoadLightFlags::STARS);
         let stars_stat_flag = flags.contains(LoadLightFlags::STARS_STAT);
 
-        let mut src_data = if is_image_file_name(file_name) {
-            load_image_from_file(file_name)?
-        } else {
-            let demosaic = if bin == 2 {
-                DemosaicAlgo::Linear
-            } else { match open_mode {
-                OpenMode::Preview => DemosaicAlgo::Linear,
-                OpenMode::Processing => DemosaicAlgo::ColorRatio,
-            }};
+        let image_data = load_image_from_file(file_name)?;
 
-            load_and_demosaic_raw_file(
-                file_name,
-                cal_data,
-                demosaic,
-                open_mode == OpenMode::Preview,
-            )?
+        let (mut image, mut overexposures) = match image_data.image {
+            RawOrImage::Image(image) =>
+                (image, Vec::new()),
+            RawOrImage::Raw(mut raw) => {
+                let demosaic = if bin == 2 {
+                    DemosaicAlgo::Linear
+                } else { match open_mode {
+                    OpenMode::Preview => DemosaicAlgo::Linear,
+                    OpenMode::Processing => DemosaicAlgo::ColorRatio,
+                }};
+
+                let mut overexposures = raw.get_overexposures();
+
+                raw.extract_black();
+
+                raw.calibrate(cal_data)?;
+
+                let log = TimeLogger::start();
+                let result = raw.demosaic(
+                    demosaic,
+                    open_mode == OpenMode::Preview
+                )?;
+                log.log(&format!("demosaicing {:?}", demosaic));
+
+                overexposures.retain(|&(x, y)|
+                    !cal_data.hot_pixels.contains(&BadPixel { x, y })
+                );
+
+                (result, overexposures)
+            },
         };
 
-        let img_layer_to_calc = if src_data.image.is_greyscale() {
-            &src_data.image.l
+        let img_layer_to_calc = if image.is_greyscale() {
+            &image.l
         } else {
-            &src_data.image.g
+            &image.g
         };
 
         let noise = if stars_flag || stars_stat_flag || flags.contains(LoadLightFlags::NOISE) {
@@ -91,21 +107,21 @@ impl LightFile {
 
         if bin == 2 {
             let bin_log = TimeLogger::start();
-            src_data.image = src_data.image.decrease_2x();
+            image = image.decrease_2x();
             bin_log.log("decreasing image 2x");
         }
 
-        let img_layer_to_calc = if src_data.image.is_greyscale() {
-            &src_data.image.l
+        let img_layer_to_calc = if image.is_greyscale() {
+            &image.l
         } else {
-            &src_data.image.g
+            &image.g
         };
 
         let stars = if stars_flag || stars_stat_flag {
             let stars_log = TimeLogger::start();
             let result = find_stars_on_image(
                 &img_layer_to_calc,
-                Some(&src_data.image),
+                Some(&image),
                 Some(noise),
                 true
             )?;
@@ -124,20 +140,17 @@ impl LightFile {
 
         drop(img_layer_to_calc);
 
-        for (mut x, mut y) in src_data.overexposured {
-            if bin == 2 {
-                x /= 2;
-                y /= 2;
+        if bin == 2 {
+            for (x, y) in &mut overexposures {
+                *x /= 2;
+                *y /= 2;
             }
-            src_data.image.l.set_safe(x, y, f32::INFINITY);
-            src_data.image.r.set_safe(x, y, f32::INFINITY);
-            src_data.image.g.set_safe(x, y, f32::INFINITY);
-            src_data.image.b.set_safe(x, y, f32::INFINITY);
         }
+        image.mark_overexposures(&overexposures);
 
         Ok(LightFile{
-            exif: src_data.exif,
-            image: src_data.image,
+            info: image_data.info,
+            image,
             stars,
             stars_stat,
             background,

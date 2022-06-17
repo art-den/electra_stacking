@@ -9,7 +9,6 @@ use electra_stacking::{
     progress::*,
     stacking_utils::*,
     light_file::*,
-    image::*,
     image_raw::*,
     image_norm::*,
     image_formats::*,
@@ -789,7 +788,7 @@ impl ProjectGroup {
                         let common_star_img_fn = file_name.with_extension("common_star.tif");
                         let save_res = save_grayscale_image_to_tiff_file(
                             &stars_stat.common_stars_img,
-                            &Exif::new_empty(),
+                            &ImageInfo::default(),
                             &common_star_img_fn
                         );
                         if let Err(err) = save_res {
@@ -1071,7 +1070,7 @@ impl ProjectFiles {
             .into()
     }
 
-    pub fn add_files_from_src_file_info(&mut self, file_info: Vec<SrcFileInfo>) {
+    pub fn add_files_from_src_file_info(&mut self, file_info: Vec<ImageInfo>) {
         for info in file_info {
             let mut file = ProjectFile::new_from_info(info);
             file.project_changed = self.project_changed.clone();
@@ -1247,7 +1246,7 @@ impl ProjectFile {
         self.project_changed = project_changed;
     }
 
-    fn new_from_info(info: SrcFileInfo) -> ProjectFile {
+    fn new_from_info(info: ImageInfo) -> ProjectFile {
         ProjectFile {
             file_name: info.file_name,
             file_time: info.file_time,

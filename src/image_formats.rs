@@ -1,10 +1,11 @@
 use std::{path::*, io::*, fs::*, sync::atomic::*, sync::Arc};
+use serde::*;
 use tiff::{*, decoder::*, encoder::*};
 use fitrs::*;
 use itertools::*;
 use bitstream_io::{BigEndian, BitWriter, BitWrite, BitReader};
 use chrono::prelude::*;
-use crate::{image::*, image_raw::*, fs_utils::*, compression::*, progress::*, log_utils::*};
+use crate::{image::*, image_raw::*, fs_utils::*, compression::*, progress::*};
 
 pub const FIT_EXTS: &[&str] = &["fit", "fits", "fts"];
 pub const TIF_EXTS: &[&str] = &["tif", "tiff"];
@@ -16,9 +17,37 @@ pub const RAW_EXTS: &[&str] = &[
     "pef", // Pentax
 ];
 
-pub fn load_image_from_file(file_name: &Path) -> anyhow::Result<SrcImageData> {
+fn try_to_decode_date_time_str(dt_str: &str) -> Option<DateTime<Local>> {
+    if dt_str.is_empty() {
+        return None;
+    }
+
+    let fmt_strings = [
+        "%Y:%m:%d %H:%M:%S",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y:%m:%dT%H:%M:%S",
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y:%m:%d %H:%M:%S%.3f",
+        "%Y:%m:%dT%H:%M:%S%.3f",
+        "%Y-%m-%d %H:%M:%S%.3f",
+        "%Y-%m-%dT%H:%M:%S%.3f",
+    ];
+
+    for fmt_string in fmt_strings {
+        let result = Local.datetime_from_str(dt_str, fmt_string).ok();
+        if result.is_some() {
+            return result;
+        }
+    }
+
+    None
+}
+
+pub fn load_image_from_file(file_name: &Path) -> anyhow::Result<ImageData> {
     let ext = extract_extension(file_name);
-    if is_tiff_ext(ext) {
+    if is_raw_ext(ext) {
+        load_raw(file_name)
+    } else if is_tiff_ext(ext) {
         load_image_from_tiff_file(file_name)
     } else if is_fits_ext(ext) {
         load_image_from_fits_file(file_name)
@@ -27,14 +56,18 @@ pub fn load_image_from_file(file_name: &Path) -> anyhow::Result<SrcImageData> {
     }
 }
 
-pub fn save_image_to_file(image: &Image, exif: &Exif, file_name: &Path) -> anyhow::Result<()> {
+pub fn save_image_to_file(
+    image:     &Image,
+    info:      &ImageInfo,
+    file_name: &Path
+) -> anyhow::Result<()> {
     assert!(!image.is_empty());
 
     let ext = extract_extension(file_name);
     if is_tiff_ext(ext) {
-        save_image_to_tiff_file(image, exif, file_name)
+        save_image_to_tiff_file(image, info, file_name)
     } else if is_fits_ext(ext) {
-        save_image_to_fits_file(image, exif, file_name)
+        save_image_to_fits_file(image, info, file_name)
     } else {
         err_format_not_supported(ext)
     }
@@ -58,29 +91,58 @@ pub fn is_image_file_name(file_name: &Path) -> bool {
     is_fits_ext(ext)
 }
 
-pub struct SrcImageData {
-    pub image: Image,
-    pub exif:  Exif,
-    pub overexposured: Vec<(Crd, Crd)>,
+pub enum RawOrImage {
+    Image(Image),
+    Raw(RawImage),
+}
+
+pub struct ImageData {
+    pub image: RawOrImage,
+    pub info: ImageInfo,
 }
 
 fn err_format_not_supported<R>(ext: &str) -> anyhow::Result<R> {
     Err(anyhow::anyhow!("Image format `{}` is not supported", ext))
 }
 
-pub struct SrcFileInfo {
+#[derive(Default, Serialize, Deserialize, Clone, Debug)]
+pub struct ImageInfo {
+    /// Full file name
     pub file_name: PathBuf,
-    pub width:     usize,
-    pub height:    usize,
+
+    /// Width in pixels
+    pub width: usize,
+
+    /// Height in pixels
+    pub height: usize,
+
+    /// Datetime from Exif or from file tile
     pub file_time: Option<DateTime<Local>>,
-    pub cfa_type:  Option<CfaType>,
-    pub iso:       Option<u32>,
-    pub exp:       Option<f32>,
-    pub fnumber:   Option<f32>,
-    pub camera:    Option<String>,
+
+    /// Type of CFA pattern
+    pub cfa_type: Option<CfaType>,
+
+    /// ISO or gain
+    pub iso: Option<u32>,
+
+    /// Exposure time in seconds
+    pub exp: Option<f32>,
+
+    /// F-number (4.0 for f/4)
+    pub fnumber: Option<f32>,
+
+    /// Focal len in millimeters
+    pub focal_len: Option<f32>,
+
+    /// Camera name
+    pub camera: Option<String>,
+
+    /// Lens or telescope
+    pub lens: Option<String>,
 }
 
-pub fn load_src_file_info(file_name: &Path) -> anyhow::Result<SrcFileInfo> {
+
+pub fn load_src_file_info(file_name: &Path) -> anyhow::Result<ImageInfo> {
     let ext = extract_extension(file_name);
     if is_raw_ext(ext) {
         load_src_file_info_raw(file_name)
@@ -97,7 +159,7 @@ pub fn load_src_file_info_for_files(
     file_names:  &Vec<PathBuf>,
     cancel_flag: &Arc<AtomicBool>,
     progress:    &ProgressTs,
-) -> anyhow::Result<Vec<SrcFileInfo>> {
+) -> anyhow::Result<Vec<ImageInfo>> {
     let mut result = Vec::new();
     progress.lock().unwrap().stage("Loading short file information...");
     progress.lock().unwrap().set_total(file_names.len());
@@ -114,7 +176,7 @@ pub fn load_src_file_info_for_files(
 
 // RAW format
 
-pub fn load_src_file_info_raw(file_name: &Path) -> anyhow::Result<SrcFileInfo> {
+pub fn load_src_file_info_raw(file_name: &Path) -> anyhow::Result<ImageInfo> {
     let mut file = std::fs::File::open(&file_name)?;
     let raw_data = rawloader::decode_exif_only(&mut file)?;
     let mut iso = None;
@@ -122,13 +184,17 @@ pub fn load_src_file_info_raw(file_name: &Path) -> anyhow::Result<SrcFileInfo> {
     let mut file_time = None;
     let mut fnumber = None;
     let mut camera = None;
+    let mut focal_len = None;
+    let mut lens = None;
     if let Some(exif) = raw_data.exif {
         iso = exif.get_uint(rawloader::Tag::ISOSpeed);
         exp = exif.get_rational(rawloader::Tag::ExposureTime);
         fnumber = exif.get_rational(rawloader::Tag::FNumber);
         camera = exif.get_str(rawloader::Tag::Model).map(|v| v.to_string());
+        focal_len = exif.get_rational(rawloader::Tag::FocalLength);
+        lens = exif.get_str(rawloader::Tag::LensModel).map(|v| v.to_string());
         if let Some(time_str) = exif.get_str(rawloader::Tag::DateTimeOriginal) {
-            file_time = Local.datetime_from_str(time_str, "%Y:%m:%d %H:%M:%S").ok();
+            file_time = try_to_decode_date_time_str(time_str);
         }
     }
 
@@ -151,7 +217,7 @@ pub fn load_src_file_info_raw(file_name: &Path) -> anyhow::Result<SrcFileInfo> {
         _ => None,
     };
 
-    Ok(SrcFileInfo {
+    Ok(ImageInfo {
         file_name: file_name.to_path_buf(),
         file_time,
         width: raw_data.width,
@@ -160,141 +226,22 @@ pub fn load_src_file_info_raw(file_name: &Path) -> anyhow::Result<SrcFileInfo> {
         exp,
         cfa_type,
         fnumber,
+        focal_len,
         camera,
+        lens,
     })
 }
 
-fn check_raw_data(
-    raw_info:    &RawImageInfo,
-    cal_info:    &RawImageInfo,
-    mode:        &str,
-    master_dark: bool
-) -> anyhow::Result<()> {
-    let compare = |
-        item,
-        raw: &dyn std::fmt::Display,
-        cal: &dyn std::fmt::Display
-    | -> anyhow::Result<()> {
-        if raw.to_string() != cal.to_string() {
-            anyhow::bail!(
-                "{} differs for {}: ('{}' != '{}')",
-                item, mode, raw, cal
-            );
-        }
-        Ok(())
-    };
-
-    compare("Width", &raw_info.width, &cal_info.width)?;
-    compare("Height", &raw_info.height, &cal_info.height)?;
-    let raw_cam = raw_info.exif.camera.as_ref().map(|v| &v[..]).unwrap_or("");
-    let cal_cam = cal_info.exif.camera.as_ref().map(|v| &v[..]).unwrap_or("");
-    compare("Camera model", &raw_cam, &cal_cam)?;
-    compare("Color pattern", &raw_info.cfa, &cal_info.cfa)?;
-
-    if master_dark {
-        compare("ISO", &raw_info.exif.iso.unwrap_or(0), &cal_info.exif.iso.unwrap_or(0))?;
-    }
-
-    Ok(())
+fn load_raw(file_name: &Path) -> anyhow::Result<ImageData> {
+    let (raw, info) = RawImage::load(file_name)?;
+    Ok(ImageData {image: RawOrImage::Raw(raw), info})
 }
-
-fn can_use_master_dark_for_light_file(raw_info: &RawImageInfo, cal_info: &RawImageInfo) -> bool {
-    if let (Some(raw_exp_time), Some(cal_exp_time)) = (raw_info.exif.exp_time, cal_info.exif.exp_time) {
-        if raw_exp_time != 0.0 && cal_exp_time != 0.0
-        && (raw_exp_time/cal_exp_time > 1.2 || cal_exp_time/raw_exp_time > 1.2) { // max diff for time is 20%
-            return false;
-        }
-    }
-
-    true
-}
-
-#[derive(Debug)]
-pub enum DemosaicAlgo {
-    Linear,
-    ColorRatio,
-}
-
-pub fn load_and_demosaic_raw_file(
-    file_name:   &Path,
-    cal_data:    &CalibrationData,
-    demosaic:    DemosaicAlgo,
-    mt_demosaic: bool
-) -> anyhow::Result<SrcImageData> {
-    log::info!(
-        "Start to load raw file {}, demosaic={:?}, md_demosaic={}",
-        file_name.to_str().unwrap_or(""),
-        demosaic,
-        mt_demosaic
-    );
-
-    // load raw file
-    let raw_log = TimeLogger::start();
-    let mut raw_image = RawImage::load_camera_raw_file(
-        file_name,
-        RawLoadFlags::EXTRACT_BLACK | RawLoadFlags::STORE_OVEREXPOSURES
-    )?;
-    raw_log.log("loading raw image");
-
-    // remove hot pixels from overexposured pixels list
-    raw_image.overexposured.retain(|&(x, y)| !cal_data.hot_pixels.contains(&BadPixel {x, y}));
-
-    // extract master-bias image
-    if let Some(bias) = &cal_data.bias_image {
-        check_raw_data(&raw_image.info, &bias.info, "master bias", false)?;
-        raw_image.data -= &bias.data;
-    }
-
-    // extract master-dark image
-    if let Some(dark) = &cal_data.dark_image {
-        check_raw_data(&raw_image.info, &dark.info, "master dark", true)?;
-        if can_use_master_dark_for_light_file(&raw_image.info, &dark.info) {
-            raw_image.data -= &dark.data;
-        } else {
-            log::info!("Master dark is used only for hot bixels because exposures differ")
-        }
-    }
-
-    // flatten by master-flat
-    if let Some(flat) = &cal_data.flat_image {
-        check_raw_data(&raw_image.info, &flat.info, "master flat", false)?;
-        raw_image.data *= &flat.data;
-    }
-
-    // remove hot pixels from RAW image
-    raw_image.remove_bad_pixels(&cal_data.hot_pixels);
-
-    let image = if let Cfa::Pattern(p) = &raw_image.info.cfa {
-        // do demosaic
-        let dem_log = TimeLogger::start();
-        let color_image = match demosaic {
-            DemosaicAlgo::Linear =>
-                raw_image.demosaic_bayer_linear(p, mt_demosaic)?,
-            DemosaicAlgo::ColorRatio =>
-                raw_image.demosaic_bayer_color_ratio(p, mt_demosaic)?,
-        };
-        dem_log.log("demosaic");
-        color_image
-    } else {
-        let mut bw_image = Image::new();
-        bw_image.l = raw_image.data;
-        bw_image
-    };
-
-    // return result
-    Ok(SrcImageData {
-        image,
-        exif: raw_image.info.exif,
-        overexposured: raw_image.overexposured,
-    })
-}
-
 
 /*****************************************************************************/
 
 // TIFF format
 
-pub fn load_src_file_info_tiff(file_name: &Path) -> anyhow::Result<SrcFileInfo> {
+pub fn load_src_file_info_tiff(file_name: &Path) -> anyhow::Result<ImageInfo> {
     let mut reader = BufReader::new(File::open(file_name)?);
     let mut decoder = Decoder::new(&mut reader)?;
 
@@ -321,20 +268,16 @@ pub fn load_src_file_info_tiff(file_name: &Path) -> anyhow::Result<SrcFileInfo> 
             .map(|st| st.into());
     }
 
-    Ok(SrcFileInfo {
+    Ok(ImageInfo {
         file_name: file_name.to_path_buf(),
         file_time,
         width: width as usize,
         height: height as usize,
-        iso: None,
-        exp: None,
-        cfa_type: None,
-        fnumber: None,
-        camera: None,
+        .. Default::default()
     })
 }
 
-pub fn load_image_from_tiff_file(file_name: &Path) -> anyhow::Result<SrcImageData> {
+pub fn load_image_from_tiff_file(file_name: &Path) -> anyhow::Result<ImageData> {
     fn assign_img_data<S: Copy>(
         src:    &[S],
         img:    &mut Image,
@@ -419,16 +362,15 @@ pub fn load_image_from_tiff_file(file_name: &Path) -> anyhow::Result<SrcImageDat
             Err(anyhow::anyhow!("Format unsupported"))
     }?;
 
-    Ok(SrcImageData{
-        image,
-        exif: Exif::new_empty(),
-        overexposured: Vec::new(),
+    Ok(ImageData{
+        image: RawOrImage::Image(image),
+        info: Default::default()
     })
 }
 
 pub fn save_grayscale_image_to_tiff_file(
     image:     &ImageLayerF32,
-    exif:      &Exif,
+    info:      &ImageInfo,
     file_name: &Path
 ) -> anyhow::Result<()> {
     assert!(!image.is_empty());
@@ -438,14 +380,14 @@ pub fn save_grayscale_image_to_tiff_file(
         image.width() as u32,
         image.height() as u32
     )?;
-    write_exif_into_tiff(tiff.encoder(), exif)?;
+    write_info_into_tiff(tiff.encoder(), info)?;
     tiff.write_data(image.iter().as_slice())?;
     Ok(())
 }
 
 pub fn save_image_to_tiff_file(
     image:     &Image,
-    exif:      &Exif,
+    info:      &ImageInfo,
     file_name: &Path
 ) -> anyhow::Result<()> {
     assert!(!image.is_empty());
@@ -457,7 +399,7 @@ pub fn save_image_to_tiff_file(
             image.width() as u32,
             image.height() as u32
         )?;
-        write_exif_into_tiff(tiff.encoder(), exif)?;
+        write_info_into_tiff(tiff.encoder(), info)?;
         tiff.write_data(image.l.iter().as_slice())?;
     }
     else if image.is_rgb() {
@@ -469,7 +411,7 @@ pub fn save_image_to_tiff_file(
             image.width() as u32,
             image.height() as u32
         )?;
-        write_exif_into_tiff(tiff.encoder(), exif)?;
+        write_info_into_tiff(tiff.encoder(), info)?;
         tiff.write_data(&data)?;
     } else {
         panic!("Internal error");
@@ -477,9 +419,9 @@ pub fn save_image_to_tiff_file(
     Ok(())
 }
 
-fn write_exif_into_tiff<W: Write + Seek, K: TiffKind>(
+fn write_info_into_tiff<W: Write + Seek, K: TiffKind>(
     enc:  &mut tiff::encoder::DirectoryEncoder<W, K>,
-    exif: &Exif
+    info: &ImageInfo
 ) -> anyhow::Result<()> {
     use tiff::tags::*;
 
@@ -492,7 +434,7 @@ fn write_exif_into_tiff<W: Write + Seek, K: TiffKind>(
         ).as_str()
     )?;
 
-    if let Some(exp_time) = exif.exp_time {
+    if let Some(exp_time) = info.exp {
         enc.write_tag(Tag::Unknown(0x829a), &[exp_time as u32, 1_u32][..])?;
     }
     Ok(())
@@ -502,7 +444,71 @@ fn write_exif_into_tiff<W: Write + Seek, K: TiffKind>(
 
 // FITS format
 
-pub fn load_src_file_info_fits(file_name: &Path) -> anyhow::Result<SrcFileInfo> {
+fn get_u32_fits_value(h: &Hdu, key: &str) -> Option<u32> {
+    h.value(key)
+        .and_then(|v| {
+            match v {
+                HeaderValue::IntegerNumber(v) => Some(*v as u32),
+                HeaderValue::RealFloatingNumber(v) => Some(*v as u32),
+                _ => None,
+            }
+        })
+}
+
+fn get_f32_fits_value(h: &Hdu, key: &str) -> Option<f32> {
+    h.value(key)
+        .and_then(|v| {
+            match v {
+                HeaderValue::IntegerNumber(v) => Some(*v as f32),
+                HeaderValue::RealFloatingNumber(v) => Some(*v as f32),
+                _ => None,
+            }
+        })
+}
+
+fn get_str_fits_value<'a>(h: &'a Hdu, key: &str) -> Option<&'a str> {
+    h.value(key)
+        .and_then(|v| {
+            match v {
+                HeaderValue::CharacterString(v) => Some(v.as_str()),
+                _ => None,
+            }
+        })
+}
+
+fn fits_hdu_to_info(file_name: &Path, h: &Hdu) -> ImageInfo {
+    let dt_str = get_str_fits_value(&h, "DATE-LOC");
+    let exp_time = get_f32_fits_value(&h, "EXPTIME");
+    let gain = get_u32_fits_value(&h, "GAIN");
+    let bayer = get_str_fits_value(&h, "BAYERPAT");
+    let camera = get_str_fits_value(&h, "INSTRUME");
+    let focal_len = get_f32_fits_value(&h, "FOCALLEN");
+    let focal_ratio = get_f32_fits_value(&h, "FOCRATIO");
+    let lens = get_str_fits_value(&h, "TELESCOP");
+
+    dbg!(dt_str, exp_time, gain, bayer, camera);
+
+    let file_time =
+        try_to_decode_date_time_str(dt_str.unwrap_or(""))
+        .or_else(|| {
+            get_file_time(file_name).ok()
+        });
+
+    ImageInfo {
+        file_name: file_name.to_path_buf(),
+        file_time,
+        iso: gain,
+        exp: exp_time,
+        cfa_type: CfaType::from_string(bayer.unwrap_or("")),
+        fnumber: focal_ratio,
+        focal_len,
+        camera: camera.map(ToString::to_string),
+        lens: lens.map(ToString::to_string),
+        .. Default::default()
+    }
+}
+
+pub fn load_src_file_info_fits(file_name: &Path) -> anyhow::Result<ImageInfo> {
     let fits = Fits::open(file_name)?;
 
     for h in fits.iter() {
@@ -516,18 +522,11 @@ pub fn load_src_file_info_fits(file_name: &Path) -> anyhow::Result<SrcFileInfo> 
             = (width, height, depth)
         {
             if depth == 1 || depth == 3 {
-                drop(fits);
-                return Ok(SrcFileInfo {
-                    file_name: file_name.to_path_buf(),
-                    file_time: get_file_time(file_name).ok(),
+                return Ok(ImageInfo {
                     width: width as usize,
                     height: height as usize,
-                    iso: None,
-                    exp: None,
-                    cfa_type: None,
-                    fnumber: None,
-                    camera: None,
-                });
+                    .. fits_hdu_to_info(file_name, &h)
+                })
             }
         }
     }
@@ -535,7 +534,7 @@ pub fn load_src_file_info_fits(file_name: &Path) -> anyhow::Result<SrcFileInfo> 
     anyhow::bail!("This FITS file is not supported")
 }
 
-pub fn load_image_from_fits_file(file_name: &Path) -> anyhow::Result<SrcImageData> {
+pub fn load_image_from_fits_file(file_name: &Path) -> anyhow::Result<ImageData> {
     let fits = Fits::open(file_name)?;
 
     let is_mono_shape = |shape: &Vec<usize>| -> bool {
@@ -548,6 +547,7 @@ pub fn load_image_from_fits_file(file_name: &Path) -> anyhow::Result<SrcImageDat
     };
 
     let mut image: Option<Image> = None;
+    let mut info: Option<ImageInfo> = None;
 
     for h in fits.iter() {
         let data = h.read_data();
@@ -598,17 +598,19 @@ pub fn load_image_from_fits_file(file_name: &Path) -> anyhow::Result<SrcImageDat
             _ => (),
         }
 
-        if image.is_some() { break; }
+        if image.is_some() {
+            info = Some(fits_hdu_to_info(file_name, &h));
+            break;
+        }
     }
 
-    match image {
-        Some(image) =>
-            Ok(SrcImageData{
-                image,
-                exif: Exif::new_empty(),
-                overexposured: Vec::new(),
+    match (image, info) {
+        (Some(image), Some(info)) =>
+            Ok(ImageData{
+                image: RawOrImage::Image(image),
+                info
             }),
-        None =>
+        _ =>
             Err(anyhow::anyhow!(
                 "Can't find image in file of format is not supported"
             )),
@@ -705,7 +707,7 @@ fn read_fits_data_int<T: Copy + IntInfo + Into::<f64>>(
 
 pub fn save_image_to_fits_file(
     image:     &Image,
-    _exif:     &Exif, // TODO: implement exif support
+    _info:     &ImageInfo, // TODO: implement exif support
     file_name: &Path
 ) -> anyhow::Result<()> {
     assert!(!image.is_empty());
