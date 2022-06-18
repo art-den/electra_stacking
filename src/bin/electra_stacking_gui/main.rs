@@ -771,11 +771,17 @@ fn update_project_tree(objects: &MainWindowObjectsPtr, update_files: bool) {
                         let file_name = tree_store.value(&file_iter, COLUMN_GUID as i32).get::<String>().unwrap();
                         let file = &files.list()[*file_index_by_name.get(file_name.as_str()).unwrap()];
 
-                        let file_name = file
+                        let mut file_name = file
                             .file_name()
                             .file_name()
                             .and_then(|v| v.to_str())
-                            .unwrap_or("");
+                            .unwrap_or("Can't get file name")
+                            .to_string();
+
+                        if let Some(err_text) = file.get_error_test() {
+                            file_name.push_str("/");
+                            file_name.push_str(err_text);
+                        }
 
                         let path = file
                             .file_name()
@@ -866,6 +872,7 @@ fn update_project_tree(objects: &MainWindowObjectsPtr, update_files: bool) {
                             }
                         };
 
+                        let file_name = make_important(file_name, file.flags(), FILE_FLAG_ERROR);
                         let star_r_dev_str = make_important(star_r_dev_str, file.flags(), FILE_FLAG_CLEANUP_R_DEV);
                         let fwhm_str = make_important(fwhm_str, file.flags(), FILE_FLAG_CLEANUP_FWHM);
                         let stars_cnt_str = make_important(stars_cnt_str, file.flags(), FILE_FLAG_CLEANUP_STARS);

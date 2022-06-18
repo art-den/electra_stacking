@@ -9,6 +9,32 @@ use bitstream_io::{BitWriter, BitWrite};
 const CALIBR_FILE_SIG: &[u8] = b"calibr-file-3";
 const MASTER_FILE_SIG: &[u8] = b"master-file-3";
 
+
+// Color coefficients for camera sensors
+const SONY_IMX571_WB:    [f32; 4] = [1.11, 1.00, 1.43, 0.00];  // ???
+const SONY_IMX294CJK_WB: [f32; 4] = [1.04, 1.00, 1.43, 0.00];  // ???
+const SONY_IMX533_WB:    [f32; 4] = [1.13, 1.00, 1.33, 0.00];  // ???
+
+
+// table for cameras if no params in raw FITS file
+const CAMERAS_TABLE: &[(&str, [f32; 4], Option<CfaType>)] = &[
+    // camera     color balance      bayer type or None for unknown
+    ("asi294mc",  SONY_IMX294CJK_WB, Some(CfaType::RGGB)),
+    ("asi2600mc", SONY_IMX571_WB,    Some(CfaType::RGGB)),
+    ("asi533mm",  SONY_IMX533_WB,    None),
+];
+
+pub fn find_camera_params(camera_name: Option<&str>) -> Option<([f32; 4], Option<CfaType>)> {
+    if let Some(camera_name) = camera_name {
+        let name_lc = camera_name.to_string().to_lowercase();
+        CAMERAS_TABLE.iter()
+            .find(|(c, _, _)| name_lc.contains(c))
+            .map(|(_, wb, cfa)| (*wb, *cfa))
+    } else {
+        None
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq)]
 pub enum CfaColor {
     R,
@@ -79,14 +105,22 @@ impl Default for Cfa {
 impl Cfa {
     pub fn from_str(cfa_str: &str, start_left: Crd, start_top: Crd) -> Cfa {
         if let Some(ct) = CfaType::from_string(cfa_str) {
-            Cfa::Pattern(CfaPattern {
+            Self::from_cfa_type(Some(ct), start_left, start_top)
+        } else {
+            Cfa::Mono
+        }
+    }
+
+    pub fn from_cfa_type(ct: Option<CfaType>, start_left: Crd, start_top: Crd) -> Cfa {
+        match ct {
+            Some(ct) => Cfa::Pattern(CfaPattern {
                 start_left,
                 start_top,
                 pattern_type: ct,
                 arr: ct.get_arr()
-            })
-        } else {
-            Cfa::Mono
+            }),
+            None =>
+                Cfa::Mono,
         }
     }
 
@@ -119,9 +153,9 @@ pub struct RawImageInfo {
     pub black_values: [f32; 4],
     pub wb: [f32; 4],
     pub cfa: Cfa,
-    camera: Option<String>,
-    exposure: Option<f32>,
-    iso: Option<u32>,
+    pub camera: Option<String>,
+    pub exposure: Option<f32>,
+    pub iso: Option<u32>,
 }
 
 impl RawImageInfo {
@@ -947,6 +981,12 @@ impl CalibrationData {
         Ok(())
     }
 
+
+    pub fn is_empty(&self) -> bool {
+        self.dark_image.is_none() &&
+        self.flat_image.is_none() &&
+        self.bias_image.is_none()
+    }
 }
 
 

@@ -162,7 +162,7 @@ impl Project {
         progress:    &ProgressTs,
         cancel_flag: &Arc<AtomicBool>,
         cpu_load:    CpuLoad,
-    ) -> anyhow::Result<HashMap<PathBuf, RegInfo>> {
+    ) -> anyhow::Result<HashMap<PathBuf, anyhow::Result<RegInfo>>> {
         let total_files_cnt: usize =
             self.groups.iter()
             .map(|g| g.light_files.list.len())
@@ -204,7 +204,7 @@ impl Project {
         Ok(result.into_inner().unwrap())
     }
 
-    pub fn update_light_files_reg_info(&mut self, reg_info: HashMap<PathBuf, RegInfo>) {
+    pub fn update_light_files_reg_info(&mut self, reg_info: HashMap<PathBuf, anyhow::Result<RegInfo>>) {
         for group in &mut self.groups {
             group.light_files.update_reg_info(&reg_info);
         }
@@ -722,7 +722,7 @@ impl ProjectGroup {
         progress:      &ProgressTs,
         cancel_flag:   &Arc<AtomicBool>,
         thread_pool:   &rayon::ThreadPool,
-        result:        &Mutex<HashMap<PathBuf, RegInfo>>,
+        result:        &Mutex<HashMap<PathBuf, anyhow::Result<RegInfo>>>,
         save_star_img: bool,
     ) -> anyhow::Result<()> {
         progress.lock().unwrap().stage(&format!(
@@ -770,50 +770,46 @@ impl ProjectGroup {
                         OpenMode::Processing,
                         1
                     );
-                    let light_file = match load_light_file_res {
-                        Ok(light_file) => light_file,
-                        Err(err) => {
-                            *cur_result.lock().unwrap() = Err(anyhow::anyhow!(
-                                r#"Error "{}" during loading of file "{}""#,
-                                err.to_string(),
-                                file_name.to_str().unwrap_or("")
-                            ));
-                            return;
+
+                    let file_result = match load_light_file_res {
+                        Ok(light_file) => {
+                            let stars_stat = light_file.stars_stat.unwrap();
+                            if save_star_img {
+                                let common_star_img_fn = file_name.with_extension("common_star.tif");
+                                let save_res = save_grayscale_image_to_tiff_file(
+                                    &stars_stat.common_stars_img,
+                                    &ImageInfo::default(),
+                                    &common_star_img_fn
+                                );
+                                if let Err(err) = save_res {
+                                    *cur_result.lock().unwrap() = Err(anyhow::anyhow!(
+                                        r#"Error "{}" during saving common star image to file "{}""#,
+                                        err.to_string(),
+                                        common_star_img_fn.to_str().unwrap_or("")
+                                    ));
+                                    return;
+                                }
+                            }
+                            Ok(RegInfo {
+                                noise:       light_file.noise,
+                                background:  light_file.background,
+                                fwhm:        stars_stat.fwhm,
+                                stars:       light_file.stars.len(),
+                                stars_r_dev: stars_stat.aver_r_dev,
+                            })
                         },
+
+                        Err(err) =>
+                            Err(err),
                     };
 
-                    let stars_stat = light_file.stars_stat.unwrap();
-
-                    if save_star_img {
-                        let common_star_img_fn = file_name.with_extension("common_star.tif");
-                        let save_res = save_grayscale_image_to_tiff_file(
-                            &stars_stat.common_stars_img,
-                            &ImageInfo::default(),
-                            &common_star_img_fn
-                        );
-                        if let Err(err) = save_res {
-                            *cur_result.lock().unwrap() = Err(anyhow::anyhow!(
-                                r#"Error "{}" during saving common star image to file "{}""#,
-                                err.to_string(),
-                                common_star_img_fn.to_str().unwrap_or("")
-                            ));
-                            return;
-                        }
-                    }
+                    result.lock().unwrap().insert(
+                        file_name.clone(),
+                        file_result
+                    );
 
                     progress.lock().unwrap()
                         .progress(true, file_name.to_str().unwrap_or(""));
-
-                    result.lock().unwrap().insert(
-                        file_name,
-                        RegInfo {
-                            noise:       light_file.noise,
-                            background:  light_file.background,
-                            fwhm:        stars_stat.fwhm,
-                            stars:       light_file.stars.len(),
-                            stars_r_dev: stars_stat.aver_r_dev,
-                        }
-                    );
 
                     time_log.log("Register file TOTAL");
                 });
@@ -829,6 +825,7 @@ impl ProjectGroup {
 
     pub fn can_exec_cleanup(&self) -> bool {
         for file in &self.light_files.list {
+            if (file.flags & FILE_FLAG_ERROR) != 0 { continue; }
             if file.reg_info.is_none() { return false; }
         }
         true
@@ -837,8 +834,12 @@ impl ProjectGroup {
     pub fn cleanup_light_files(&mut self, conf: &ClenupConf) -> anyhow::Result<usize> {
         if conf.check_before_execute {
             for file in &mut self.light_files.list {
-                file.set_used(true);
-                file.set_flags(0);
+                if (file.flags & FILE_FLAG_ERROR) == 0 {
+                    file.set_used(true);
+                    file.set_flags(0);
+                } else {
+                    file.set_used(false);
+                }
             }
         }
 
@@ -934,7 +935,9 @@ impl ProjectGroup {
         for _ in 0..conf.repeats {
             values.clear();
             for (item, to_exclude) in self.light_files.list.iter().zip(&to_exclude) {
-                if *to_exclude { continue; }
+                if *to_exclude || (item.flags & FILE_FLAG_ERROR) != 0 {
+                    continue;
+                }
                 let reg_info = item.reg_info.as_ref().unwrap();
                 let value = fun(reg_info);
                 if value != 0.0 {
@@ -954,10 +957,11 @@ impl ProjectGroup {
             let min = mean - dev * conf.kappa as f64;
 
             for (item, to_exclude) in self.light_files.list.iter_mut().zip(&mut to_exclude) {
-                if *to_exclude { continue; }
+                if *to_exclude || (item.flags & FILE_FLAG_ERROR) != 0 {
+                    continue;
+                }
                 let reg_info = item.reg_info.as_ref().unwrap();
                 let value = fun(reg_info) as f64;
-
                 if (remove_min && value < min) || (remove_max && value > max) {
                     item.set_used(false);
                     item.set_flags(*item.flags() | flags_to_set);
@@ -984,6 +988,9 @@ impl ProjectGroup {
 
         let mut items = Vec::new();
         for (idx, file) in self.light_files.list.iter().enumerate() {
+            if (file.flags & FILE_FLAG_ERROR) != 0 {
+                continue;
+            }
             let reg_info = file.reg_info.as_ref().unwrap();
             items.push((idx, fun(reg_info)));
         }
@@ -1129,21 +1136,38 @@ impl ProjectFiles {
 
     pub fn check_all(&mut self, value: bool) {
         for file in &mut self.list {
+            if (file.flags & FILE_FLAG_ERROR) != 0 {
+                continue;
+            }
             file.set_used(value);
         }
     }
 
     pub fn check_by_indices(&mut self, indices: &[usize], value: bool) {
         for &idx in indices {
-            self.list[idx].set_used(value);
+            let file = &mut self.list[idx];
+            if (file.flags & FILE_FLAG_ERROR) != 0 {
+                continue;
+            }
+            file.set_used(value);
         }
     }
 
-    pub fn update_reg_info(&mut self, reg_info: &HashMap<PathBuf, RegInfo>) {
+    pub fn update_reg_info(&mut self, reg_info: &HashMap<PathBuf, anyhow::Result<RegInfo>>) {
         for file in &mut self.list {
             if let Some(info) = reg_info.get(&file.file_name) {
-                file.set_reg_info(info.clone());
-                file.set_flags(0);
+                match info {
+                    Ok(info) => {
+                        file.set_reg_info(info.clone());
+                        file.set_flags(0);
+                        file.set_error_text(None);
+                    },
+                    Err(err) => {
+                        file.set_flags(FILE_FLAG_ERROR);
+                        file.set_error_text(Some(err.to_string()));
+                        file.set_used(false);
+                    },
+                }
             }
         }
     }
@@ -1194,12 +1218,13 @@ impl Default for RegInfo {
     }
 }
 
-pub type FileFlags = u8;
+pub type FileFlags = u16;
 pub const FILE_FLAG_CLEANUP_R_DEV:     FileFlags = 1 << 0;
 pub const FILE_FLAG_CLEANUP_FWHM:      FileFlags = 1 << 1;
 pub const FILE_FLAG_CLEANUP_STARS:     FileFlags = 1 << 2;
 pub const FILE_FLAG_CLEANUP_NOISE:     FileFlags = 1 << 3;
 pub const FILE_FLAG_CLEANUP_BG:        FileFlags = 1 << 4;
+pub const FILE_FLAG_ERROR:             FileFlags = 1 << 15;
 
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(default)]
@@ -1216,6 +1241,7 @@ pub struct ProjectFile {
     camera: Option<String>,
     reg_info: Option<RegInfo>,
     flags: FileFlags,
+    error_text: Option<String>,
 
     #[serde(skip)]
     project_changed: Weak<Cell<bool>>,
@@ -1236,6 +1262,7 @@ impl Default for ProjectFile {
             camera: None,
             reg_info: None,
             flags: 0,
+            error_text: None,
             project_changed: Default::default(),
         }
     }
@@ -1322,6 +1349,15 @@ impl ProjectFile {
         self.project_changed.upgrade().unwrap().set(true);
     }
 
+    pub fn set_error_text(&mut self, error_text: Option<String>) {
+        if self.error_text == error_text { return; }
+        self.error_text = error_text;
+        self.project_changed.upgrade().unwrap().set(true);
+    }
+
+    pub fn get_error_test(&self) -> Option<&str> {
+        self.error_text.as_deref()
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

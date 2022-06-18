@@ -967,13 +967,6 @@ impl Image {
         }
     }
 
-    pub fn mult_f32(&mut self, value: f32) {
-        self.l.mult_f32(value);
-        self.r.mult_f32(value);
-        self.g.mult_f32(value);
-        self.b.mult_f32(value);
-    }
-
     pub fn normalize_if_greater_1(&mut self) {
         let max = self.l
             .iter()
@@ -1027,6 +1020,13 @@ impl Image {
         self.r.mark_overexposures(overexposures);
         self.g.mark_overexposures(overexposures);
         self.b.mark_overexposures(overexposures);
+    }
+
+    pub fn mult_f32(&mut self, value: f32) {
+        self.l.mult_f32(value);
+        self.r.mult_f32(value);
+        self.g.mult_f32(value);
+        self.b.mult_f32(value);
     }
 
     pub fn fill_inf_areas(&mut self) {

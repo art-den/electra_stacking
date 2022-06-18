@@ -43,14 +43,15 @@ fn try_to_decode_date_time_str(dt_str: &str) -> Option<DateTime<Local>> {
     None
 }
 
-pub fn load_image_from_file(file_name: &Path) -> anyhow::Result<ImageData> {
+pub fn load_image_from_file(file_name: &Path, force_as_raw: bool) -> anyhow::Result<ImageData> {
     let ext = extract_extension(file_name);
     if is_raw_ext(ext) {
-        load_raw(file_name)
+        let (raw, info) = RawImage::load(file_name)?;
+        Ok(ImageData {image: RawOrImage::Raw(raw), info})
     } else if is_tiff_ext(ext) {
         load_image_from_tiff_file(file_name)
     } else if is_fits_ext(ext) {
-        load_image_from_fits_file(file_name)
+        load_image_from_fits_file(file_name, force_as_raw)
     } else {
         err_format_not_supported(ext)
     }
@@ -232,9 +233,18 @@ pub fn load_src_file_info_raw(file_name: &Path) -> anyhow::Result<ImageInfo> {
     })
 }
 
-fn load_raw(file_name: &Path) -> anyhow::Result<ImageData> {
-    let (raw, info) = RawImage::load(file_name)?;
-    Ok(ImageData {image: RawOrImage::Raw(raw), info})
+pub fn load_raw_file(file_name: &Path) -> anyhow::Result<(RawImage, ImageInfo)> {
+    let ext = extract_extension(file_name);
+    if is_raw_ext(ext) {
+        return RawImage::load(file_name);
+    } else if is_fits_ext(ext) {
+        let result = load_image_from_fits_file(file_name, true)?;
+        if let ImageData { image: RawOrImage::Raw(raw), info } = result {
+            return Ok((raw, info));
+        }
+    }
+
+    anyhow::bail!("This file is not supported as RAW");
 }
 
 /*****************************************************************************/
@@ -455,6 +465,17 @@ fn get_u32_fits_value(h: &Hdu, key: &str) -> Option<u32> {
         })
 }
 
+fn get_i32_fits_value(h: &Hdu, key: &str) -> Option<i32> {
+    h.value(key)
+        .and_then(|v| {
+            match v {
+                HeaderValue::IntegerNumber(v) => Some(*v),
+                HeaderValue::RealFloatingNumber(v) => Some(*v as i32),
+                _ => None,
+            }
+        })
+}
+
 fn get_f32_fits_value(h: &Hdu, key: &str) -> Option<f32> {
     h.value(key)
         .and_then(|v| {
@@ -534,7 +555,7 @@ pub fn load_src_file_info_fits(file_name: &Path) -> anyhow::Result<ImageInfo> {
     anyhow::bail!("This FITS file is not supported")
 }
 
-pub fn load_image_from_fits_file(file_name: &Path) -> anyhow::Result<ImageData> {
+pub fn load_image_from_fits_file(file_name: &Path, force_as_raw: bool) -> anyhow::Result<ImageData> {
     let fits = Fits::open(file_name)?;
 
     let is_mono_shape = |shape: &Vec<usize>| -> bool {
@@ -546,8 +567,14 @@ pub fn load_image_from_fits_file(file_name: &Path) -> anyhow::Result<ImageData> 
         shape.len() == 3 && shape[2] == 3
     };
 
+    struct SomeInfo {
+        black_level: f32,
+        bitpix: i32,
+    }
+
     let mut image: Option<Image> = None;
     let mut info: Option<ImageInfo> = None;
+    let mut some_info: Option<SomeInfo> = None;
 
     for h in fits.iter() {
         let data = h.read_data();
@@ -574,15 +601,16 @@ pub fn load_image_from_fits_file(file_name: &Path) -> anyhow::Result<ImageData> 
                 ),
 
             FitsData::IntegersI32(d)
-            if is_mono_shape(&d.shape) || is_color_shape(&d.shape) =>
+            if is_mono_shape(&d.shape) || is_color_shape(&d.shape) => {
+                let bzero = get_i32_fits_value(&h, "BZERO").unwrap_or(0);
                 image = read_fits_data_int(
                     d.shape[0],
                     d.shape[1],
                     &d.data,
                     !is_mono_shape(&d.shape),
-                    &h,
-                    |v| v as f64
-                ),
+                    |v| { (v + bzero) as f32 }
+                )
+            },
 
             FitsData::IntegersU32(d)
             if is_mono_shape(&d.shape) || is_color_shape(&d.shape) =>
@@ -591,29 +619,75 @@ pub fn load_image_from_fits_file(file_name: &Path) -> anyhow::Result<ImageData> 
                     d.shape[1],
                     &d.data,
                     !is_mono_shape(&d.shape),
-                    &h,
-                    |v| v as f64
+                    |v| v as f32
                 ),
 
             _ => (),
         }
 
-        if image.is_some() {
-            info = Some(fits_hdu_to_info(file_name, &h));
+        if let Some(image) = image.as_ref() {
+            info = Some(ImageInfo {
+                width: image.width() as usize,
+                height: image.height() as usize,
+                .. fits_hdu_to_info(file_name, &h)
+            });
+            some_info = Some(SomeInfo{
+                bitpix: get_i32_fits_value(&h, "BITPIX").unwrap_or(16),
+                black_level: get_f32_fits_value(&h, "BLKLEVEL").unwrap_or(0.0),
+            });
             break;
         }
     }
 
-    match (image, info) {
-        (Some(image), Some(info)) =>
-            Ok(ImageData{
-                image: RawOrImage::Image(image),
+    if let (Some(mut image), Some(info), Some(some_info)) = (image, info, some_info) {
+        let max = if some_info.bitpix > 0 {
+            ((1 << some_info.bitpix) - 1) as f32
+        } else {
+            1.0
+        };
+
+        // is this raw file?
+        let camera_params = find_camera_params(info.camera.as_deref());
+        if !image.is_rgb() && (info.cfa_type.is_some() || camera_params.is_some() || force_as_raw) {
+            let ct = info.cfa_type.or_else(|| camera_params.map(|(_, ct)| ct).flatten());
+            let black = some_info.black_level;
+            let raw_info = RawImageInfo {
+                width: info.width as Crd,
+                height: info.height as Crd,
+                max_values: [max, max, max, max],
+                black_values: [black, black, black, black],
+                wb: camera_params.map(|(wb, _)| wb).unwrap_or([1.0, 1.0, 1.0, 1.0]),
+                cfa: Cfa::from_cfa_type(ct, 0, 0),
+                camera: info.camera.clone(),
+                exposure: info.exp,
+                iso: info.iso,
+            };
+            let raw = RawImage {
+                info: raw_info,
+                data: image.l,
+            };
+            return Ok(ImageData{
+                image: RawOrImage::Raw(raw),
                 info
-            }),
-        _ =>
-            Err(anyhow::anyhow!(
-                "Can't find image in file of format is not supported"
-            )),
+            })
+        }
+
+        if force_as_raw {
+            anyhow::bail!("Image is not in RAW format");
+        }
+
+        if max != 1.0 && max != 0.0 {
+            image.mult_f32(1.0 / max);
+        }
+
+        Ok(ImageData{
+            image: RawOrImage::Image(image),
+            info
+        })
+    } else {
+        Err(anyhow::anyhow!(
+            "Can't find image in file of format is not supported"
+        ))
     }
 }
 
@@ -645,49 +719,18 @@ fn read_fits_data<T: num::Num + Copy>(
     }
 }
 
-fn find_max_value_for_fits(hdu: &Hdu, is_signed: bool) -> Option<f64> {
-    hdu
-        .value("BITPIX")
-        .and_then(|v| {
-            if let HeaderValue::IntegerNumber(mut v) = v {
-                if is_signed { v -= 1; }
-                Some(((1 << v) - 1) as f64)
-            } else {
-                None
-            }
-        })
-}
-
-trait IntInfo {
-    const MAX: Self;
-    const IS_SIGNED: bool;
-}
-impl IntInfo for i32 {
-    const MAX: Self = i32::MAX;
-    const IS_SIGNED: bool = true;
-}
-impl IntInfo for u32 {
-    const MAX: Self = u32::MAX;
-    const IS_SIGNED: bool = false;
-}
-
-fn read_fits_data_int<T: Copy + IntInfo + Into::<f64>>(
+fn read_fits_data_int<T: Copy>(
     width:  usize,
     height: usize,
     data:   &[Option<T>],
     is_rgb: bool,
-    hdu:    &Hdu,
-    cvt:    fn (T) -> f64
+    cvt:    impl Fn (T) -> f32
 ) -> Option<Image> {
     let page_size = width * height;
-    let max = find_max_value_for_fits(hdu, T::IS_SIGNED).unwrap_or(T::MAX.into());
+
     let read_page = |dst: &mut ImageLayerF32, src: &[Option<T>]| {
         for (d, s) in dst.iter_mut().zip(src) {
-            if let Some(s) = s {
-                *d = (cvt(*s) / max) as f32;
-            } else {
-                *d = NO_VALUE_F32;
-            }
+            *d = if let Some(s) = s { cvt(*s) } else { NO_VALUE_F32 };
         }
     };
     if is_rgb {

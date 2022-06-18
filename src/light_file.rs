@@ -45,7 +45,9 @@ impl LightFile {
         let stars_flag = flags.contains(LoadLightFlags::STARS);
         let stars_stat_flag = flags.contains(LoadLightFlags::STARS_STAT);
 
-        let image_data = load_image_from_file(file_name)?;
+        let force_load_as_raw = !cal_data.is_empty();
+
+        let image_data = load_image_from_file(file_name, force_load_as_raw)?;
 
         let (mut image, mut overexposures) = match image_data.image {
             RawOrImage::Image(image) =>

@@ -14,7 +14,7 @@ pub struct CmdOptions {
 }
 
 pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
-    let file = load_image_from_file(&options.src_file)?;
+    let file = load_image_from_file(&options.src_file, false)?;
 
     if let RawOrImage::Image(mut image) = file.image {
         image.check_contains_inf_or_nan(true, true)?;

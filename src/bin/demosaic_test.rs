@@ -7,7 +7,7 @@ fn main() -> anyhow::Result<()> {
     let args: Vec<_> = std::env::args().collect();
     let file_name = Path::new(&args[1]);
 
-    if let RawOrImage::Image(image) = load_image_from_file(file_name)?.image {
+    if let RawOrImage::Image(image) = load_image_from_file(file_name, false)?.image {
         let mut lin_result = make_bayer_image(&image).demosaic(DemosaicAlgo::Linear, false)?;
         calc_and_show_error("Linear", &image, &lin_result);
         correct_image(&mut lin_result);

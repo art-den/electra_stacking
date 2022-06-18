@@ -197,7 +197,7 @@ where
                 || cur_result.lock().unwrap().is_err() {
                     return;
                 }
-                let (mut raw, _) = match RawImage::load(file_path) {
+                let (mut raw, _) = match load_raw_file(file_path) {
                     Ok(raw) => raw,
                     Err(err) => {
                         *cur_result.lock().unwrap() = Err(anyhow::anyhow!(
