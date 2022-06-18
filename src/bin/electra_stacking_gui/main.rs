@@ -260,8 +260,10 @@ fn build_ui(application: &gtk::Application) {
         }
     }});
 
-    cell_check.connect_toggled(clone!(@weak objects => move |toggle, path| {
-        handler_project_tree_checked_changed(&objects, path, !toggle.is_active());
+    cell_check.connect_toggled(clone!(@weak objects => move |_, path| {
+        if !objects.prj_tree_is_building.get() {
+            handler_project_tree_checked_changed(&objects, path);
+        }
     }));
 
     mi_dark_theme.connect_activate(clone!(@strong objects => move |mi| {
@@ -612,6 +614,10 @@ fn get_prj_tree_store_columns() -> [(String, u32, u32, glib::Type); 25] {
 }
 
 fn update_project_tree(objects: &MainWindowObjectsPtr) {
+    if objects.prj_tree_is_building.get() {
+        return;
+    }
+
     objects.prj_tree_is_building.set(true);
 
     let project = objects.project.borrow_mut();
@@ -1188,8 +1194,7 @@ fn exec_and_show_progress<R, ExecFun, OkFun> (
 
 fn handler_project_tree_checked_changed(
     objects:     &MainWindowObjectsPtr,
-    sorted_path: gtk::TreePath,
-    checked:     bool,
+    sorted_path: gtk::TreePath
 ) {
     let sorted_model = objects.prj_tree
         .model().unwrap()
@@ -1209,7 +1214,7 @@ fn handler_project_tree_checked_changed(
         } => {
             let mut project = objects.project.borrow_mut();
             let group = project.group_by_index_mut(group_idx);
-            group.set_used(checked);
+            group.set_used(!group.used());
         },
 
         SelectedItem {
@@ -1224,7 +1229,7 @@ fn handler_project_tree_checked_changed(
                 .group_by_index_mut(group_idx)
                 .file_list_by_type_mut(file_type);
             let project_file = &mut file_list.file_by_index_mut(files[0]);
-            project_file.set_used(checked);
+            project_file.set_used(!project_file.used());
         },
         _ => {
             return;

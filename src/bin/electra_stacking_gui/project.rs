@@ -961,10 +961,11 @@ impl ProjectGroup {
                 if *to_exclude || (item.flags & FILE_FLAG_ERROR) != 0 {
                     continue;
                 }
-                let reg_info = item.reg_info.as_ref().unwrap();
-                let value = fun(reg_info);
-                if value != 0.0 {
-                    values.push(CalcValue::new(value as f64));
+                if let Some(reg_info) = item.reg_info.as_ref() {
+                    let value = fun(reg_info);
+                    if value != 0.0 {
+                        values.push(CalcValue::new(value as f64));
+                    }
                 }
             }
 
@@ -983,12 +984,13 @@ impl ProjectGroup {
                 if *to_exclude || (item.flags & FILE_FLAG_ERROR) != 0 {
                     continue;
                 }
-                let reg_info = item.reg_info.as_ref().unwrap();
-                let value = fun(reg_info) as f64;
-                if (remove_min && value < min) || (remove_max && value > max) {
-                    item.set_used(false);
-                    item.set_flags(*item.flags() | flags_to_set);
-                    *to_exclude = true;
+                if let Some(reg_info) = item.reg_info.as_ref() {
+                    let value = fun(reg_info) as f64;
+                    if (remove_min && value < min) || (remove_max && value > max) {
+                        item.set_used(false);
+                        item.set_flags(*item.flags() | flags_to_set);
+                        *to_exclude = true;
+                    }
                 }
             }
         }
@@ -1014,8 +1016,9 @@ impl ProjectGroup {
             if (file.flags & FILE_FLAG_ERROR) != 0 {
                 continue;
             }
-            let reg_info = file.reg_info.as_ref().unwrap();
-            items.push((idx, fun(reg_info)));
+            if let Some(reg_info) = file.reg_info.as_ref() {
+                items.push((idx, fun(reg_info)));
+            }
         }
 
         items.sort_by(|i1, i2| cmp_f32(&i1.1, &i2.1));
@@ -1046,15 +1049,20 @@ impl ProjectGroup {
         fun:          F,
     ) -> anyhow::Result<()> {
         for file in &mut self.light_files.list {
-            let value = fun(file.reg_info.as_ref().unwrap());
-            if let Some(min) = conf.min { if value < min {
-                file.used = false;
-                file.flags |= flags_to_set;
-            }}
-            if let Some(max) = conf.max { if value > max {
-                file.used = false;
-                file.flags |= flags_to_set;
-            }}
+            if (file.flags & FILE_FLAG_ERROR) != 0 {
+                continue;
+            }
+            if let Some(reg_info) = file.reg_info.as_ref() {
+                let value = fun(reg_info);
+                if let Some(min) = conf.min { if value < min {
+                    file.set_used(false);
+                    file.set_flags(*file.flags() | flags_to_set);
+                }}
+                if let Some(max) = conf.max { if value > max {
+                    file.set_used(false);
+                    file.set_flags(*file.flags() | flags_to_set);
+                }}
+            }
         }
         Ok(())
     }
@@ -1195,11 +1203,12 @@ impl ProjectFiles {
             if let Some(info) = reg_info.get(&file.file_name) {
                 match info {
                     Ok(info) => {
-                        file.set_reg_info(info.clone());
+                        file.set_reg_info(Some(info.clone()));
                         file.set_flags(0);
                         file.set_error_text(None);
                     },
                     Err(err) => {
+                        file.set_reg_info(None);
                         file.set_flags(FILE_FLAG_ERROR);
                         file.set_error_text(Some(err.to_string()));
                         file.set_used(false);
@@ -1388,8 +1397,8 @@ impl ProjectFile {
         &self.reg_info
     }
 
-    pub fn set_reg_info(&mut self, info: RegInfo) {
-        self.reg_info = Some(info);
+    pub fn set_reg_info(&mut self, info: Option<RegInfo>) {
+        self.reg_info = info;
         self.change_count += 1;
         self.project_changed.upgrade().unwrap().set(true);
     }

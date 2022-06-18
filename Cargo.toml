@@ -1,6 +1,6 @@
 [package]
 name = "electra_stacking"
-version = "0.1.71"
+version = "0.1.72"
 edition = "2021"
 description = "Astronimical images stacking"
 repository = "https://github.com/art-den/electra_stacking"
