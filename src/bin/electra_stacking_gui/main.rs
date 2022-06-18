@@ -354,8 +354,8 @@ fn build_ui(application: &gtk::Application) {
         settings.set_property("gtk-font-name", "Tahoma 9");
     }
 
-    update_project_tree(&objects, true);
-    update_project_name_and_time_in_gui(&objects, true, false);
+    update_project_tree(&objects);
+    update_project_name_and_time_in_gui(&objects);
 
     mi_theme.set_sensitive(cfg!(target_os = "windows"));
 
@@ -575,8 +575,9 @@ const COLUMN_STARS:           u32 = 20;
 const COLUMN_FWHM:            u32 = 21;
 const COLUMN_STARS_R_DEV:     u32 = 22;
 const COLUMN_GUID:            u32 = 23;
+const COLUMN_CHANGE_COUNT:    u32 = 24;
 
-fn get_prj_tree_store_columns() -> [(String, u32, u32, glib::Type); 24] {
+fn get_prj_tree_store_columns() -> [(String, u32, u32, glib::Type); 25] {
     const EMPT: String = String::new();
     [
         // Column name in tree       | Model column          | Sort model column | Model column type
@@ -606,10 +607,11 @@ fn get_prj_tree_store_columns() -> [(String, u32, u32, glib::Type); 24] {
         (EMPT,                         COLUMN_FWHM,            0,                  f32::static_type()),
         (EMPT,                         COLUMN_STARS_R_DEV,     0,                  f32::static_type()),
         (EMPT,                         COLUMN_GUID,            0,                  String::static_type()),
+        (EMPT,                         COLUMN_CHANGE_COUNT,    0,                  u32::static_type()),
     ]
 }
 
-fn update_project_tree(objects: &MainWindowObjectsPtr, update_files: bool) {
+fn update_project_tree(objects: &MainWindowObjectsPtr) {
     objects.prj_tree_is_building.set(true);
 
     let project = objects.project.borrow_mut();
@@ -731,10 +733,6 @@ fn update_project_tree(objects: &MainWindowObjectsPtr, update_files: bool) {
                     (COLUMN_FILE_NAME, &folder_text),
                 ]);
 
-                if !update_files {
-                    continue;
-                }
-
                 let file_index_by_name: HashMap<_,_> = files.list().into_iter()
                     .enumerate()
                     .map(|(i, f)| (f.file_name().to_str().unwrap_or(""), i))
@@ -762,148 +760,158 @@ fn update_project_tree(objects: &MainWindowObjectsPtr, update_files: bool) {
                     tree_store.insert_with_values(Some(&files_iter), None, &[
                         (COLUMN_GUID,         &file_name),
                         (COLUMN_CHECKBOX_VIS, &true),
+                        (COLUMN_CHANGE_COUNT, &u32::MAX),
                     ]);
                 }
 
                 // update files
                 if let Some(file_iter) = tree_store.iter_children(Some(&files_iter)) {
                     loop {
-                        let file_name = tree_store.value(&file_iter, COLUMN_GUID as i32).get::<String>().unwrap();
+                        let file_name = tree_store
+                            .value(&file_iter, COLUMN_GUID as i32)
+                            .get::<String>()
+                            .unwrap();
                         let file = &files.list()[*file_index_by_name.get(file_name.as_str()).unwrap()];
+                        let tree_changes_count = tree_store
+                            .value(&file_iter, COLUMN_CHANGE_COUNT as i32)
+                            .get::<u32>()
+                            .unwrap();
+                        if file.change_count() != tree_changes_count {
+                            let mut file_name = file
+                                .file_name()
+                                .file_name()
+                                .and_then(|v| v.to_str())
+                                .unwrap_or("Can't get file name")
+                                .to_string();
 
-                        let mut file_name = file
-                            .file_name()
-                            .file_name()
-                            .and_then(|v| v.to_str())
-                            .unwrap_or("Can't get file name")
-                            .to_string();
-
-                        if let Some(err_text) = file.get_error_test() {
-                            file_name.push_str("/");
-                            file_name.push_str(err_text);
-                        }
-
-                        let path = file
-                            .file_name()
-                            .parent()
-                            .and_then(|v|v.to_str())
-                            .unwrap_or("");
-
-                        let dim_str = if let (Some(width), Some(height)) = (*file.width(), *file.height()) {
-                            format!("{} x {}", width, height)
-                        } else {
-                            String::new()
-                        };
-
-                        let camera_str = if let Some(camera) = file.camera().as_ref() {
-                            camera.as_str()
-                        } else {
-                            ""
-                        };
-
-                        let file_time_str = if let Some(file_time) = file.file_time() {
-                            file_time.format("%Y-%m-%d %H:%M:%S").to_string()
-                        } else {
-                            String::new()
-                        };
-
-                        let (iso_str, iso) = if let Some(iso) = *file.iso() {
-                            (format!("{}", iso), iso)
-                        } else {
-                            (String::new(), 0)
-                        };
-
-                        let (exp_str, exp) = if let Some(exp) = *file.exp() {
-                            if exp == 0.0 {
-                                ("0".to_string(), 0.0)
-                            } else if exp > 0.5 {
-                                (format!("{:.1}s", exp), exp)
-                            } else {
-                                (format!("1/{:.0}", 1.0/exp), exp)
+                            if let Some(err_text) = file.get_error_test() {
+                                file_name.push_str("/");
+                                file_name.push_str(err_text);
                             }
-                        } else {
-                            (String::new(), 0.0)
-                        };
 
-                        let fnumber_str = if let Some(fnumber) = *file.fnumber() {
-                            if fnumber != 0.0 {
-                                format!("f/{:.1}", fnumber)
+                            let path = file
+                                .file_name()
+                                .parent()
+                                .and_then(|v|v.to_str())
+                                .unwrap_or("");
+
+                            let dim_str = if let (Some(width), Some(height)) = (*file.width(), *file.height()) {
+                                format!("{} x {}", width, height)
                             } else {
                                 String::new()
-                            }
-                        } else {
-                            String::new()
-                        };
+                            };
 
-                        let (noise_str, noise, bg_str, bg, stars_cnt_str, stars_cnt,
-                             fwhm_str, fwhm, star_r_dev_str, star_r_dev)
-                            = if let Some(reg_info) = file.reg_info() {(
-                                format!("{:.2}%", reg_info.noise * 100.0),
-                                reg_info.noise,
-                                format!("{:.1}%", 100.0 * reg_info.background),
-                                reg_info.background,
-                                if reg_info.stars != 0 { format!("{}", reg_info.stars) } else { String::new() },
-                                reg_info.stars as u32,
-                                format!("{:.1}", reg_info.fwhm),
-                                reg_info.fwhm,
-                                format!("{:.3}", reg_info.stars_r_dev),
-                                reg_info.stars_r_dev,
-                            )} else {(
-                                String::new(),
-                                0.0,
-                                String::new(),
-                                0.0,
-                                String::new(),
-                                0,
-                                String::new(),
-                                0.0,
-                                String::new(),
-                                0.0,
-                            )};
-
-                        let is_ref_file = Some(file.file_name()) == project.ref_image().as_ref();
-                        let icon = if is_ref_file { &objects.icon_ref_image } else { &objects.icon_image };
-
-                        let make_important = |s, flag: &FileFlags, mask: FileFlags| -> String {
-                            if flag & mask == 0 {
-                                s
+                            let camera_str = if let Some(camera) = file.camera().as_ref() {
+                                camera.as_str()
                             } else {
-                                format!(r##"<span color="#FF4040"><b>{}</b></span>"##, s)
-                            }
-                        };
+                                ""
+                            };
 
-                        let file_name = make_important(file_name, file.flags(), FILE_FLAG_ERROR);
-                        let star_r_dev_str = make_important(star_r_dev_str, file.flags(), FILE_FLAG_CLEANUP_R_DEV);
-                        let fwhm_str = make_important(fwhm_str, file.flags(), FILE_FLAG_CLEANUP_FWHM);
-                        let stars_cnt_str = make_important(stars_cnt_str, file.flags(), FILE_FLAG_CLEANUP_STARS);
-                        let noise_str = make_important(noise_str, file.flags(), FILE_FLAG_CLEANUP_NOISE);
-                        let bg_str = make_important(bg_str, file.flags(), FILE_FLAG_CLEANUP_BG);
+                            let file_time_str = if let Some(file_time) = file.file_time() {
+                                file_time.format("%Y-%m-%d %H:%M:%S").to_string()
+                            } else {
+                                String::new()
+                            };
 
-                        tree_store.set(&file_iter, &[
-                            (COLUMN_ICON,            icon),
-                            (COLUMN_CHECKBOX,        &file.used()),
-                            (COLUMN_CHECKBOX_VIS,    &true),
-                            (COLUMN_FILE_NAME,       &file_name),
-                            (COLUMN_FILE_PATH,       &path),
-                            (COLUMN_FILE_TIME,       &file_time_str),
-                            (COLUMN_DIM,             &dim_str),
-                            (COLUMN_CAMERA,          &camera_str),
-                            (COLUMN_ISO_STR,         &iso_str),
-                            (COLUMN_ISO,             &iso),
-                            (COLUMN_EXP_STR,         &exp_str),
-                            (COLUMN_EXP,             &exp),
-                            (COLUMN_FNUMBER,         &fnumber_str),
-                            (COLUMN_NOISE_STR,       &noise_str),
-                            (COLUMN_NOISE,           &noise),
-                            (COLUMN_BG_STR,          &bg_str),
-                            (COLUMN_BG,              &bg),
-                            (COLUMN_STARS_STR,       &stars_cnt_str),
-                            (COLUMN_STARS,           &stars_cnt),
-                            (COLUMN_FWHM_STR,        &fwhm_str),
-                            (COLUMN_FWHM,            &fwhm),
-                            (COLUMN_STARS_R_DEV_STR, &star_r_dev_str),
-                            (COLUMN_STARS_R_DEV,     &star_r_dev),
-                        ]);
+                            let (iso_str, iso) = if let Some(iso) = *file.iso() {
+                                (format!("{}", iso), iso)
+                            } else {
+                                (String::new(), 0)
+                            };
+
+                            let (exp_str, exp) = if let Some(exp) = *file.exp() {
+                                if exp == 0.0 {
+                                    ("0".to_string(), 0.0)
+                                } else if exp > 0.5 {
+                                    (format!("{:.1}s", exp), exp)
+                                } else {
+                                    (format!("1/{:.0}", 1.0/exp), exp)
+                                }
+                            } else {
+                                (String::new(), 0.0)
+                            };
+
+                            let fnumber_str = if let Some(fnumber) = *file.fnumber() {
+                                if fnumber != 0.0 {
+                                    format!("f/{:.1}", fnumber)
+                                } else {
+                                    String::new()
+                                }
+                            } else {
+                                String::new()
+                            };
+
+                            let (noise_str, noise, bg_str, bg, stars_cnt_str, stars_cnt,
+                                fwhm_str, fwhm, star_r_dev_str, star_r_dev)
+                                = if let Some(reg_info) = file.reg_info() {(
+                                    format!("{:.2}%", reg_info.noise * 100.0),
+                                    reg_info.noise,
+                                    format!("{:.1}%", 100.0 * reg_info.background),
+                                    reg_info.background,
+                                    if reg_info.stars != 0 { format!("{}", reg_info.stars) } else { String::new() },
+                                    reg_info.stars as u32,
+                                    format!("{:.1}", reg_info.fwhm),
+                                    reg_info.fwhm,
+                                    format!("{:.3}", reg_info.stars_r_dev),
+                                    reg_info.stars_r_dev,
+                                )} else {(
+                                    String::new(),
+                                    0.0,
+                                    String::new(),
+                                    0.0,
+                                    String::new(),
+                                    0,
+                                    String::new(),
+                                    0.0,
+                                    String::new(),
+                                    0.0,
+                                )};
+
+                            let is_ref_file = Some(file.file_name()) == project.ref_image().as_ref();
+                            let icon = if is_ref_file { &objects.icon_ref_image } else { &objects.icon_image };
+
+                            let make_important = |s, flag: &FileFlags, mask: FileFlags| -> String {
+                                if flag & mask == 0 {
+                                    s
+                                } else {
+                                    format!(r##"<span color="#FF4040"><b>{}</b></span>"##, s)
+                                }
+                            };
+
+                            let file_name = make_important(file_name, file.flags(), FILE_FLAG_ERROR);
+                            let star_r_dev_str = make_important(star_r_dev_str, file.flags(), FILE_FLAG_CLEANUP_R_DEV);
+                            let fwhm_str = make_important(fwhm_str, file.flags(), FILE_FLAG_CLEANUP_FWHM);
+                            let stars_cnt_str = make_important(stars_cnt_str, file.flags(), FILE_FLAG_CLEANUP_STARS);
+                            let noise_str = make_important(noise_str, file.flags(), FILE_FLAG_CLEANUP_NOISE);
+                            let bg_str = make_important(bg_str, file.flags(), FILE_FLAG_CLEANUP_BG);
+
+                            tree_store.set(&file_iter, &[
+                                (COLUMN_ICON,            icon),
+                                (COLUMN_CHECKBOX,        &file.used()),
+                                (COLUMN_CHECKBOX_VIS,    &true),
+                                (COLUMN_FILE_NAME,       &file_name),
+                                (COLUMN_FILE_PATH,       &path),
+                                (COLUMN_FILE_TIME,       &file_time_str),
+                                (COLUMN_DIM,             &dim_str),
+                                (COLUMN_CAMERA,          &camera_str),
+                                (COLUMN_ISO_STR,         &iso_str),
+                                (COLUMN_ISO,             &iso),
+                                (COLUMN_EXP_STR,         &exp_str),
+                                (COLUMN_EXP,             &exp),
+                                (COLUMN_FNUMBER,         &fnumber_str),
+                                (COLUMN_NOISE_STR,       &noise_str),
+                                (COLUMN_NOISE,           &noise),
+                                (COLUMN_BG_STR,          &bg_str),
+                                (COLUMN_BG,              &bg),
+                                (COLUMN_STARS_STR,       &stars_cnt_str),
+                                (COLUMN_STARS,           &stars_cnt),
+                                (COLUMN_FWHM_STR,        &fwhm_str),
+                                (COLUMN_FWHM,            &fwhm),
+                                (COLUMN_STARS_R_DEV_STR, &star_r_dev_str),
+                                (COLUMN_STARS_R_DEV,     &star_r_dev),
+                                (COLUMN_CHANGE_COUNT,    &file.change_count())
+                            ]);
+                        }
 
                         if !tree_store.iter_next(&file_iter) { break; }
                     }
@@ -1061,27 +1069,21 @@ fn get_project_title(project: &Project, markup: bool) -> String {
     result
 }
 
-fn update_project_name_and_time_in_gui(objects: &MainWindowObjectsPtr, title: bool, tree: bool) {
-    if title {
-        let app_descr_text = {
-            let transl_descr = gettext("APP_DESCRIPTION");
-            if transl_descr == "APP_DESCRIPTION" {
-                env!("CARGO_PKG_DESCRIPTION").to_string()
-            } else {
-                transl_descr
-            }
-        };
-        objects.window.set_title(&format!(
-            "[{}] - Electra Stacking - {} v{}",
-            get_project_title(&objects.project.borrow(), false),
-            app_descr_text,
-            env!("CARGO_PKG_VERSION"),
-        ));
-    }
-
-    if tree {
-        update_project_tree(objects, false);
-    }
+fn update_project_name_and_time_in_gui(objects: &MainWindowObjectsPtr) {
+    let app_descr_text = {
+        let transl_descr = gettext("APP_DESCRIPTION");
+        if transl_descr == "APP_DESCRIPTION" {
+            env!("CARGO_PKG_DESCRIPTION").to_string()
+        } else {
+            transl_descr
+        }
+    };
+    objects.window.set_title(&format!(
+        "[{}] - Electra Stacking - {} v{}",
+        get_project_title(&objects.project.borrow(), false),
+        app_descr_text,
+        env!("CARGO_PKG_VERSION"),
+    ));
 }
 
 fn enable_progress_bar(objects: &MainWindowObjectsPtr, enable: bool) {
@@ -1192,11 +1194,10 @@ fn handler_project_tree_checked_changed(
     let sorted_model = objects.prj_tree
         .model().unwrap()
         .downcast::<gtk::TreeModelSort>().unwrap();
-    let tree_store = sorted_model
-        .model()
-        .downcast::<gtk::TreeStore>().unwrap();
 
-    let path = sorted_model.convert_path_to_child_path(&sorted_path).unwrap();
+    let path = sorted_model
+        .convert_path_to_child_path(&sorted_path)
+        .unwrap();
 
     let item = get_selection_for_path(&path);
 
@@ -1209,8 +1210,6 @@ fn handler_project_tree_checked_changed(
             let mut project = objects.project.borrow_mut();
             let group = project.group_by_index_mut(group_idx);
             group.set_used(checked);
-            let iter = tree_store.iter(&path).unwrap();
-            tree_store.set(&iter, &[(COLUMN_CHECKBOX, &checked)]);
         },
 
         SelectedItem {
@@ -1226,15 +1225,14 @@ fn handler_project_tree_checked_changed(
                 .file_list_by_type_mut(file_type);
             let project_file = &mut file_list.file_by_index_mut(files[0]);
             project_file.set_used(checked);
-            let iter = tree_store.iter(&path).unwrap();
-            tree_store.set(&iter, &[(COLUMN_CHECKBOX, &checked)]);
         },
         _ => {
             return;
         },
     };
 
-    update_project_name_and_time_in_gui(objects, true, true);
+    update_project_tree(objects);
+    update_project_name_and_time_in_gui(objects);
 }
 
 // widgets -> config
@@ -1437,7 +1435,7 @@ fn action_new_project(objects: &MainWindowObjectsPtr) {
     let mut new_project = Project::default();
     new_project.make_default();
     *objects.project.borrow_mut() = new_project;
-    update_project_tree(objects, true);
+    update_project_tree(objects);
     log::info!("New project created");
 }
 
@@ -1491,8 +1489,8 @@ fn open_project(objects: &MainWindowObjectsPtr, path: &Path) {
         show_error_message(&err.to_string(), objects);
         log::error!("'{}' during opening project", err.to_string());
     } else {
-        update_project_tree(objects, true);
-        update_project_name_and_time_in_gui(objects, true, false);
+        update_project_tree(objects);
+        update_project_name_and_time_in_gui(objects);
         log::info!("Project {} opened", path.to_str().unwrap_or(""));
     }
 }
@@ -1560,7 +1558,8 @@ fn action_save_project_as(objects: &MainWindowObjectsPtr) {
         let ok = save_project(objects, &path);
         if !ok { return; }
 
-        update_project_name_and_time_in_gui(objects, true, true);
+        update_project_tree(objects);
+        update_project_name_and_time_in_gui(objects);
     }
 }
 
@@ -1733,7 +1732,8 @@ fn select_and_add_files_into_project(
                 log::info!("Added {} files", result.len());
                 files.add_files_from_src_file_info(result);
                 drop(project);
-                update_project_tree(objects, true);
+                update_project_tree(objects);
+                update_project_name_and_time_in_gui(objects);
             }
         );
     }
@@ -1751,7 +1751,7 @@ fn action_register(objects: &MainWindowObjectsPtr) {
         },
         move |objects, result| {
             objects.project.borrow_mut().update_light_files_reg_info(result);
-            update_project_tree(objects, true);
+            update_project_tree(objects);
         }
     );
 }
@@ -2013,7 +2013,7 @@ fn action_new_group(objects: &MainWindowObjectsPtr) {
         def_group_options,
         clone!(@strong objects => move |group_options| {
             objects.project.borrow_mut().add_new_group(group_options);
-            update_project_tree(&objects, true);
+            update_project_tree(&objects);
             log::info!("New group created");
         })
     );
@@ -2039,7 +2039,7 @@ fn action_delete_item(objects: &MainWindowObjectsPtr) {
                 ),
                 clone!(@strong objects => move || {
                     let group = objects.project.borrow_mut().remove_group(group_idx);
-                    update_project_tree(&objects, true);
+                    update_project_tree(&objects);
                     log::info!("Group '{}' removed from project", group.name(group_idx));
                 })
             );
@@ -2077,7 +2077,7 @@ fn action_delete_item(objects: &MainWindowObjectsPtr) {
                         .group_by_index_mut(group_idx)
                         .file_list_by_type_mut(file_type)
                         .remove_files_by_idx(files.clone());
-                    update_project_tree(&objects, true);
+                    update_project_tree(&objects);
                 })
             );
             dialog.show()
@@ -2106,7 +2106,7 @@ fn action_item_properties(objects: &MainWindowObjectsPtr) {
                     log::info!("Group '{}' options changed to {:?}", group.name(group_idx), new_options);
                     group.set_options(new_options);
                     drop(project);
-                    update_project_tree(&objects, false);
+                    update_project_tree(&objects);
                 })
             );
             dialog.show();
@@ -2230,7 +2230,8 @@ fn action_project_options(objects: &MainWindowObjectsPtr) {
         clone!(@strong objects => move |new_config| {
             log::info!("New project options:\n{:#?}", new_config);
             objects.project.borrow_mut().set_new_config(new_config);
-            update_project_name_and_time_in_gui(&objects, true, true);
+            update_project_tree(&objects);
+            update_project_name_and_time_in_gui(&objects);
         })
     );
 }
@@ -2536,8 +2537,8 @@ fn action_cleanup_light_files(objects: &MainWindowObjectsPtr) {
                 Err(error) =>
                     show_error_message(&error.to_string(), &objects),
             }
-            update_project_tree(&objects, true);
-            update_project_name_and_time_in_gui(&objects, true, false);
+            update_project_tree(&objects);
+            update_project_name_and_time_in_gui(&objects);
         }
 
         dialog.close();
@@ -2601,7 +2602,7 @@ fn action_use_as_reference_image(objects: &MainWindowObjectsPtr) {
             return;
         }
 
-        update_project_tree(objects, true);
+        update_project_tree(objects);
     }
 }
 
@@ -2667,8 +2668,8 @@ fn change_selected_files_type(
                 selection.files.clone()
             );
             drop(project);
-            update_project_tree(&objects, true);
-            update_project_name_and_time_in_gui(&objects, true, false);
+            update_project_tree(&objects);
+            update_project_name_and_time_in_gui(&objects);
         }
         dlg.close();
     }));
@@ -2761,8 +2762,8 @@ fn action_move_file_to_group(objects: &MainWindowObjectsPtr) {
             to_folder.add_files(files_to_move);
             drop(project);
 
-            update_project_tree(&objects, true);
-            update_project_name_and_time_in_gui(&objects, true, false);
+            update_project_tree(&objects);
+            update_project_name_and_time_in_gui(&objects);
         }
         dlg.close();
     }));
@@ -2789,8 +2790,8 @@ fn check_all_files(objects: &MainWindowObjectsPtr, value: bool) {
         .group_by_index_mut(group_idx)
         .file_list_by_type_mut(file_type)
         .check_all(value);
-    update_project_tree(objects, true);
-    update_project_name_and_time_in_gui(objects, true, false);
+    update_project_tree(objects);
+    update_project_name_and_time_in_gui(objects);
 }
 
 fn action_check_selected_files(objects: &MainWindowObjectsPtr) {
@@ -2814,8 +2815,8 @@ fn check_selected_files(objects: &MainWindowObjectsPtr, value: bool) {
         .group_by_index_mut(group_idx)
         .file_list_by_type_mut(file_type)
         .check_by_indices(&files, value);
-    update_project_tree(objects, true);
-    update_project_name_and_time_in_gui(objects, true, false);
+    update_project_tree(objects);
+    update_project_name_and_time_in_gui(objects);
 }
 
 fn action_about(objects: &MainWindowObjectsPtr) {

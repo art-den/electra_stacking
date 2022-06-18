@@ -507,8 +507,6 @@ fn fits_hdu_to_info(file_name: &Path, h: &Hdu) -> ImageInfo {
     let focal_ratio = get_f32_fits_value(&h, "FOCRATIO");
     let lens = get_str_fits_value(&h, "TELESCOP");
 
-    dbg!(dt_str, exp_time, gain, bayer, camera);
-
     let file_time =
         try_to_decode_date_time_str(dt_str.unwrap_or(""))
         .or_else(|| {

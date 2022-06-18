@@ -107,7 +107,21 @@ impl Project {
     }
 
     pub fn set_ref_image(&mut self, new_ref_image: PathBuf) {
+        if self.ref_image.as_ref() == Some(&new_ref_image) {
+            return;
+        }
+        if let Some(prev_file_name) = self.ref_image.clone() {
+            if let Some(prev_file) = self.find_file_by_name_mut(&prev_file_name) {
+                prev_file.mask_as_changed();
+            }
+        }
         self.ref_image = Some(new_ref_image);
+        if let Some(file_name) = self.ref_image.clone() {
+            if let Some(file) = self.find_file_by_name_mut(&file_name) {
+                file.mask_as_changed();
+            }
+        }
+        self.changed.set(true);
     }
 
     pub fn file_name(&self) -> &Option<PathBuf> {
@@ -246,7 +260,7 @@ impl Project {
 
         // master-files
 
-        for (idx, group) in self.groups.iter().enumerate() {
+        for (idx, group) in self.groups.iter().filter(|g| g.used).enumerate() {
             if cancel_flag.load(Ordering::Relaxed) { anyhow::bail!("Termimated") }
             group.create_master_files(
                 idx,
@@ -389,6 +403,15 @@ impl Project {
             .map(|g| g.light_files.list.len())
             .sum()
     }
+
+    fn find_file_by_name_mut(&mut self, file_name: &Path) -> Option<&mut ProjectFile> {
+        for group in &mut self.groups {
+            let result = group.find_file_by_name_mut(file_name);
+            if result.is_some() { return result; }
+        }
+        None
+    }
+
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
@@ -1036,6 +1059,20 @@ impl ProjectGroup {
         Ok(())
     }
 
+    fn find_file_by_name_mut(&mut self, file_name: &Path) -> Option<&mut ProjectFile> {
+        for ftype in [
+            &mut self.light_files,
+            &mut self.dark_files,
+            &mut self.flat_files,
+            &mut self.bias_files
+        ] {
+            let result = ftype.find_file_by_name_mut(file_name);
+            if result.is_some() { return result; }
+        }
+        None
+    }
+
+
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -1194,6 +1231,10 @@ impl ProjectFiles {
             .map(|f| f.file_name.clone())
             .collect()
     }
+
+    fn find_file_by_name_mut(&mut self, file_name: &Path) -> Option<&mut ProjectFile> {
+        self.list.iter_mut().find(|f| f.file_name == file_name)
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -1245,6 +1286,9 @@ pub struct ProjectFile {
 
     #[serde(skip)]
     project_changed: Weak<Cell<bool>>,
+
+    #[serde(skip)]
+    change_count: u32,
 }
 
 impl Default for ProjectFile {
@@ -1264,6 +1308,7 @@ impl Default for ProjectFile {
             flags: 0,
             error_text: None,
             project_changed: Default::default(),
+            change_count: 0,
         }
     }
 }
@@ -1295,7 +1340,16 @@ impl ProjectFile {
     pub fn set_used(&mut self, used: bool) {
         if self.used == used { return; }
         self.used = used;
+        self.change_count += 1;
         self.project_changed.upgrade().unwrap().set(true);
+    }
+
+    pub fn change_count(&self) -> u32 {
+        self.change_count
+    }
+
+    pub fn mask_as_changed(&mut self) {
+        self.change_count += 1;
     }
 
     pub fn file_name(&self) -> &PathBuf {
@@ -1336,6 +1390,7 @@ impl ProjectFile {
 
     pub fn set_reg_info(&mut self, info: RegInfo) {
         self.reg_info = Some(info);
+        self.change_count += 1;
         self.project_changed.upgrade().unwrap().set(true);
     }
 
@@ -1346,12 +1401,14 @@ impl ProjectFile {
     pub fn set_flags(&mut self, flags: FileFlags) {
         if self.flags == flags { return; }
         self.flags = flags;
+        self.change_count += 1;
         self.project_changed.upgrade().unwrap().set(true);
     }
 
     pub fn set_error_text(&mut self, error_text: Option<String>) {
         if self.error_text == error_text { return; }
         self.error_text = error_text;
+        self.change_count += 1;
         self.project_changed.upgrade().unwrap().set(true);
     }
 
