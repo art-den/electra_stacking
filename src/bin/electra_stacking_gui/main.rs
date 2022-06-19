@@ -81,10 +81,6 @@ fn panic_handler(panic_info: &std::panic::PanicInfo) {
     }
 }
 
-///////////////////////////////////////////////////////////////////////////////
-
-/* Main window */
-
 fn build_ui(application: &gtk::Application) {
     let mut project = Project::default();
     let config = Config::default();
@@ -931,6 +927,23 @@ fn update_project_tree(objects: &MainWindowObjectsPtr) {
     objects.prj_tree_is_building.set(false);
 }
 
+fn update_project_name_and_time_in_gui(objects: &MainWindowObjectsPtr) {
+    let app_descr_text = {
+        let transl_descr = gettext("APP_DESCRIPTION");
+        if transl_descr == "APP_DESCRIPTION" {
+            env!("CARGO_PKG_DESCRIPTION").to_string()
+        } else {
+            transl_descr
+        }
+    };
+    objects.window.set_title(&format!(
+        "[{}] - Electra Stacking - {} v{}",
+        get_project_title(&objects.project.borrow(), false),
+        app_descr_text,
+        env!("CARGO_PKG_VERSION"),
+    ));
+}
+
 fn enable_actions(objects: &MainWindowObjectsPtr) {
     let selection = get_current_selection(objects);
     let is_processing = objects.process_mode_flag.get();
@@ -1052,9 +1065,16 @@ fn confirm_dialog<F: Fn() + 'static>(
 }
 
 fn get_project_title(project: &Project, markup: bool) -> String {
-    let mut result = project.config().name
+    let mut result = String::new();
+
+    if project.changed() {
+        result.push_str("* ");
+    }
+
+    result +=
+        project.config().name
         .clone()
-        .unwrap_or_else(|| gettext("Unnamed project"));
+        .unwrap_or_else(|| gettext("Unnamed project")).as_str();
 
     if markup {
         result = format!("<b>{}</b>", result);
@@ -1073,23 +1093,6 @@ fn get_project_title(project: &Project, markup: bool) -> String {
     }
 
     result
-}
-
-fn update_project_name_and_time_in_gui(objects: &MainWindowObjectsPtr) {
-    let app_descr_text = {
-        let transl_descr = gettext("APP_DESCRIPTION");
-        if transl_descr == "APP_DESCRIPTION" {
-            env!("CARGO_PKG_DESCRIPTION").to_string()
-        } else {
-            transl_descr
-        }
-    };
-    objects.window.set_title(&format!(
-        "[{}] - Electra Stacking - {} v{}",
-        get_project_title(&objects.project.borrow(), false),
-        app_descr_text,
-        env!("CARGO_PKG_VERSION"),
-    ));
 }
 
 fn enable_progress_bar(objects: &MainWindowObjectsPtr, enable: bool) {
@@ -1576,6 +1579,8 @@ fn save_project(objects: &MainWindowObjectsPtr, file_name: &Path) -> bool {
         false
     } else {
         log::info!("Project {} saved", file_name.to_str().unwrap_or(""));
+        update_project_tree(objects);
+        update_project_name_and_time_in_gui(objects);
         true
     }
 }
@@ -1757,6 +1762,7 @@ fn action_register(objects: &MainWindowObjectsPtr) {
         move |objects, result| {
             objects.project.borrow_mut().update_light_files_reg_info(result);
             update_project_tree(objects);
+            update_project_name_and_time_in_gui(objects);
         }
     );
 }
