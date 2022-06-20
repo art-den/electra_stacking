@@ -127,7 +127,7 @@ pub struct ImageInfo {
     pub iso: Option<u32>,
 
     /// Exposure time in seconds
-    pub exp: Option<f32>,
+    pub exp: Option<f64>,
 
     /// F-number (4.0 for f/4)
     pub fnumber: Option<f32>,
@@ -189,7 +189,7 @@ pub fn load_src_file_info_raw(file_name: &Path) -> anyhow::Result<ImageInfo> {
     let mut lens = None;
     if let Some(exif) = raw_data.exif {
         iso = exif.get_uint(rawloader::Tag::ISOSpeed);
-        exp = exif.get_rational(rawloader::Tag::ExposureTime);
+        exp = exif.get_rational(rawloader::Tag::ExposureTime).map(|v| v as f64);
         fnumber = exif.get_rational(rawloader::Tag::FNumber);
         camera = exif.get_str(rawloader::Tag::Model).map(|v| v.to_string());
         focal_len = exif.get_rational(rawloader::Tag::FocalLength);
@@ -517,7 +517,7 @@ fn fits_hdu_to_info(file_name: &Path, h: &Hdu) -> ImageInfo {
         file_name: file_name.to_path_buf(),
         file_time,
         iso: gain,
-        exp: exp_time,
+        exp: exp_time.map(|v| v as f64),
         cfa_type: CfaType::from_string(bayer.unwrap_or("")),
         fnumber: focal_ratio,
         focal_len,
@@ -553,7 +553,10 @@ pub fn load_src_file_info_fits(file_name: &Path) -> anyhow::Result<ImageInfo> {
     anyhow::bail!("This FITS file is not supported")
 }
 
-pub fn load_image_from_fits_file(file_name: &Path, force_as_raw: bool) -> anyhow::Result<ImageData> {
+pub fn load_image_from_fits_file(
+    file_name:    &Path,
+    force_as_raw: bool
+) -> anyhow::Result<ImageData> {
     let fits = Fits::open(file_name)?;
 
     let is_mono_shape = |shape: &Vec<usize>| -> bool {
@@ -657,7 +660,7 @@ pub fn load_image_from_fits_file(file_name: &Path, force_as_raw: bool) -> anyhow
                 wb: camera_params.map(|(wb, _)| wb).unwrap_or([1.0, 1.0, 1.0, 1.0]),
                 cfa: Cfa::from_cfa_type(ct, 0, 0),
                 camera: info.camera.clone(),
-                exposure: info.exp,
+                exposure: info.exp.map(|v| v as f32),
                 iso: info.iso,
             };
             let raw = RawImage {
@@ -748,7 +751,7 @@ fn read_fits_data_int<T: Copy>(
 
 pub fn save_image_to_fits_file(
     image:     &Image,
-    _info:     &ImageInfo, // TODO: implement exif support
+    info:      &ImageInfo, // TODO: implement exif support
     file_name: &Path
 ) -> anyhow::Result<()> {
     assert!(!image.is_empty());
@@ -769,7 +772,16 @@ pub fn save_image_to_fits_file(
         image.height() as usize,
         if image.is_rgb() { 3 } else { 1 }
     ];
-    let prim_hdu = Hdu::new(&dims, data);
+    let mut prim_hdu = Hdu::new(&dims, data);
+    if let Some(exp) = info.exp {
+        prim_hdu.insert("EXPTIME", exp.round() as i32);
+    }
+    if let Some(camera) = info.camera.as_ref() {
+        prim_hdu.insert("INSTRUME", camera.as_str());
+    }
+    if let Some(lens) = info.lens.as_ref() {
+        prim_hdu.insert("TELESCOP", lens.as_str());
+    }
     Fits::create(file_name, prim_hdu)?;
     Ok(())
 }

@@ -9,19 +9,26 @@ use bitstream_io::{BitWriter, BitWrite};
 const CALIBR_FILE_SIG: &[u8] = b"calibr-file-3";
 const MASTER_FILE_SIG: &[u8] = b"master-file-3";
 
-
 // Color coefficients for camera sensors
-const SONY_IMX571_WB:    [f32; 4] = [1.11, 1.00, 1.43, 0.00];  // ???
-const SONY_IMX294CJK_WB: [f32; 4] = [1.04, 1.00, 1.43, 0.00];  // ???
-const SONY_IMX533_WB:    [f32; 4] = [1.13, 1.00, 1.33, 0.00];  // ???
+const SONY_IMX571_WB: [f32; 4] = [1.11, 1.00, 1.25, 0.00];  // ???
+const SONY_IMX294_WB: [f32; 4] = [1.04, 1.00, 1.25, 0.00];  // ???
+const SONY_IMX071_WB: [f32; 4] = [1.11, 1.00, 1.18, 0.00];  // ???
+const SONY_IMX183_WB: [f32; 4] = [1.04, 1.00, 1.25, 0.00];  // ???
+const SONY_IMX533_WB: [f32; 4] = [1.11, 1.00, 1.23, 0.00];  // ???
+const SONY_IMX455_WB: [f32; 4] = [1.14, 1.00, 1.27, 0.00];  // ???
+const SONY_IMX410_WB: [f32; 4] = [1.14, 1.00, 1.25, 0.00];  // ???
 
 
 // table for cameras if no params in raw FITS file
 const CAMERAS_TABLE: &[(&str, [f32; 4], Option<CfaType>)] = &[
-    // camera     color balance      bayer type or None for unknown
-    ("asi294mc",  SONY_IMX294CJK_WB, Some(CfaType::RGGB)),
-    ("asi2600mc", SONY_IMX571_WB,    Some(CfaType::RGGB)),
-    ("asi533mm",  SONY_IMX533_WB,    None),
+    // camera     color balance   bayer type or None for unknown
+    ("asi294mc",  SONY_IMX294_WB, Some(CfaType::RGGB)),
+    ("asi2600mc", SONY_IMX571_WB, Some(CfaType::RGGB)),
+    ("asi071mc",  SONY_IMX071_WB, None),
+    ("asi183mc",  SONY_IMX183_WB, None),
+    ("asi533mc",  SONY_IMX533_WB, None),
+    ("asi6200mc", SONY_IMX455_WB, None),
+    ("asi2400mc", SONY_IMX410_WB, None),
 ];
 
 pub fn find_camera_params(camera_name: Option<&str>) -> Option<([f32; 4], Option<CfaType>)> {
@@ -254,7 +261,7 @@ impl RawImage {
 
         let mut info = ImageInfo::default();
         if let Some(raw_exif) = raw.exif {
-            info.exp = raw_exif.get_rational(rawloader::Tag::ExposureTime);
+            info.exp = raw_exif.get_rational(rawloader::Tag::ExposureTime).map(|v| v as f64);
             info.fnumber = raw_exif.get_rational(rawloader::Tag::FNumber);
             info.iso = raw_exif.get_uint(rawloader::Tag::ISOSpeed);
             info.focal_len = raw_exif.get_rational(rawloader::Tag::FocalLength);
@@ -268,7 +275,7 @@ impl RawImage {
             wb:           [0.0; 4],
             cfa:          Cfa::from_str(&raw.cfa.name[..], crop_left, crop_top),
             camera:       info.camera.clone(),
-            exposure:     info.exp,
+            exposure:     info.exp.map(|v| v as f32),
             iso:          info.iso,
         };
 

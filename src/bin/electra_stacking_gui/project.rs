@@ -1333,7 +1333,7 @@ impl ProjectFile {
             file_time: info.file_time,
             cfa_type: info.cfa_type,
             iso: info.iso,
-            exp: info.exp,
+            exp: info.exp.map(|v| v as f32),
             width: Some(info.width),
             height: Some(info.height),
             fnumber: info.fnumber,

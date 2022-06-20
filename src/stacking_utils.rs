@@ -574,7 +574,7 @@ pub fn merge_temp_light_files(
     for temp_file in temp_file_names.iter() {
         let weight = min_noise.powf(2.0) / temp_file.noise.powf(2.0);
         total_time += temp_file.info.exp.unwrap_or(0.0) as f64;
-        weighted_time += (weight * temp_file.info.exp.unwrap_or(0.0)) as f64;
+        weighted_time += weight as f64 * temp_file.info.exp.unwrap_or(0.0);
 
         log::info!(
             "| {:7.1} | {:7.1} | {:7.2} | {:6.3} | {:6.3} | {:9.7} | {:6} | {:8.1} | {:7.1} | {:7} | {}",
@@ -701,7 +701,7 @@ pub fn merge_temp_light_files(
 
     log::info!("Saving image into file {}", result_file.to_str().unwrap_or(""));
     let mut dst_info = ImageInfo::default();
-    dst_info.exp = Some(weighted_time as f32);
+    dst_info.exp = Some(weighted_time);
     save_image_to_file(&result_image, &dst_info, result_file)?;
 
     progress.lock().unwrap().percent(100, 100, "Done!");
