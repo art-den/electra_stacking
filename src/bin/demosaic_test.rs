@@ -32,7 +32,7 @@ fn make_bayer_image(image: &Image) -> RawImage {
     info.max_values = [1.0; 4];
     info.black_values = [0.0; 4];
     info.wb = [1.0; 4];
-    info.cfa = Cfa::from_str("RGGB", 0, 0);
+    info.cfa = Cfa::from_str("RGGB");
 
     let mut raw = RawImage::new_from_info(info);
 

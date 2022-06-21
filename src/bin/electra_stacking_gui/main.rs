@@ -1934,8 +1934,6 @@ fn preview_image_file(
 
         match light_file {
             Ok(mut light_file) => {
-                light_file.image.normalize_if_greater_1();
-
                 // fill stars with green for debug purposes
                 if cfg!(debug_assertions) {
                     const COLORS: &[(f32, f32, f32)] = &[

@@ -187,7 +187,7 @@ pub fn load_src_file_info_raw(file_name: &Path) -> anyhow::Result<ImageInfo> {
     let mut camera = None;
     let mut focal_len = None;
     let mut lens = None;
-    if let Some(exif) = raw_data.exif {
+    if let Some(exif) = &raw_data.exif {
         iso = exif.get_uint(rawloader::Tag::ISOSpeed);
         exp = exif.get_rational(rawloader::Tag::ExposureTime).map(|v| v as f64);
         fnumber = exif.get_rational(rawloader::Tag::FNumber);
@@ -207,12 +207,7 @@ pub fn load_src_file_info_raw(file_name: &Path) -> anyhow::Result<ImageInfo> {
             .map(|st| st.into());
     }
 
-    let cfa = Cfa::from_str(
-        &raw_data.cfa.name[..],
-        raw_data.crops[3] as Crd, // crop_left
-        raw_data.crops[0] as Crd  // crop_top
-    );
-
+    let cfa = Cfa::from_str(&raw_data.cropped_cfa().name);
     let cfa_type = match cfa {
         Cfa::Pattern(p) => Some(p.pattern_type),
         _ => None,
@@ -658,7 +653,8 @@ pub fn load_image_from_fits_file(
                 max_values: [max, max, max, max],
                 black_values: [black, black, black, black],
                 wb: camera_params.map(|(wb, _)| wb).unwrap_or([1.0, 1.0, 1.0, 1.0]),
-                cfa: Cfa::from_cfa_type(ct, 0, 0),
+                xyz_to_cam: None,
+                cfa: Cfa::from_cfa_type(ct),
                 camera: info.camera.clone(),
                 exposure: info.exp.map(|v| v as f32),
                 iso: info.iso,

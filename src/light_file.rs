@@ -56,8 +56,14 @@ impl LightFile {
                 let demosaic = if bin == 2 {
                     DemosaicAlgo::Linear
                 } else { match open_mode {
-                    OpenMode::Preview => DemosaicAlgo::Linear,
-                    OpenMode::Processing => DemosaicAlgo::ColorRatio,
+                    OpenMode::Preview =>
+                        if cfg!(debug_assertions) {
+                            DemosaicAlgo::ColorRatio
+                        } else {
+                            DemosaicAlgo::Linear
+                        },
+                    OpenMode::Processing =>
+                        DemosaicAlgo::ColorRatio,
                 }};
 
                 let mut overexposures = raw.get_overexposures();
@@ -67,10 +73,15 @@ impl LightFile {
                 raw.calibrate(cal_data)?;
 
                 let log = TimeLogger::start();
-                let result = raw.demosaic(
+                let mut result = raw.demosaic(
                     demosaic,
                     open_mode == OpenMode::Preview
                 )?;
+
+                raw.info.apply_wb(&mut result);
+                raw.info.convert_color_space_to_srgb(&mut result);
+                raw.info.normalize_image(&mut result);
+
                 log.log(&format!("demosaicing {:?}", demosaic));
 
                 overexposures.retain(|&(x, y)|

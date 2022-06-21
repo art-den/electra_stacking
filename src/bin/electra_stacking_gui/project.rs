@@ -1123,11 +1123,15 @@ impl ProjectFiles {
     }
 
     pub fn add_files_from_src_file_info(&mut self, file_info: Vec<ImageInfo>) {
+        if file_info.is_empty() {
+            return;
+        }
         for info in file_info {
             let mut file = ProjectFile::new_from_info(info);
             file.project_changed = self.project_changed.clone();
             self.list.push(file)
         }
+        self.project_changed.upgrade().unwrap().set(true);
     }
 
     pub fn add_files(&mut self, files: Vec<ProjectFile>) {

@@ -6,12 +6,12 @@ use byteorder::*;
 use crate::{image::*, fs_utils, log_utils::*, calc::*, compression::*, image_formats::*};
 use bitstream_io::{BitWriter, BitWrite};
 
-const CALIBR_FILE_SIG: &[u8] = b"calibr-file-3";
-const MASTER_FILE_SIG: &[u8] = b"master-file-3";
+const CALIBR_FILE_SIG: &[u8] = b"calibr-file-4";
+const MASTER_FILE_SIG: &[u8] = b"master-file-4";
 
 // Color coefficients for camera sensors
+const SONY_IMX294_WB: [f32; 4] = [1.02, 1.00, 1.30, 0.00];  // ???
 const SONY_IMX571_WB: [f32; 4] = [1.11, 1.00, 1.25, 0.00];  // ???
-const SONY_IMX294_WB: [f32; 4] = [1.04, 1.00, 1.25, 0.00];  // ???
 const SONY_IMX071_WB: [f32; 4] = [1.11, 1.00, 1.18, 0.00];  // ???
 const SONY_IMX183_WB: [f32; 4] = [1.04, 1.00, 1.25, 0.00];  // ???
 const SONY_IMX533_WB: [f32; 4] = [1.11, 1.00, 1.23, 0.00];  // ???
@@ -85,15 +85,13 @@ type CfaArr = [[CfaColor; 2]; 2];
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug)]
 pub struct CfaPattern {
     pub pattern_type: CfaType,
-    start_left: Crd,
-    start_top: Crd,
     arr: CfaArr,
 }
 
 impl CfaPattern {
     #[inline(always)]
     fn get_color_type(&self, x: Crd, y: Crd) -> CfaColor {
-        self.arr[((y+self.start_top) & 1) as usize][((x+self.start_left) & 1) as usize]
+        self.arr[(y & 1) as usize][(x & 1) as usize]
     }
 }
 
@@ -110,19 +108,17 @@ impl Default for Cfa {
 }
 
 impl Cfa {
-    pub fn from_str(cfa_str: &str, start_left: Crd, start_top: Crd) -> Cfa {
+    pub fn from_str(cfa_str: &str) -> Cfa {
         if let Some(ct) = CfaType::from_string(cfa_str) {
-            Self::from_cfa_type(Some(ct), start_left, start_top)
+            Self::from_cfa_type(Some(ct))
         } else {
             Cfa::Mono
         }
     }
 
-    pub fn from_cfa_type(ct: Option<CfaType>, start_left: Crd, start_top: Crd) -> Cfa {
+    pub fn from_cfa_type(ct: Option<CfaType>) -> Cfa {
         match ct {
             Some(ct) => Cfa::Pattern(CfaPattern {
-                start_left,
-                start_top,
                 pattern_type: ct,
                 arr: ct.get_arr()
             }),
@@ -159,6 +155,7 @@ pub struct RawImageInfo {
     pub max_values: [f32; 4],
     pub black_values: [f32; 4],
     pub wb: [f32; 4],
+    pub xyz_to_cam: Option<[[f32;3];3]>,
     pub cfa: Cfa,
     pub camera: Option<String>,
     pub exposure: Option<f32>,
@@ -194,6 +191,80 @@ impl RawImageInfo {
         self.width == other.width &&
         self.height == other.height &&
         self.cfa == other.cfa
+    }
+
+    pub fn apply_wb(&mut self, image: &mut Image) {
+        let apply = |img: &mut ImageLayerF32, k: f32| {
+            for v in img.iter_mut() {
+                *v *= k;
+            }
+        };
+
+        apply(&mut image.r, self.wb[0]);
+        apply(&mut image.g, self.wb[1]);
+        apply(&mut image.b, self.wb[2]);
+    }
+
+    pub fn normalize_image(&self, image: &mut Image) {
+        let process = |img: &mut ImageLayerF32, max: f32| {
+            if max == 0.0 {
+                return;
+            }
+            let k = 1.0 / max;
+            for v in img.iter_mut() {
+                *v *= k;
+            }
+        };
+
+        process(&mut image.l, self.max_values[0]);
+        process(&mut image.r, self.max_values[0]);
+        process(&mut image.g, self.max_values[1]);
+        process(&mut image.b, self.max_values[2]);
+    }
+
+    pub fn convert_color_space_to_srgb(&self, image: &mut Image) {
+        if let Some(xyz_to_cam) = &self.xyz_to_cam {
+            use nalgebra::*;
+
+            let xyz_2_cam = matrix![
+                xyz_to_cam[0][0], xyz_to_cam[1][0], xyz_to_cam[2][0];
+                xyz_to_cam[0][1], xyz_to_cam[1][1], xyz_to_cam[2][1];
+                xyz_to_cam[0][2], xyz_to_cam[1][2], xyz_to_cam[2][2];
+            ];
+
+            let srgb_2_xyz = matrix![
+                0.4124564, 0.3575761, 0.1804375;
+                0.2126729, 0.7151522, 0.0721750;
+                0.0193339, 0.1191920, 0.9503041;
+            ];
+
+            let mut srgb_to_cam = xyz_2_cam * srgb_2_xyz;
+
+            for row in 0..3 {
+                let sum: f32 = srgb_to_cam.row(row).iter().sum();
+                if sum != 0.0 { for v in srgb_to_cam.row_mut(row).iter_mut() {
+                    *v /= sum;
+                }}
+            }
+
+            let cam_2_srgb = srgb_to_cam.try_inverse().unwrap();
+
+            let cam_to_rgb = [
+                [cam_2_srgb[0], cam_2_srgb[3], cam_2_srgb[6]],
+                [cam_2_srgb[1], cam_2_srgb[4], cam_2_srgb[7]],
+                [cam_2_srgb[2], cam_2_srgb[5], cam_2_srgb[8]],
+            ];
+
+            for (r, g, b) in izip!(image.r.iter_mut(), image.g.iter_mut(), image.b.iter_mut()) {
+                let r0 = *r;
+                let g0 = *g;
+                let b0 = *b;
+                *r = r0*cam_to_rgb[0][0] + g0*cam_to_rgb[0][1] + b0*cam_to_rgb[0][2];
+                *g = r0*cam_to_rgb[1][0] + g0*cam_to_rgb[1][1] + b0*cam_to_rgb[1][2];
+                *b = r0*cam_to_rgb[2][0] + g0*cam_to_rgb[2][1] + b0*cam_to_rgb[2][2];
+            }
+            return;
+        }
     }
 }
 
@@ -260,7 +331,7 @@ impl RawImage {
         let height = raw.height as Crd - raw.crops[2] as Crd - crop_top;
 
         let mut info = ImageInfo::default();
-        if let Some(raw_exif) = raw.exif {
+        if let Some(raw_exif) = &raw.exif {
             info.exp = raw_exif.get_rational(rawloader::Tag::ExposureTime).map(|v| v as f64);
             info.fnumber = raw_exif.get_rational(rawloader::Tag::FNumber);
             info.iso = raw_exif.get_uint(rawloader::Tag::ISOSpeed);
@@ -268,12 +339,25 @@ impl RawImage {
             info.camera = raw_exif.get_str(rawloader::Tag::Model).map(|v| v.to_string());
         }
 
+        let xyz_to_cam = if !raw.xyz_to_cam[0][0].is_nan() {
+            let mut matrix = [[0_f32;3];3];
+            for i in 0..3 {
+                for j in 0..3 {
+                    matrix[j][i] = raw.xyz_to_cam[i][j];
+                }
+            }
+            Some(matrix)
+        } else {
+            None
+        };
+
         let mut raw_info = RawImageInfo {
             width, height,
             max_values:   [0.0; 4],
             black_values: [0.0; 4],
             wb:           [0.0; 4],
-            cfa:          Cfa::from_str(&raw.cfa.name[..], crop_left, crop_top),
+            xyz_to_cam,
+            cfa:          Cfa::from_str(&raw. cropped_cfa().name),
             camera:       info.camera.clone(),
             exposure:     info.exp.map(|v| v as f32),
             iso:          info.iso,
@@ -326,10 +410,24 @@ impl RawImage {
             }
         }
 
+        let mut min_wb = raw.wb_coeffs
+            .iter()
+            .copied()
+            .filter(|v| !v.is_nan())
+            .min_by(cmp_f32)
+            .unwrap_or(1.0);
+
+        if min_wb == 0.0 { min_wb = 1.0; }
+
         for i in 0..4 {
             raw_info.black_values[i] = raw.blacklevels[i] as f32;
             raw_info.max_values[i] = raw.whitelevels[i] as f32;
-            raw_info.wb[i] = if !raw.wb_coeffs[i].is_nan() { raw.wb_coeffs[i] } else { 0.0 };
+            raw_info.wb[i] =
+                if !raw.wb_coeffs[i].is_nan() {
+                    raw.wb_coeffs[i] / min_wb
+                } else {
+                    0.0
+                };
         }
 
         Ok((RawImage{ info: raw_info, data }, info))
@@ -346,9 +444,6 @@ impl RawImage {
             } else {
                 white_value
             };
-            if max_values[i] < self.info.max_values[i] {
-                return Vec::new();
-            }
         }
 
         let mut overexposures = Vec::new();
@@ -358,16 +453,18 @@ impl RawImage {
                     continue;
                 }
 
-                if v > max {
+                if v >= max {
                     overexposures.push((x, y));
                 }
             }
         };
 
-        calc(CfaColor::Mono, max_values[0]);
-        calc(CfaColor::R, max_values[0]);
-        calc(CfaColor::G, max_values[1]);
-        calc(CfaColor::B, max_values[2]);
+        const K: f32 = 0.97;
+
+        calc(CfaColor::Mono, max_values[0] * K);
+        calc(CfaColor::R, max_values[0] * K);
+        calc(CfaColor::G, max_values[1] * K);
+        calc(CfaColor::B, max_values[2] * K);
 
         overexposures
     }
@@ -517,31 +614,19 @@ impl RawImage {
         }
 
         let mut result = Image::new_color(self.info.width, self.info.height);
-        let max_wb = self.info.wb
-            .iter()
-            .fold(0_f32, |a, v| if !v.is_nan() { a.max(*v) } else { a } );
-
-        let mut lin_coeffs = [0_f32; 4];
-        for i in 0..4 {
-            lin_coeffs[i] = if self.info.max_values[i] != 0.0 {
-                self.info.wb[i] * 1.0 / (self.info.max_values[i] * max_wb)
-            } else {
-                self.info.wb[i] / max_wb
-            };
-        }
 
         const PATH_VERT:  &[(Crd, Crd)] = &[(0, -1), (0, 1)];
         const PATH_HORIZ: &[(Crd, Crd)] = &[(-1, 0), (1, 0)];
         const PATH_DIAG:  &[(Crd, Crd)] = &[(-1, -1), (1, -1), (-1, 1), (1, 1)];
         const PATH_CROSS: &[(Crd, Crd)] = &[(0, -1), (-1, 0), (1, 0), (0, 1)];
 
-        let demosaic_row = |y, d_row: &mut[f32], ct: CfaColor, k: f32| {
+        let demosaic_row = |y, d_row: &mut[f32], ct: CfaColor| {
             let s_row = self.data.row(y);
             for (x, (d, s)) in d_row.iter_mut().zip(s_row).enumerate() {
                 let x = x as Crd;
                 let raw_ct = p.get_color_type(x, y);
 
-                *d = k * if raw_ct == ct {
+                *d = if raw_ct == ct {
                     *s
                 } else {
                     let path = match (raw_ct, ct) {
@@ -577,9 +662,9 @@ impl RawImage {
 
         if !mt {
             for y in 0..self.data.height() {
-                demosaic_row(y, result.r.row_mut(y), CfaColor::R, lin_coeffs[0]);
-                demosaic_row(y, result.g.row_mut(y), CfaColor::G, lin_coeffs[1]);
-                demosaic_row(y, result.b.row_mut(y), CfaColor::B, lin_coeffs[2]);
+                demosaic_row(y, result.r.row_mut(y), CfaColor::R);
+                demosaic_row(y, result.g.row_mut(y), CfaColor::G);
+                demosaic_row(y, result.b.row_mut(y), CfaColor::B);
             }
         } else {
             let width = self.data.width() as usize;
@@ -587,19 +672,19 @@ impl RawImage {
             result.r.as_slice_mut().par_chunks_mut(width)
                 .enumerate()
                 .for_each(|(y, d)| {
-                    demosaic_row(y as Crd, d, CfaColor::R, lin_coeffs[0]);
+                    demosaic_row(y as Crd, d, CfaColor::R);
                 });
 
             result.g.as_slice_mut().par_chunks_mut(width)
                 .enumerate()
                 .for_each(|(y, d)| {
-                    demosaic_row(y as Crd, d, CfaColor::G, lin_coeffs[1]);
+                    demosaic_row(y as Crd, d, CfaColor::G);
                 });
 
             result.b.as_slice_mut().par_chunks_mut(width)
                 .enumerate()
                 .for_each(|(y, d)| {
-                    demosaic_row(y as Crd, d, CfaColor::B, lin_coeffs[2]);
+                    demosaic_row(y as Crd, d, CfaColor::B);
                 });
         }
 
@@ -615,7 +700,7 @@ impl RawImage {
 
         let mut result_image = Image::new_color(self.info.width, self.info.height);
 
-        let demosaic_green_row = |y, d_row: &mut[f32]| {
+        let demosaic_green = |y, d_row: &mut[f32]| {
             let s_row = self.data.row(y);
             for (x, (d, s)) in d_row.iter_mut().zip(s_row).enumerate() {
                 let x = x as Crd;
@@ -643,7 +728,7 @@ impl RawImage {
         };
 
         for y in 0..self.data.height() {
-            demosaic_green_row(y, result_image.g.row_mut(y));
+            demosaic_green(y, result_image.g.row_mut(y));
         }
 
         // red and blue on green
@@ -652,7 +737,7 @@ impl RawImage {
         const PATH_HORIZ: &[(Crd, Crd)] = &[(-1, 0), (1, 0)];
         const PATH_DIAG:  &[(Crd, Crd)] = &[(-1, -1), (1, -1), (-1, 1), (1, 1)];
 
-        let demosaic_red_blue_row = |y, d_row: &mut[f32], ct: CfaColor| {
+        let demosaic_red_or_blue_on_green = |y, d_row: &mut[f32], ct: CfaColor| {
             let s_row = self.data.row(y);
             let green_row = result_image.g.row(y);
             for (x, (d, s, &green)) in izip!(d_row.iter_mut(), s_row, green_row).enumerate() {
@@ -680,46 +765,38 @@ impl RawImage {
                     };
 
                     let mut green_sum = 0_f32;
-                    let mut green_cnt = 0_u16;
-                    let mut color_ratio_sum = 0_f32;
-                    let mut color_ratio_cnt = 0_u16;
+                    let mut color_sum = 0_f32;
+                    let mut cnt = 0_u16;
                     for crd in path {
                         let (sx, sy) = (x+crd.0, y+crd.1);
                         if let (Some(v), Some(green)) = (self.data.get(sx, sy), result_image.g.get(sx, sy)) {
                             debug_assert!(p.get_color_type(x+crd.0, y+crd.1) == ct);
-
-                            green_sum += v;
-                            green_cnt += 1;
-                            if 4.0 * green > v {
-                                let color_ratio = v / green;
-                                color_ratio_sum += color_ratio;
-                                color_ratio_cnt += 1;
-                            }
+                            green_sum += green;
+                            color_sum += v;
+                            cnt += 1;
                         }
                     }
 
-                    if color_ratio_cnt >= 2 {
-                        let color_ratio_aver = color_ratio_sum/color_ratio_cnt as f32;
-                        green * color_ratio_aver
-                    } else if green_cnt != 0 {
-                        green_sum / green_cnt as f32
+                    if cnt >= 2 && 2.0 * green_sum > color_sum && green_sum != 0.0 {
+                        let color_ratio = color_sum/green_sum;
+                        green * color_ratio
                     } else {
-                        0.0
+                        color_sum / cnt as f32
                     }
                 };
             }
         };
 
         for y in 0..self.data.height() {
-            demosaic_red_blue_row(y, result_image.r.row_mut(y), CfaColor::R);
-            demosaic_red_blue_row(y, result_image.b.row_mut(y), CfaColor::B);
+            demosaic_red_or_blue_on_green(y, result_image.r.row_mut(y), CfaColor::R);
+            demosaic_red_or_blue_on_green(y, result_image.b.row_mut(y), CfaColor::B);
         }
 
         // green on red and blue
 
-        let demosaic_green_row_on_red_and_blue = |y, d_row: &mut[f32]| {
+        let demosaic_green_on_red_or_blue = |y, d_row: &mut[f32]| {
             let s_row = self.data.row(y);
-            for (x, (d, s)) in d_row.iter_mut().zip(s_row).enumerate() {
+            for (x, (d, red_or_blue)) in d_row.iter_mut().zip(s_row).enumerate() {
                 let x = x as Crd;
                 let raw_ct = p.get_color_type(x, y);
 
@@ -738,54 +815,29 @@ impl RawImage {
                 let (g3, h3) = (self.data.get(x-1, y), hint.get(x-1, y));
                 let (g4, h4) = (self.data.get(x+1, y), hint.get(x+1, y));
 
-                let mut color_ratio_sum = 0_f32;
-                let mut color_ratio_cnt = 0_u16;
+                let mut hint_sum = 0_f32;
+                let mut green_sum = 0_f32;
+                let mut cnt = 0_u16;
                 for (g, h) in [(g1, h1), (g2, h2), (g3, h3), (g4, h4)] {
                     if let (Some(g), Some(h)) = (g, h) {
-                        if 4.0 * h > g {
-                            let color_ratio = g / h;
-                            color_ratio_sum += color_ratio;
-                            color_ratio_cnt += 1;
+                        if h != 0.0 {
+                            hint_sum += h;
+                            green_sum += g;
+                            cnt += 1;
                         }
                     }
                 }
 
-                if color_ratio_cnt >= 2 {
-                    let color_ratio = color_ratio_sum / color_ratio_cnt as f32;
-                    let hint_value = s;
-                    *d = hint_value * color_ratio;
+                if cnt >= 2 && 2.0 * hint_sum > green_sum && hint_sum != 0.0 {
+                    let color_ratio = green_sum / hint_sum;
+                    *d = red_or_blue * color_ratio;
                 }
             }
         };
 
         for y in 0..self.data.height() {
-            demosaic_green_row_on_red_and_blue(y, result_image.g.row_mut(y));
+            demosaic_green_on_red_or_blue(y, result_image.g.row_mut(y));
         }
-
-        // apply WB coefficients
-
-        let max_wb = self.info.wb
-            .iter()
-            .fold(0_f32, |a, v| if !v.is_nan() { a.max(*v) } else { a } );
-
-        let mut lin_coeffs = [0_f32; 4];
-        for i in 0..4 {
-            lin_coeffs[i] = if self.info.max_values[i] != 0.0 {
-                self.info.wb[i] * 1.0 / (self.info.max_values[i] * max_wb)
-            } else {
-                self.info.wb[i] / max_wb
-            };
-        }
-
-        let correct_color = |layer: &mut ImageLayerF32, k: f32| {
-            for v in layer.iter_mut() {
-                *v *= k;
-            }
-        };
-
-        correct_color(&mut result_image.r, lin_coeffs[0]);
-        correct_color(&mut result_image.g, lin_coeffs[1]);
-        correct_color(&mut result_image.b, lin_coeffs[2]);
 
         Ok(result_image)
     }
@@ -995,5 +1047,3 @@ impl CalibrationData {
         self.bias_image.is_none()
     }
 }
-
-
