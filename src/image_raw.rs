@@ -10,11 +10,11 @@ const CALIBR_FILE_SIG: &[u8] = b"calibr-file-4";
 const MASTER_FILE_SIG: &[u8] = b"master-file-4";
 
 // Color coefficients for camera sensors
-const SONY_IMX294_WB: [f32; 4] = [1.255, 1.000, 1.607, 0.0];  // ???
-const SONY_IMX294_CCM: &[f32; 9] = &[ // ???
-    1.9195236,   -0.79066163,  -0.27760723,
-    0.10346847,   0.763893,     0.06797649,
-    0.004387304,  0.082853965,  0.4444987,
+const SONY_IMX294_WB: [f32; 4] = [1.216, 1.000, 1.424, 0.000];
+const SONY_IMX294_CCM: &[f32; 9] = &[
+     1.89859, -0.78759, -0.26672,
+     0.12546,  0.70569,  0.06947,
+     0.01381,  0.05857,  0.50326,
 ];
 
 const SONY_IMX571_WB: [f32; 4] = [1.11, 1.00, 1.25, 0.00];  // ???

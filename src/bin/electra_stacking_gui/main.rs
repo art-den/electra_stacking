@@ -1310,7 +1310,9 @@ fn apply_config(objects: &MainWindowObjectsPtr) {
         let tree_col = objects.prj_tree.column(i as i32).unwrap();
         let id = tree_columns[i as usize].1;
         if let Some(col_conf) = config.prj_cols.get(id) {
-            tree_col.set_fixed_width(col_conf.width);
+            if col_conf.width > 0 {
+                tree_col.set_fixed_width(col_conf.width);
+            }
             tree_col.set_visible(col_conf.visible);
         }
     }
