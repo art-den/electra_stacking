@@ -228,6 +228,9 @@ msgstr "Убрать из проекта..."
 msgid "Item properties..."
 msgstr "Свойства..."
 
+msgid "Project columns..."
+msgstr "Колонки проекта..."
+
 # Main window widgets
 
 msgid "Scale:"
@@ -497,3 +500,10 @@ msgstr "Перейти на сайт"
 
 msgid "Discussion"
 msgstr "Обсуждение программы"
+
+###########################################################
+
+# Project columns dialog
+
+msgid "Project columns"
+msgstr "Колонки проекта"

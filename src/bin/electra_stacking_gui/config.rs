@@ -1,4 +1,4 @@
-use std::path::*;
+use std::{path::*, collections::HashMap};
 use serde::*;
 
 #[derive(Serialize, Deserialize)]
@@ -56,7 +56,7 @@ pub struct Config {
     pub preview_auto_min: bool,
     pub preview_auto_wb: bool,
     pub preview_gamma: f32,
-    pub prj_tree_cols: Vec<PrjTreeCol>,
+    pub prj_cols: HashMap<String, PrjTreeCol>,
     pub cpu_load: CpuLoad,
     pub last_path: PathBuf,
 }
@@ -66,7 +66,7 @@ impl Default for Config {
         Self {
             theme: Theme::Dark,
             prj_tree_width: -1,
-            prj_tree_cols: Vec::new(),
+            prj_cols: HashMap::new(),
             main_win_width: -1,
             main_win_height: -1,
             main_win_maximized: false,

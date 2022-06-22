@@ -124,7 +124,7 @@ fn build_ui(application: &gtk::Application) {
     let prj_tree_store_columns = get_prj_tree_store_columns();
 
     for (col1, col2) in prj_tree_store_columns.iter().tuple_windows() {
-        assert!(col1.1+1 == col2.1);
+        assert!(col1.2+1 == col2.2);
     }
 
     let cell_check = gtk::CellRendererToggle::builder()
@@ -133,7 +133,7 @@ fn build_ui(application: &gtk::Application) {
         .sensitive(true)
         .build();
 
-    for (col_name, idx, sidx, _) in prj_tree_store_columns {
+    for (col_name, _, idx, sidx, _) in prj_tree_store_columns {
         if col_name.is_empty() { continue; }
         let cell_text = gtk::CellRendererText::new();
         let col = gtk::TreeViewColumn::builder()
@@ -346,6 +346,7 @@ fn build_ui(application: &gtk::Application) {
     conn_action(&objects, "check_selected_files",   action_check_selected_files);
     conn_action(&objects, "uncheck_selected_files", action_uncheck_selected_files);
     conn_action(&objects, "about",                  action_about);
+    conn_action(&objects, "project_columns",        action_project_columns);
 
     if cfg!(target_os = "windows") {
         let settings = gtk::Settings::default().unwrap();
@@ -575,37 +576,37 @@ const COLUMN_STARS_R_DEV:     u32 = 22;
 const COLUMN_GUID:            u32 = 23;
 const COLUMN_CHANGE_COUNT:    u32 = 24;
 
-fn get_prj_tree_store_columns() -> [(String, u32, u32, glib::Type); 25] {
+fn get_prj_tree_store_columns() -> [(String, &'static str, u32, u32, glib::Type); 25] {
     const EMPT: String = String::new();
     [
-        // Column name in tree       | Model column          | Sort model column | Model column type
-        (gettext("Project/File name"), COLUMN_FILE_NAME,       COLUMN_FILE_NAME,   String::static_type()),
-        (gettext("File path"),         COLUMN_FILE_PATH,       COLUMN_FILE_PATH,   String::static_type()),
-        (gettext("File time"),         COLUMN_FILE_TIME,       COLUMN_FILE_TIME,   String::static_type()),
-        (gettext("Dimensions"),        COLUMN_DIM,             COLUMN_DIM,         String::static_type()),
-        (gettext("Camera"),            COLUMN_CAMERA,          COLUMN_CAMERA,      String::static_type()),
-        (gettext("ISO/Gain"),          COLUMN_ISO_STR,         COLUMN_ISO,         String::static_type()),
-        (gettext("Exposure"),          COLUMN_EXP_STR,         COLUMN_EXP,         String::static_type()),
-        (gettext("FNumber"),           COLUMN_FNUMBER,         COLUMN_FNUMBER,     String::static_type()),
-        (gettext("Noise"),             COLUMN_NOISE_STR,       COLUMN_NOISE,       String::static_type()),
-        (gettext("Background"),        COLUMN_BG_STR,          COLUMN_BG,          String::static_type()),
-        (gettext("Stars"),             COLUMN_STARS_STR,       COLUMN_STARS,       String::static_type()),
-        (gettext("FWHM"),              COLUMN_FWHM_STR,        COLUMN_FWHM,        String::static_type()),
-        (gettext("Ovality"),           COLUMN_STARS_R_DEV_STR, COLUMN_STARS_R_DEV, String::static_type()),
+        // Column name in tree        | ID       | Model column          | Sort model column | Model column type
+        (gettext("Project/File name"), "filename", COLUMN_FILE_NAME,       COLUMN_FILE_NAME,   String::static_type()),
+        (gettext("File path"),         "path",     COLUMN_FILE_PATH,       COLUMN_FILE_PATH,   String::static_type()),
+        (gettext("File time"),         "time",     COLUMN_FILE_TIME,       COLUMN_FILE_TIME,   String::static_type()),
+        (gettext("Dimensions"),        "dims",     COLUMN_DIM,             COLUMN_DIM,         String::static_type()),
+        (gettext("Camera"),            "camera",   COLUMN_CAMERA,          COLUMN_CAMERA,      String::static_type()),
+        (gettext("ISO/Gain"),          "iso",      COLUMN_ISO_STR,         COLUMN_ISO,         String::static_type()),
+        (gettext("Exposure"),          "exp",      COLUMN_EXP_STR,         COLUMN_EXP,         String::static_type()),
+        (gettext("FNumber"),           "fnumber",  COLUMN_FNUMBER,         COLUMN_FNUMBER,     String::static_type()),
+        (gettext("Noise"),             "noise",    COLUMN_NOISE_STR,       COLUMN_NOISE,       String::static_type()),
+        (gettext("Background"),        "bg",       COLUMN_BG_STR,          COLUMN_BG,          String::static_type()),
+        (gettext("Stars"),             "stars",    COLUMN_STARS_STR,       COLUMN_STARS,       String::static_type()),
+        (gettext("FWHM"),              "fwhm",     COLUMN_FWHM_STR,        COLUMN_FWHM,        String::static_type()),
+        (gettext("Ovality"),           "oval",     COLUMN_STARS_R_DEV_STR, COLUMN_STARS_R_DEV, String::static_type()),
 
         // columns below are used for sorting, icons, checkboxes and lookup during tree building
-        (EMPT,                         COLUMN_ICON,            0,                  gdk_pixbuf::Pixbuf::static_type()),
-        (EMPT,                         COLUMN_CHECKBOX,        0,                  bool::static_type()),
-        (EMPT,                         COLUMN_CHECKBOX_VIS,    0,                  bool::static_type()),
-        (EMPT,                         COLUMN_ISO,             0,                  u32::static_type()),
-        (EMPT,                         COLUMN_EXP,             0,                  f32::static_type()),
-        (EMPT,                         COLUMN_NOISE,           0,                  f32::static_type()),
-        (EMPT,                         COLUMN_BG,              0,                  f32::static_type()),
-        (EMPT,                         COLUMN_STARS,           0,                  u32::static_type()),
-        (EMPT,                         COLUMN_FWHM,            0,                  f32::static_type()),
-        (EMPT,                         COLUMN_STARS_R_DEV,     0,                  f32::static_type()),
-        (EMPT,                         COLUMN_GUID,            0,                  String::static_type()),
-        (EMPT,                         COLUMN_CHANGE_COUNT,    0,                  u32::static_type()),
+        (EMPT,                         "",         COLUMN_ICON,            0,                  gdk_pixbuf::Pixbuf::static_type()),
+        (EMPT,                         "",         COLUMN_CHECKBOX,        0,                  bool::static_type()),
+        (EMPT,                         "",         COLUMN_CHECKBOX_VIS,    0,                  bool::static_type()),
+        (EMPT,                         "",         COLUMN_ISO,             0,                  u32::static_type()),
+        (EMPT,                         "",         COLUMN_EXP,             0,                  f32::static_type()),
+        (EMPT,                         "",         COLUMN_NOISE,           0,                  f32::static_type()),
+        (EMPT,                         "",         COLUMN_BG,              0,                  f32::static_type()),
+        (EMPT,                         "",         COLUMN_STARS,           0,                  u32::static_type()),
+        (EMPT,                         "",         COLUMN_FWHM,            0,                  f32::static_type()),
+        (EMPT,                         "",         COLUMN_STARS_R_DEV,     0,                  f32::static_type()),
+        (EMPT,                         "",         COLUMN_GUID,            0,                  String::static_type()),
+        (EMPT,                         "",         COLUMN_CHANGE_COUNT,    0,                  u32::static_type()),
     ]
 }
 
@@ -627,7 +628,7 @@ fn update_project_tree(objects: &MainWindowObjectsPtr) {
         None => {
             let col_types = get_prj_tree_store_columns()
                 .iter()
-                .map(|(_, _, _, tp)| *tp)
+                .map(|(_, _, _, _, tp)| *tp)
                 .collect::<Vec<_>>();
 
             let result = gtk::TreeStore::new(&col_types);
@@ -1254,13 +1255,18 @@ fn assign_config(objects: &MainWindowObjectsPtr) {
         config.theme = Theme::Light;
     }
 
-    config.prj_tree_cols.clear();
-    for col in objects.prj_tree.columns() {
-        config.prj_tree_cols.push(PrjTreeCol {
-            width: col.width(),
-            visible: col.is_visible(),
-            pos: -1,
-        })
+    let tree_columns = get_prj_tree_store_columns();
+
+    config.prj_cols.clear();
+    for (idx, col) in objects.prj_tree.columns().iter().enumerate() {
+        config.prj_cols.insert(
+            tree_columns[idx].1.to_string(),
+            PrjTreeCol {
+                width: col.width(),
+                visible: col.is_visible(),
+                pos: -1,
+            }
+        );
     }
 
     let (width, height) = objects.window.size();
@@ -1299,10 +1305,13 @@ fn apply_config(objects: &MainWindowObjectsPtr) {
         objects.prj_img_paned.set_position(config.prj_tree_width);
     }
 
-    if config.prj_tree_cols.len() == objects.prj_tree.n_columns() as usize {
-        for (i, col) in config.prj_tree_cols.iter().enumerate() {
-            let tree_col = objects.prj_tree.column(i as i32).unwrap();
-            tree_col.set_fixed_width(col.width);
+    let tree_columns = get_prj_tree_store_columns();
+    for i in 0..objects.prj_tree.n_columns() {
+        let tree_col = objects.prj_tree.column(i as i32).unwrap();
+        let id = tree_columns[i as usize].1;
+        if let Some(col_conf) = config.prj_cols.get(id) {
+            tree_col.set_fixed_width(col_conf.width);
+            tree_col.set_visible(col_conf.visible);
         }
     }
 
@@ -2843,6 +2852,59 @@ fn action_about(objects: &MainWindowObjectsPtr) {
     }
     image.set_pixbuf(Some(&logo_image));
     l_version.set_label(&format!("v{}", env!("CARGO_PKG_VERSION")));
+    dialog.set_transient_for(Some(&objects.window));
+    dialog.show();
+    btn_close.connect_clicked(move |_| dialog.close());
+}
+
+fn action_project_columns(objects: &MainWindowObjectsPtr) {
+    let builder = gtk::Builder::from_string(include_str!("ui/columns_selector.ui"));
+    let dialog = builder.object::<gtk::Dialog>("columns_delector").unwrap();
+    let list = builder.object::<gtk::TreeView>("lv_list").unwrap();
+    let btn_close = builder.object::<gtk::Button>("btn_close").unwrap();
+    const COLUMN_CHECK: i32 = 0;
+    const COLUMN_NAME: i32 = 1;
+    const COLUMN_ID: i32 = 2;
+    let model = gtk::ListStore::new(&[
+        bool::static_type(),
+        String::static_type(),
+        String::static_type(),
+    ]);
+    let col = gtk::TreeViewColumn::builder()
+        .title("Name")
+        .resizable(true)
+        .clickable(true)
+        .build();
+    let cell_check = gtk::CellRendererToggle::builder()
+        .activatable(true)
+        .mode(gtk::CellRendererMode::Activatable)
+        .sensitive(true)
+        .build();
+    let cell_text = gtk::CellRendererText::new();
+    col.pack_start(&cell_check, false);
+    col.pack_start(&cell_text, true);
+    col.add_attribute(&cell_text, "text", COLUMN_NAME);
+    col.add_attribute(&cell_check, "active", COLUMN_CHECK);
+    list.append_column(&col);
+    let tree_columns = get_prj_tree_store_columns();
+    for i in 0..objects.prj_tree.n_columns() {
+        let tree_col = objects.prj_tree.column(i as i32).unwrap();
+        let name = &tree_columns[i as usize].0;
+        let id = tree_columns[i as usize].1;
+        model.insert_with_values(None, &[
+            (COLUMN_CHECK as u32, &tree_col.is_visible()),
+            (COLUMN_NAME as u32, name),
+            (COLUMN_ID as u32, &id),
+        ]);
+    }
+    list.set_model(Some(&model));
+    cell_check.connect_toggled(clone!(@weak objects, @weak model => move |_, path| {
+        let values = path.indices();
+        let tree_col = objects.prj_tree.column(values[0]).unwrap();
+        tree_col.set_visible(!tree_col.is_visible());
+        let iter = model.iter(&path).unwrap();
+        model.set(&iter, &[(COLUMN_CHECK as u32, &tree_col.is_visible())])
+    }));
     dialog.set_transient_for(Some(&objects.window));
     dialog.show();
     btn_close.connect_clicked(move |_| dialog.close());
