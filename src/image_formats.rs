@@ -645,15 +645,15 @@ pub fn load_image_from_fits_file(
         // is this raw file?
         let camera_params = find_camera_params(info.camera.as_deref());
         if !image.is_rgb() && (info.cfa_type.is_some() || camera_params.is_some() || force_as_raw) {
-            let ct = info.cfa_type.or_else(|| camera_params.map(|(_, ct)| ct).flatten());
+            let ct = info.cfa_type.or_else(|| camera_params.map(|(_, ct, _)| ct).flatten());
             let black = some_info.black_level;
             let raw_info = RawImageInfo {
                 width: info.width as Crd,
                 height: info.height as Crd,
                 max_values: [max, max, max, max],
                 black_values: [black, black, black, black],
-                wb: camera_params.map(|(wb, _)| wb).unwrap_or([1.0, 1.0, 1.0, 1.0]),
-                xyz_to_cam: None,
+                wb: camera_params.map(|(wb, _, _)| wb).unwrap_or([1.0, 1.0, 1.0, 1.0]),
+                xyz_to_cam: camera_params.and_then(|(_, _, ccm)| ccm.map(|v| v.clone())),
                 cfa: Cfa::from_cfa_type(ct),
                 camera: info.camera.clone(),
                 exposure: info.exp.map(|v| v as f32),

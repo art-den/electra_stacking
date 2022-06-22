@@ -10,7 +10,13 @@ const CALIBR_FILE_SIG: &[u8] = b"calibr-file-4";
 const MASTER_FILE_SIG: &[u8] = b"master-file-4";
 
 // Color coefficients for camera sensors
-const SONY_IMX294_WB: [f32; 4] = [1.02, 1.00, 1.30, 0.00];  // ???
+const SONY_IMX294_WB: [f32; 4] = [1.255, 1.000, 1.607, 0.0];  // ???
+const SONY_IMX294_CCM: &[f32; 9] = &[ // ???
+    1.9195236,   -0.79066163,  -0.27760723,
+    0.10346847,   0.763893,     0.06797649,
+    0.004387304,  0.082853965,  0.4444987,
+];
+
 const SONY_IMX571_WB: [f32; 4] = [1.11, 1.00, 1.25, 0.00];  // ???
 const SONY_IMX071_WB: [f32; 4] = [1.11, 1.00, 1.18, 0.00];  // ???
 const SONY_IMX183_WB: [f32; 4] = [1.04, 1.00, 1.25, 0.00];  // ???
@@ -18,25 +24,26 @@ const SONY_IMX533_WB: [f32; 4] = [1.11, 1.00, 1.23, 0.00];  // ???
 const SONY_IMX455_WB: [f32; 4] = [1.14, 1.00, 1.27, 0.00];  // ???
 const SONY_IMX410_WB: [f32; 4] = [1.14, 1.00, 1.25, 0.00];  // ???
 
-
 // table for cameras if no params in raw FITS file
-const CAMERAS_TABLE: &[(&str, [f32; 4], Option<CfaType>)] = &[
-    // camera     color balance   bayer type or None for unknown
-    ("asi294mc",  SONY_IMX294_WB, Some(CfaType::RGGB)),
-    ("asi2600mc", SONY_IMX571_WB, Some(CfaType::RGGB)),
-    ("asi071mc",  SONY_IMX071_WB, None),
-    ("asi183mc",  SONY_IMX183_WB, None),
-    ("asi533mc",  SONY_IMX533_WB, None),
-    ("asi6200mc", SONY_IMX455_WB, None),
-    ("asi2400mc", SONY_IMX410_WB, None),
+const CAMERAS_TABLE: &[(&str, [f32; 4], Option<CfaType>, Option<&[f32; 9]>)] = &[
+    // camera     color balance   bayer type
+    ("asi294mc",  SONY_IMX294_WB, Some(CfaType::RGGB), Some(SONY_IMX294_CCM)),
+    ("asi2600mc", SONY_IMX571_WB, Some(CfaType::RGGB), None),
+    ("asi071mc",  SONY_IMX071_WB, None, None),
+    ("asi183mc",  SONY_IMX183_WB, None, None),
+    ("asi533mc",  SONY_IMX533_WB, None, None),
+    ("asi6200mc", SONY_IMX455_WB, None, None),
+    ("asi2400mc", SONY_IMX410_WB, None, None),
 ];
 
-pub fn find_camera_params(camera_name: Option<&str>) -> Option<([f32; 4], Option<CfaType>)> {
+pub fn find_camera_params(
+    camera_name: Option<&str>
+) -> Option<([f32; 4], Option<CfaType>, Option<&[f32; 9]>)> {
     if let Some(camera_name) = camera_name {
         let name_lc = camera_name.to_string().to_lowercase();
         CAMERAS_TABLE.iter()
-            .find(|(c, _, _)| name_lc.contains(c))
-            .map(|(_, wb, cfa)| (*wb, *cfa))
+            .find(|(c, _, _, _)| name_lc.contains(c))
+            .map(|(_, wb, cfa, ccm)| (*wb, *cfa, *ccm))
     } else {
         None
     }
@@ -155,7 +162,7 @@ pub struct RawImageInfo {
     pub max_values: [f32; 4],
     pub black_values: [f32; 4],
     pub wb: [f32; 4],
-    pub xyz_to_cam: Option<[[f32;3];3]>,
+    pub xyz_to_cam: Option<[f32; 9]>,
     pub cfa: Cfa,
     pub camera: Option<String>,
     pub exposure: Option<f32>,
@@ -227,9 +234,9 @@ impl RawImageInfo {
             use nalgebra::*;
 
             let xyz_2_cam = matrix![
-                xyz_to_cam[0][0], xyz_to_cam[1][0], xyz_to_cam[2][0];
-                xyz_to_cam[0][1], xyz_to_cam[1][1], xyz_to_cam[2][1];
-                xyz_to_cam[0][2], xyz_to_cam[1][2], xyz_to_cam[2][2];
+                xyz_to_cam[0], xyz_to_cam[1], xyz_to_cam[2];
+                xyz_to_cam[3], xyz_to_cam[4], xyz_to_cam[5];
+                xyz_to_cam[6], xyz_to_cam[7], xyz_to_cam[8];
             ];
 
             let srgb_2_xyz = matrix![
@@ -247,21 +254,16 @@ impl RawImageInfo {
                 }}
             }
 
-            let cam_2_srgb = srgb_to_cam.try_inverse().unwrap();
-
-            let cam_to_rgb = [
-                [cam_2_srgb[0], cam_2_srgb[3], cam_2_srgb[6]],
-                [cam_2_srgb[1], cam_2_srgb[4], cam_2_srgb[7]],
-                [cam_2_srgb[2], cam_2_srgb[5], cam_2_srgb[8]],
-            ];
+            let cam_to_rgb = srgb_to_cam.try_inverse().unwrap();
+            let cam_to_rgb_values = cam_to_rgb.as_slice();
 
             for (r, g, b) in izip!(image.r.iter_mut(), image.g.iter_mut(), image.b.iter_mut()) {
                 let r0 = *r;
                 let g0 = *g;
                 let b0 = *b;
-                *r = r0*cam_to_rgb[0][0] + g0*cam_to_rgb[0][1] + b0*cam_to_rgb[0][2];
-                *g = r0*cam_to_rgb[1][0] + g0*cam_to_rgb[1][1] + b0*cam_to_rgb[1][2];
-                *b = r0*cam_to_rgb[2][0] + g0*cam_to_rgb[2][1] + b0*cam_to_rgb[2][2];
+                *r = r0*cam_to_rgb_values[0] + g0*cam_to_rgb_values[3] + b0*cam_to_rgb_values[6];
+                *g = r0*cam_to_rgb_values[1] + g0*cam_to_rgb_values[4] + b0*cam_to_rgb_values[7];
+                *b = r0*cam_to_rgb_values[2] + g0*cam_to_rgb_values[5] + b0*cam_to_rgb_values[8];
             }
             return;
         }
@@ -340,11 +342,9 @@ impl RawImage {
         }
 
         let xyz_to_cam = if !raw.xyz_to_cam[0][0].is_nan() {
-            let mut matrix = [[0_f32;3];3];
-            for i in 0..3 {
-                for j in 0..3 {
-                    matrix[j][i] = raw.xyz_to_cam[i][j];
-                }
+            let mut matrix = [0_f32; 9];
+            for i in 0..9 {
+                matrix[i] = raw.xyz_to_cam[i / 3][i % 3];
             }
             Some(matrix)
         } else {
