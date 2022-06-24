@@ -550,63 +550,63 @@ struct MainWindowObjects {
 
 type MainWindowObjectsPtr = Rc::<MainWindowObjects>;
 
-const COLUMN_FILE_NAME:       u32 = 0;
-const COLUMN_FILE_PATH:       u32 = 1;
-const COLUMN_FILE_TIME:       u32 = 2;
-const COLUMN_DIM:             u32 = 3;
-const COLUMN_CAMERA:          u32 = 4;
-const COLUMN_ISO_STR:         u32 = 5;
-const COLUMN_EXP_STR:         u32 = 6;
-const COLUMN_FNUMBER:         u32 = 7;
-const COLUMN_NOISE_STR:       u32 = 8;
-const COLUMN_BG_STR:          u32 = 9;
-const COLUMN_STARS_STR:       u32 = 10;
-const COLUMN_FWHM_STR:        u32 = 11;
-const COLUMN_STARS_R_DEV_STR: u32 = 12;
-const COLUMN_ICON:            u32 = 13;
-const COLUMN_CHECKBOX:        u32 = 14;
-const COLUMN_CHECKBOX_VIS:    u32 = 15;
-const COLUMN_ISO:             u32 = 16;
-const COLUMN_EXP:             u32 = 17;
-const COLUMN_NOISE:           u32 = 18;
-const COLUMN_BG:              u32 = 19;
-const COLUMN_STARS:           u32 = 20;
-const COLUMN_FWHM:            u32 = 21;
-const COLUMN_STARS_R_DEV:     u32 = 22;
-const COLUMN_GUID:            u32 = 23;
-const COLUMN_CHANGE_COUNT:    u32 = 24;
+const COLUMN_FILE_NAME:    u32 = 0;
+const COLUMN_FILE_PATH:    u32 = 1;
+const COLUMN_FILE_TIME:    u32 = 2;
+const COLUMN_DIM:          u32 = 3;
+const COLUMN_CAMERA:       u32 = 4;
+const COLUMN_ISO_STR:      u32 = 5;
+const COLUMN_EXP_STR:      u32 = 6;
+const COLUMN_FNUMBER:      u32 = 7;
+const COLUMN_NOISE_STR:    u32 = 8;
+const COLUMN_BG_STR:       u32 = 9;
+const COLUMN_STARS_STR:    u32 = 10;
+const COLUMN_FWHM_STR:     u32 = 11;
+const COLUMN_OVALITY_STR:  u32 = 12;
+const COLUMN_ICON:         u32 = 13;
+const COLUMN_CHECKBOX:     u32 = 14;
+const COLUMN_CHECKBOX_VIS: u32 = 15;
+const COLUMN_ISO:          u32 = 16;
+const COLUMN_EXP:          u32 = 17;
+const COLUMN_NOISE:        u32 = 18;
+const COLUMN_BG:           u32 = 19;
+const COLUMN_STARS:        u32 = 20;
+const COLUMN_FWHM:         u32 = 21;
+const COLUMN_OVALITY:      u32 = 22;
+const COLUMN_GUID:         u32 = 23;
+const COLUMN_CHANGE_COUNT: u32 = 24;
 
 fn get_prj_tree_store_columns() -> [(String, &'static str, u32, u32, glib::Type); 25] {
     const EMPT: String = String::new();
     [
-        // Column name in tree        | ID       | Model column          | Sort model column | Model column type
-        (gettext("Project/File name"), "filename", COLUMN_FILE_NAME,       COLUMN_FILE_NAME,   String::static_type()),
-        (gettext("File path"),         "path",     COLUMN_FILE_PATH,       COLUMN_FILE_PATH,   String::static_type()),
-        (gettext("File time"),         "time",     COLUMN_FILE_TIME,       COLUMN_FILE_TIME,   String::static_type()),
-        (gettext("Dimensions"),        "dims",     COLUMN_DIM,             COLUMN_DIM,         String::static_type()),
-        (gettext("Camera"),            "camera",   COLUMN_CAMERA,          COLUMN_CAMERA,      String::static_type()),
-        (gettext("ISO/Gain"),          "iso",      COLUMN_ISO_STR,         COLUMN_ISO,         String::static_type()),
-        (gettext("Exposure"),          "exp",      COLUMN_EXP_STR,         COLUMN_EXP,         String::static_type()),
-        (gettext("FNumber"),           "fnumber",  COLUMN_FNUMBER,         COLUMN_FNUMBER,     String::static_type()),
-        (gettext("Noise"),             "noise",    COLUMN_NOISE_STR,       COLUMN_NOISE,       String::static_type()),
-        (gettext("Background"),        "bg",       COLUMN_BG_STR,          COLUMN_BG,          String::static_type()),
-        (gettext("Stars"),             "stars",    COLUMN_STARS_STR,       COLUMN_STARS,       String::static_type()),
-        (gettext("FWHM"),              "fwhm",     COLUMN_FWHM_STR,        COLUMN_FWHM,        String::static_type()),
-        (gettext("Ovality"),           "oval",     COLUMN_STARS_R_DEV_STR, COLUMN_STARS_R_DEV, String::static_type()),
+        // Column name in tree        | ID       | Model column       | Sort model column | Model column type
+        (gettext("Project/File name"), "filename", COLUMN_FILE_NAME,    COLUMN_FILE_NAME,   String::static_type()),
+        (gettext("File path"),         "path",     COLUMN_FILE_PATH,    COLUMN_FILE_PATH,   String::static_type()),
+        (gettext("File time"),         "time",     COLUMN_FILE_TIME,    COLUMN_FILE_TIME,   String::static_type()),
+        (gettext("Dimensions"),        "dims",     COLUMN_DIM,          COLUMN_DIM,         String::static_type()),
+        (gettext("Camera"),            "camera",   COLUMN_CAMERA,       COLUMN_CAMERA,      String::static_type()),
+        (gettext("ISO/Gain"),          "iso",      COLUMN_ISO_STR,      COLUMN_ISO,         String::static_type()),
+        (gettext("Exposure"),          "exp",      COLUMN_EXP_STR,      COLUMN_EXP,         String::static_type()),
+        (gettext("FNumber"),           "fnumber",  COLUMN_FNUMBER,      COLUMN_FNUMBER,     String::static_type()),
+        (gettext("Noise"),             "noise",    COLUMN_NOISE_STR,    COLUMN_NOISE,       String::static_type()),
+        (gettext("Background"),        "bg",       COLUMN_BG_STR,       COLUMN_BG,          String::static_type()),
+        (gettext("Stars"),             "stars",    COLUMN_STARS_STR,    COLUMN_STARS,       String::static_type()),
+        (gettext("FWHM"),              "fwhm",     COLUMN_FWHM_STR,     COLUMN_FWHM,        String::static_type()),
+        (gettext("Ovality"),           "oval",     COLUMN_OVALITY_STR,  COLUMN_OVALITY,     String::static_type()),
 
         // columns below are used for sorting, icons, checkboxes and lookup during tree building
-        (EMPT,                         "",         COLUMN_ICON,            0,                  gdk_pixbuf::Pixbuf::static_type()),
-        (EMPT,                         "",         COLUMN_CHECKBOX,        0,                  bool::static_type()),
-        (EMPT,                         "",         COLUMN_CHECKBOX_VIS,    0,                  bool::static_type()),
-        (EMPT,                         "",         COLUMN_ISO,             0,                  u32::static_type()),
-        (EMPT,                         "",         COLUMN_EXP,             0,                  f32::static_type()),
-        (EMPT,                         "",         COLUMN_NOISE,           0,                  f32::static_type()),
-        (EMPT,                         "",         COLUMN_BG,              0,                  f32::static_type()),
-        (EMPT,                         "",         COLUMN_STARS,           0,                  u32::static_type()),
-        (EMPT,                         "",         COLUMN_FWHM,            0,                  f32::static_type()),
-        (EMPT,                         "",         COLUMN_STARS_R_DEV,     0,                  f32::static_type()),
-        (EMPT,                         "",         COLUMN_GUID,            0,                  String::static_type()),
-        (EMPT,                         "",         COLUMN_CHANGE_COUNT,    0,                  u32::static_type()),
+        (EMPT,                         "",         COLUMN_ICON,         0,                  gdk_pixbuf::Pixbuf::static_type()),
+        (EMPT,                         "",         COLUMN_CHECKBOX,     0,                  bool::static_type()),
+        (EMPT,                         "",         COLUMN_CHECKBOX_VIS, 0,                  bool::static_type()),
+        (EMPT,                         "",         COLUMN_ISO,          0,                  u32::static_type()),
+        (EMPT,                         "",         COLUMN_EXP,          0,                  f32::static_type()),
+        (EMPT,                         "",         COLUMN_NOISE,        0,                  f32::static_type()),
+        (EMPT,                         "",         COLUMN_BG,           0,                  f32::static_type()),
+        (EMPT,                         "",         COLUMN_STARS,        0,                  u32::static_type()),
+        (EMPT,                         "",         COLUMN_FWHM,         0,                  f32::static_type()),
+        (EMPT,                         "",         COLUMN_OVALITY,      0,                  f32::static_type()),
+        (EMPT,                         "",         COLUMN_GUID,         0,                  String::static_type()),
+        (EMPT,                         "",         COLUMN_CHANGE_COUNT, 0,                  u32::static_type()),
     ]
 }
 
@@ -889,30 +889,30 @@ fn update_project_tree(objects: &MainWindowObjectsPtr) {
                             let bg_str = make_important(bg_str, file.flags(), FILE_FLAG_CLEANUP_BG);
 
                             tree_store.set(&file_iter, &[
-                                (COLUMN_ICON,            icon),
-                                (COLUMN_CHECKBOX,        &file.used()),
-                                (COLUMN_CHECKBOX_VIS,    &true),
-                                (COLUMN_FILE_NAME,       &file_name),
-                                (COLUMN_FILE_PATH,       &path),
-                                (COLUMN_FILE_TIME,       &file_time_str),
-                                (COLUMN_DIM,             &dim_str),
-                                (COLUMN_CAMERA,          &camera_str),
-                                (COLUMN_ISO_STR,         &iso_str),
-                                (COLUMN_ISO,             &iso),
-                                (COLUMN_EXP_STR,         &exp_str),
-                                (COLUMN_EXP,             &exp),
-                                (COLUMN_FNUMBER,         &fnumber_str),
-                                (COLUMN_NOISE_STR,       &noise_str),
-                                (COLUMN_NOISE,           &noise),
-                                (COLUMN_BG_STR,          &bg_str),
-                                (COLUMN_BG,              &bg),
-                                (COLUMN_STARS_STR,       &stars_cnt_str),
-                                (COLUMN_STARS,           &stars_cnt),
-                                (COLUMN_FWHM_STR,        &fwhm_str),
-                                (COLUMN_FWHM,            &fwhm),
-                                (COLUMN_STARS_R_DEV_STR, &star_r_dev_str),
-                                (COLUMN_STARS_R_DEV,     &star_r_dev),
-                                (COLUMN_CHANGE_COUNT,    &file.change_count())
+                                (COLUMN_ICON,         icon),
+                                (COLUMN_CHECKBOX,     &file.used()),
+                                (COLUMN_CHECKBOX_VIS, &true),
+                                (COLUMN_FILE_NAME,    &file_name),
+                                (COLUMN_FILE_PATH,    &path),
+                                (COLUMN_FILE_TIME,    &file_time_str),
+                                (COLUMN_DIM,          &dim_str),
+                                (COLUMN_CAMERA,       &camera_str),
+                                (COLUMN_ISO_STR,      &iso_str),
+                                (COLUMN_ISO,          &iso),
+                                (COLUMN_EXP_STR,      &exp_str),
+                                (COLUMN_EXP,          &exp),
+                                (COLUMN_FNUMBER,      &fnumber_str),
+                                (COLUMN_NOISE_STR,    &noise_str),
+                                (COLUMN_NOISE,        &noise),
+                                (COLUMN_BG_STR,       &bg_str),
+                                (COLUMN_BG,           &bg),
+                                (COLUMN_STARS_STR,    &stars_cnt_str),
+                                (COLUMN_STARS,        &stars_cnt),
+                                (COLUMN_FWHM_STR,     &fwhm_str),
+                                (COLUMN_FWHM,         &fwhm),
+                                (COLUMN_OVALITY_STR,  &star_r_dev_str),
+                                (COLUMN_OVALITY,      &star_r_dev),
+                                (COLUMN_CHANGE_COUNT, &file.change_count())
                             ]);
                         }
 
