@@ -124,7 +124,7 @@ fn build_ui(application: &gtk::Application) {
     let prj_tree_store_columns = get_prj_tree_store_columns();
 
     for (col1, col2) in prj_tree_store_columns.iter().tuple_windows() {
-        assert!(col1.2+1 == col2.2);
+        assert!(col1.2 as u32+1 == col2.2 as u32);
     }
 
     let cell_check = gtk::CellRendererToggle::builder()
@@ -137,20 +137,20 @@ fn build_ui(application: &gtk::Application) {
         if col_name.is_empty() { continue; }
         let cell_text = gtk::CellRendererText::new();
         let col = gtk::TreeViewColumn::builder()
-            .title(&col_name)
+            .title(&gettext(col_name))
             .resizable(true)
             .clickable(true)
             .build();
 
-        if idx == COLUMN_FILE_NAME {
+        if idx == ColIdx::FileName {
             let cell_img = gtk::CellRendererPixbuf::new();
             col.pack_start(&cell_check, false);
             col.pack_start(&cell_img, false);
             col.pack_start(&cell_text, true);
             col.add_attribute(&cell_text, "markup", idx as i32);
-            col.add_attribute(&cell_img, "pixbuf", COLUMN_ICON as i32);
-            col.add_attribute(&cell_check, "active", COLUMN_CHECKBOX as i32);
-            col.add_attribute(&cell_check, "visible", COLUMN_CHECKBOX_VIS as i32);
+            col.add_attribute(&cell_img, "pixbuf", ColIdx::Icon as i32);
+            col.add_attribute(&cell_check, "active", ColIdx::Checkbox as i32);
+            col.add_attribute(&cell_check, "visible", ColIdx::CheckboxVis as i32);
         } else {
             col.pack_start(&cell_text, true);
             col.add_attribute(&cell_text, "markup", idx as i32);
@@ -550,63 +550,70 @@ struct MainWindowObjects {
 
 type MainWindowObjectsPtr = Rc::<MainWindowObjects>;
 
-const COLUMN_FILE_NAME:    u32 = 0;
-const COLUMN_FILE_PATH:    u32 = 1;
-const COLUMN_FILE_TIME:    u32 = 2;
-const COLUMN_DIM:          u32 = 3;
-const COLUMN_CAMERA:       u32 = 4;
-const COLUMN_ISO_STR:      u32 = 5;
-const COLUMN_EXP_STR:      u32 = 6;
-const COLUMN_FNUMBER:      u32 = 7;
-const COLUMN_NOISE_STR:    u32 = 8;
-const COLUMN_BG_STR:       u32 = 9;
-const COLUMN_STARS_STR:    u32 = 10;
-const COLUMN_FWHM_STR:     u32 = 11;
-const COLUMN_OVALITY_STR:  u32 = 12;
-const COLUMN_ICON:         u32 = 13;
-const COLUMN_CHECKBOX:     u32 = 14;
-const COLUMN_CHECKBOX_VIS: u32 = 15;
-const COLUMN_ISO:          u32 = 16;
-const COLUMN_EXP:          u32 = 17;
-const COLUMN_NOISE:        u32 = 18;
-const COLUMN_BG:           u32 = 19;
-const COLUMN_STARS:        u32 = 20;
-const COLUMN_FWHM:         u32 = 21;
-const COLUMN_OVALITY:      u32 = 22;
-const COLUMN_GUID:         u32 = 23;
-const COLUMN_CHANGE_COUNT: u32 = 24;
+#[derive(PartialEq, Clone, Copy)]
+enum ColIdx {
+    None = -1,
+    FileName = 0,
+    FilePath,
+    FileTime,
+    Dim,
+    Camera,
+    IsoStr,
+    ExpStr,
+    FocLenStr,
+    FNumber,
+    NoiseStr,
+    BgStr,
+    StarsStr,
+    FwhmStr,
+    OvalityStr,
+    Icon,
+    Checkbox,
+    CheckboxVis,
+    Iso,
+    Exp,
+    FocLen,
+    Noise,
+    Bg,
+    Stars,
+    Fwhm,
+    Ovality,
+    Guid,
+    ChangeCount,
+}
 
-fn get_prj_tree_store_columns() -> [(String, &'static str, u32, u32, glib::Type); 25] {
-    const EMPT: String = String::new();
-    [
-        // Column name in tree        | ID       | Model column       | Sort model column | Model column type
-        (gettext("Project/File name"), "filename", COLUMN_FILE_NAME,    COLUMN_FILE_NAME,   String::static_type()),
-        (gettext("File path"),         "path",     COLUMN_FILE_PATH,    COLUMN_FILE_PATH,   String::static_type()),
-        (gettext("File time"),         "time",     COLUMN_FILE_TIME,    COLUMN_FILE_TIME,   String::static_type()),
-        (gettext("Dimensions"),        "dims",     COLUMN_DIM,          COLUMN_DIM,         String::static_type()),
-        (gettext("Camera"),            "camera",   COLUMN_CAMERA,       COLUMN_CAMERA,      String::static_type()),
-        (gettext("ISO/Gain"),          "iso",      COLUMN_ISO_STR,      COLUMN_ISO,         String::static_type()),
-        (gettext("Exposure"),          "exp",      COLUMN_EXP_STR,      COLUMN_EXP,         String::static_type()),
-        (gettext("FNumber"),           "fnumber",  COLUMN_FNUMBER,      COLUMN_FNUMBER,     String::static_type()),
-        (gettext("Noise"),             "noise",    COLUMN_NOISE_STR,    COLUMN_NOISE,       String::static_type()),
-        (gettext("Background"),        "bg",       COLUMN_BG_STR,       COLUMN_BG,          String::static_type()),
-        (gettext("Stars"),             "stars",    COLUMN_STARS_STR,    COLUMN_STARS,       String::static_type()),
-        (gettext("FWHM"),              "fwhm",     COLUMN_FWHM_STR,     COLUMN_FWHM,        String::static_type()),
-        (gettext("Ovality"),           "oval",     COLUMN_OVALITY_STR,  COLUMN_OVALITY,     String::static_type()),
+fn get_prj_tree_store_columns() -> Vec::<(&'static str, &'static str, ColIdx, ColIdx, glib::Type)> {
+    vec![
+      // Column name in tree | ID       | Model column       | Sort model column | Model column type
+        ("Project/File name", "filename", ColIdx::FileName,    ColIdx::FileName,   String::static_type()),
+        ("File path",         "path",     ColIdx::FilePath,    ColIdx::FilePath,   String::static_type()),
+        ("File time",         "time",     ColIdx::FileTime,    ColIdx::FileTime,   String::static_type()),
+        ("Dimensions",        "dims",     ColIdx::Dim,         ColIdx::Dim,        String::static_type()),
+        ("Camera",            "camera",   ColIdx::Camera,      ColIdx::Camera,     String::static_type()),
+        ("ISO/Gain",          "iso",      ColIdx::IsoStr,      ColIdx::Iso,        String::static_type()),
+        ("Exposure",          "exp",      ColIdx::ExpStr,      ColIdx::Exp,        String::static_type()),
+        ("Focal len",         "foclen",   ColIdx::FocLenStr,   ColIdx::FocLen,     String::static_type()),
+        ("FNumber",           "fnumber",  ColIdx::FNumber,     ColIdx::FNumber,    String::static_type()),
+        ("Noise",             "noise",    ColIdx::NoiseStr,    ColIdx::Noise,      String::static_type()),
+        ("Background",        "bg",       ColIdx::BgStr,       ColIdx::Bg,         String::static_type()),
+        ("Stars",             "stars",    ColIdx::StarsStr,    ColIdx::Stars,      String::static_type()),
+        ("FWHM",              "fwhm",     ColIdx::FwhmStr,     ColIdx::Fwhm,       String::static_type()),
+        ("Ovality",           "oval",     ColIdx::OvalityStr,  ColIdx::Ovality,    String::static_type()),
 
         // columns below are used for sorting, icons, checkboxes and lookup during tree building
-        (EMPT,                         "",         COLUMN_ICON,         0,                  gdk_pixbuf::Pixbuf::static_type()),
-        (EMPT,                         "",         COLUMN_CHECKBOX,     0,                  bool::static_type()),
-        (EMPT,                         "",         COLUMN_CHECKBOX_VIS, 0,                  bool::static_type()),
-        (EMPT,                         "",         COLUMN_ISO,          0,                  u32::static_type()),
-        (EMPT,                         "",         COLUMN_EXP,          0,                  f32::static_type()),
-        (EMPT,                         "",         COLUMN_NOISE,        0,                  f32::static_type()),
-        (EMPT,                         "",         COLUMN_BG,           0,                  f32::static_type()),
-        (EMPT,                         "",         COLUMN_STARS,        0,                  u32::static_type()),
-        (EMPT,                         "",         COLUMN_FWHM,         0,                  f32::static_type()),
-        (EMPT,                         "",         COLUMN_OVALITY,      0,                  f32::static_type()),
-        (EMPT,                         "",         COLUMN_GUID,         0,                  String::static_type()),
-        (EMPT,                         "",         COLUMN_CHANGE_COUNT, 0,                  u32::static_type()),
+        ("",                  "",         ColIdx::Icon,        ColIdx::None,       gdk_pixbuf::Pixbuf::static_type()),
+        ("",                  "",         ColIdx::Checkbox,    ColIdx::None,       bool::static_type()),
+        ("",                  "",         ColIdx::CheckboxVis, ColIdx::None,       bool::static_type()),
+        ("",                  "",         ColIdx::Iso,         ColIdx::None,       u32::static_type()),
+        ("",                  "",         ColIdx::Exp,         ColIdx::None,       f32::static_type()),
+        ("",                  "",         ColIdx::FocLen,      ColIdx::None,       f32::static_type()),
+        ("",                  "",         ColIdx::Noise,       ColIdx::None,       f32::static_type()),
+        ("",                  "",         ColIdx::Bg,          ColIdx::None,       f32::static_type()),
+        ("",                  "",         ColIdx::Stars,       ColIdx::None,       u32::static_type()),
+        ("",                  "",         ColIdx::Fwhm,        ColIdx::None,       f32::static_type()),
+        ("",                  "",         ColIdx::Ovality,     ColIdx::None,       f32::static_type()),
+        ("",                  "",         ColIdx::Guid,        ColIdx::None,       String::static_type()),
+        ("",                  "",         ColIdx::ChangeCount, ColIdx::None,       u32::static_type()),
     ]
 }
 
@@ -633,7 +640,7 @@ fn update_project_tree(objects: &MainWindowObjectsPtr) {
 
             let result = gtk::TreeStore::new(&col_types);
             result.insert_with_values(None, None, &[
-                (COLUMN_ICON, &objects.icon_photo),
+                (ColIdx::Icon as u32, &objects.icon_photo),
             ]);
 
             let sorted_model = gtk::TreeModelSort::new(&result);
@@ -649,15 +656,15 @@ fn update_project_tree(objects: &MainWindowObjectsPtr) {
         .unwrap_or("");
 
     tree_store.set(&project_iter, &[
-        (COLUMN_FILE_NAME, &get_project_title(&project, true)),
-        (COLUMN_FILE_PATH, &project_file_path),
+        (ColIdx::FileName as u32, &get_project_title(&project, true)),
+        (ColIdx::FilePath as u32, &project_file_path),
     ]);
 
     // delete groups
     let mut tree_group_guids = HashSet::new();
     if let Some(group_iter) = tree_store.iter_children(Some(&project_iter)) {
         loop {
-            let tree_group_guid = tree_store.value(&group_iter, COLUMN_GUID as i32).get::<String>().unwrap();
+            let tree_group_guid = tree_store.value(&group_iter, ColIdx::Guid as i32).get::<String>().unwrap();
             let iter_valid = if !project.group_exists(&tree_group_guid) {
                 tree_store.remove(&group_iter)
             } else {
@@ -672,14 +679,14 @@ fn update_project_tree(objects: &MainWindowObjectsPtr) {
     for group in project.groups() {
         if tree_group_guids.contains(group.uuid()) { continue; }
         let iter = tree_store.insert_with_values(Some(&project_iter), None, &[
-            (COLUMN_ICON,         &objects.icon_folder),
-            (COLUMN_GUID,         &group.uuid()),
-            (COLUMN_CHECKBOX_VIS, &true),
+            (ColIdx::Icon        as u32, &objects.icon_folder),
+            (ColIdx::Guid        as u32, &group.uuid()),
+            (ColIdx::CheckboxVis as u32, &true),
         ]);
         for _ in 0..4 {
             tree_store.insert_with_values(
                 Some(&iter), None,
-                &[(COLUMN_ICON,  &objects.icon_folder)]
+                &[(ColIdx::Icon as u32, &objects.icon_folder)]
             );
         }
 
@@ -694,13 +701,13 @@ fn update_project_tree(objects: &MainWindowObjectsPtr) {
         .collect();
     if let Some(group_iter) = tree_store.iter_children(Some(&project_iter)) {
         loop {
-            let guid = tree_store.value(&group_iter, COLUMN_GUID as i32).get::<String>().unwrap();
+            let guid = tree_store.value(&group_iter, ColIdx::Guid as i32).get::<String>().unwrap();
             let group_index = *group_id_by_guid.get(guid.as_str()).unwrap();
             let group = &project.groups()[group_index];
 
             tree_store.set(&group_iter, &[
-                (COLUMN_FILE_NAME,    &group.name(group_index)),
-                (COLUMN_CHECKBOX,     &group.used()),
+                (ColIdx::FileName as u32, &group.name(group_index)),
+                (ColIdx::Checkbox as u32, &group.used()),
             ]);
 
             let file_types = [
@@ -733,7 +740,7 @@ fn update_project_tree(objects: &MainWindowObjectsPtr) {
                     }
                 };
                 tree_store.set(&files_iter, &[
-                    (COLUMN_FILE_NAME, &folder_text),
+                    (ColIdx::FileName as u32, &folder_text),
                 ]);
 
                 let file_index_by_name: HashMap<_,_> = files.list().into_iter()
@@ -745,7 +752,7 @@ fn update_project_tree(objects: &MainWindowObjectsPtr) {
                 let mut tree_file_names = HashSet::new();
                 if let Some(file_iter) = tree_store.iter_children(Some(&files_iter)) {
                     loop {
-                        let file_name = tree_store.value(&file_iter, COLUMN_GUID as i32).get::<String>().unwrap();
+                        let file_name = tree_store.value(&file_iter, ColIdx::Guid as i32).get::<String>().unwrap();
                         let iter_valid = if file_index_by_name.get(file_name.as_str()).is_none() {
                             tree_store.remove(&file_iter)
                         } else {
@@ -761,9 +768,9 @@ fn update_project_tree(objects: &MainWindowObjectsPtr) {
                     let file_name = file.file_name().to_str().unwrap();
                     if tree_file_names.contains(file_name) { continue; }
                     tree_store.insert_with_values(Some(&files_iter), None, &[
-                        (COLUMN_GUID,         &file_name),
-                        (COLUMN_CHECKBOX_VIS, &true),
-                        (COLUMN_CHANGE_COUNT, &u32::MAX),
+                        (ColIdx::Guid        as u32, &file_name),
+                        (ColIdx::CheckboxVis as u32, &true),
+                        (ColIdx::ChangeCount as u32, &u32::MAX),
                     ]);
                 }
 
@@ -771,12 +778,12 @@ fn update_project_tree(objects: &MainWindowObjectsPtr) {
                 if let Some(file_iter) = tree_store.iter_children(Some(&files_iter)) {
                     loop {
                         let file_name = tree_store
-                            .value(&file_iter, COLUMN_GUID as i32)
+                            .value(&file_iter, ColIdx::Guid as i32)
                             .get::<String>()
                             .unwrap();
                         let file = &files.list()[*file_index_by_name.get(file_name.as_str()).unwrap()];
                         let tree_changes_count = tree_store
-                            .value(&file_iter, COLUMN_CHANGE_COUNT as i32)
+                            .value(&file_iter, ColIdx::ChangeCount as i32)
                             .get::<u32>()
                             .unwrap();
                         if file.change_count() != tree_changes_count {
@@ -844,6 +851,16 @@ fn update_project_tree(objects: &MainWindowObjectsPtr) {
                                 String::new()
                             };
 
+                            let (focal_len_str, focal_len) = match *file.focal_len() {
+                                Some(focal_len) if focal_len != 0.0  =>
+                                    (format!("{:.1}", focal_len), focal_len),
+                                _ =>
+                                    (String::new(), 0.0),
+                            };
+
+
+                            // ColIdx::FocLenStr,   ColIdx::FocLen
+
                             let (noise_str, noise, bg_str, bg, stars_cnt_str, stars_cnt,
                                 fwhm_str, fwhm, star_r_dev_str, star_r_dev)
                                 = if let Some(reg_info) = file.reg_info() {(
@@ -889,30 +906,32 @@ fn update_project_tree(objects: &MainWindowObjectsPtr) {
                             let bg_str = make_important(bg_str, file.flags(), FILE_FLAG_CLEANUP_BG);
 
                             tree_store.set(&file_iter, &[
-                                (COLUMN_ICON,         icon),
-                                (COLUMN_CHECKBOX,     &file.used()),
-                                (COLUMN_CHECKBOX_VIS, &true),
-                                (COLUMN_FILE_NAME,    &file_name),
-                                (COLUMN_FILE_PATH,    &path),
-                                (COLUMN_FILE_TIME,    &file_time_str),
-                                (COLUMN_DIM,          &dim_str),
-                                (COLUMN_CAMERA,       &camera_str),
-                                (COLUMN_ISO_STR,      &iso_str),
-                                (COLUMN_ISO,          &iso),
-                                (COLUMN_EXP_STR,      &exp_str),
-                                (COLUMN_EXP,          &exp),
-                                (COLUMN_FNUMBER,      &fnumber_str),
-                                (COLUMN_NOISE_STR,    &noise_str),
-                                (COLUMN_NOISE,        &noise),
-                                (COLUMN_BG_STR,       &bg_str),
-                                (COLUMN_BG,           &bg),
-                                (COLUMN_STARS_STR,    &stars_cnt_str),
-                                (COLUMN_STARS,        &stars_cnt),
-                                (COLUMN_FWHM_STR,     &fwhm_str),
-                                (COLUMN_FWHM,         &fwhm),
-                                (COLUMN_OVALITY_STR,  &star_r_dev_str),
-                                (COLUMN_OVALITY,      &star_r_dev),
-                                (COLUMN_CHANGE_COUNT, &file.change_count())
+                                (ColIdx::Icon        as u32, icon),
+                                (ColIdx::Checkbox    as u32, &file.used()),
+                                (ColIdx::CheckboxVis as u32, &true),
+                                (ColIdx::FileName    as u32, &file_name),
+                                (ColIdx::FilePath    as u32, &path),
+                                (ColIdx::FileTime    as u32, &file_time_str),
+                                (ColIdx::Dim         as u32, &dim_str),
+                                (ColIdx::Camera      as u32, &camera_str),
+                                (ColIdx::IsoStr      as u32, &iso_str),
+                                (ColIdx::Iso         as u32, &iso),
+                                (ColIdx::ExpStr      as u32, &exp_str),
+                                (ColIdx::Exp         as u32, &exp),
+                                (ColIdx::FNumber     as u32, &fnumber_str),
+                                (ColIdx::NoiseStr    as u32, &noise_str),
+                                (ColIdx::Noise       as u32, &noise),
+                                (ColIdx::BgStr       as u32, &bg_str),
+                                (ColIdx::Bg          as u32, &bg),
+                                (ColIdx::StarsStr    as u32, &stars_cnt_str),
+                                (ColIdx::Stars       as u32, &stars_cnt),
+                                (ColIdx::FwhmStr     as u32, &fwhm_str),
+                                (ColIdx::Fwhm        as u32, &fwhm),
+                                (ColIdx::OvalityStr  as u32, &star_r_dev_str),
+                                (ColIdx::Ovality     as u32, &star_r_dev),
+                                (ColIdx::FocLenStr   as u32, &focal_len_str),
+                                (ColIdx::FocLen      as u32, &focal_len),
+                                (ColIdx::ChangeCount as u32, &file.change_count())
                             ]);
                         }
 
@@ -2891,11 +2910,11 @@ fn action_project_columns(objects: &MainWindowObjectsPtr) {
     let tree_columns = get_prj_tree_store_columns();
     for i in 0..objects.prj_tree.n_columns() {
         let tree_col = objects.prj_tree.column(i as i32).unwrap();
-        let name = &tree_columns[i as usize].0;
+        let name = tree_columns[i as usize].0;
         let id = tree_columns[i as usize].1;
         model.insert_with_values(None, &[
             (COLUMN_CHECK as u32, &tree_col.is_visible()),
-            (COLUMN_NAME as u32, name),
+            (COLUMN_NAME as u32, &gettext(name)),
             (COLUMN_ID as u32, &id),
         ]);
     }

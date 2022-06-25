@@ -51,6 +51,9 @@ msgstr "Овальность"
 msgid "Sharpness"
 msgstr "Резкость"
 
+msgid "Focal len"
+msgstr "Фок.расст."
+
 # Project tree values
 
 msgid "Unnamed project"

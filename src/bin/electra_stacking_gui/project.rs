@@ -1292,6 +1292,7 @@ pub struct ProjectFile {
     iso: Option<u32>,
     exp: Option<f32>,
     fnumber: Option<f32>,
+    focal_len: Option<f32>,
     camera: Option<String>,
     reg_info: Option<RegInfo>,
     flags: FileFlags,
@@ -1316,6 +1317,7 @@ impl Default for ProjectFile {
             width: None,
             height: None,
             fnumber: None,
+            focal_len: None,
             camera: None,
             reg_info: None,
             flags: 0,
@@ -1340,6 +1342,7 @@ impl ProjectFile {
             exp: info.exp.map(|v| v as f32),
             width: Some(info.width),
             height: Some(info.height),
+            focal_len: info.focal_len,
             fnumber: info.fnumber,
             camera: info.camera,
             .. Default::default()
@@ -1391,6 +1394,10 @@ impl ProjectFile {
 
     pub fn fnumber(&self) -> &Option<f32> {
         &self.fnumber
+    }
+
+    pub fn focal_len(&self) -> &Option<f32> {
+        &self.focal_len
     }
 
     pub fn camera(&self) -> &Option<String> {
