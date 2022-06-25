@@ -7,7 +7,7 @@ Windows + MSYS64:
 
 ```
 pacman -S mingw-w64-x86_64-gtk3 mingw-w64-x86_64-pkg-config
-pacman --noconfirm -S base-devel mingw-w64-x86_64-gcc libxml2-devel tar
+pacman -S base-devel mingw-w64-x86_64-gcc libxml2-devel tar
 ```
 Linux:
 ```
