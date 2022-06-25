@@ -153,51 +153,11 @@ pub fn find_stars_on_image(
 
         if star_points.len() as i64 > MSD*MSD { continue; }
 
-        // center of star and brightness
-
-        let (x_sum, y_sum, br) = star_points.iter().fold(
-            (0_f64, 0_f64, 0_f64),
-            |(x_sum, y_sum, br), &(x, y)| {
-                let v = (img.get(x, y).unwrap_or(0.0) - star_bg) as f64;
-                (x_sum + v * x as f64, y_sum + v * y as f64, br + v)
-            }
+        let (center_x, center_y, br, radius, radius_dev) = calc_center_brightness_radius_and_deviation(
+            &img,
+            star_bg,
+            &star_points
         );
-
-        let center_x = x_sum/br;
-        let center_y = y_sum/br;
-
-        // radius
-
-        let is_border_point = |x, y| {
-            !star_points.contains(&(x+1, y)) ||
-            !star_points.contains(&(x-1, y)) ||
-            !star_points.contains(&(x, y+1)) ||
-            !star_points.contains(&(x, y-1))
-        };
-
-        let mut radius_summ = 0_f64;
-        let mut bord_pt_cnt = 0_u32;
-        for &(sx, sy) in star_points.iter().filter(|(x, y)| is_border_point(*x, *y) ) {
-            let dx = sx as f64 - center_x;
-            let dy = sy as f64 - center_y;
-            let r = (dx*dx + dy*dy).sqrt() + 0.5;
-            radius_summ += r;
-            bord_pt_cnt += 1;
-        }
-
-        let radius = radius_summ / bord_pt_cnt as f64;
-
-        // radius devation
-
-        let mut radius_summ = 0_f64;
-        for &(sx, sy) in star_points.iter().filter(|(x, y)| is_border_point(*x, *y) ) {
-            let dx = sx as f64 - center_x;
-            let dy = sy as f64 - center_y;
-            let r = (dx*dx + dy*dy).sqrt() + 0.5;
-            radius_summ += (r - radius) * (r - radius);
-        }
-
-        let radius_dev = (radius_summ / bord_pt_cnt as f64).sqrt() / radius;
 
         if radius_dev > 2.0 { continue; }
 
@@ -295,12 +255,68 @@ pub fn find_stars_on_image(
     }
 
     stars.sort_by(|s1, s2| cmp_f64(&s1.brightness, &s2.brightness).reverse());
-
     // common star
 
     Ok(stars)
 }
 
+fn calc_center_brightness_radius_and_deviation(
+    img:         &ImageLayerF32,
+    star_bg:     f32,
+    star_points: &HashSet<(Crd, Crd)>
+) -> (f64, f64, f64, f64, f64) {
+    const BORD: f64 = 0.5;
+
+    // center of star and brightness
+
+    let (x_sum, y_sum, br) = star_points.iter().fold(
+        (0_f64, 0_f64, 0_f64),
+        |(x_sum, y_sum, br), &(x, y)| {
+            let v = (img.get(x, y).unwrap_or(0.0) - star_bg) as f64;
+            (x_sum + v * x as f64, y_sum + v * y as f64, br + v)
+        }
+    );
+
+    let center_x = x_sum/br;
+    let center_y = y_sum/br;
+
+    // radius
+
+    let is_border_point = |x, y| {
+        !star_points.contains(&(x+1, y)) ||
+        !star_points.contains(&(x-1, y)) ||
+        !star_points.contains(&(x, y+1)) ||
+        !star_points.contains(&(x, y-1))
+    };
+
+    let mut radius_summ = 0_f64;
+    let mut bord_pt_cnt = 0_u32;
+    for &(sx, sy) in star_points.iter().filter(|(x, y)| is_border_point(*x, *y) ) {
+        let dx = sx as f64 - center_x;
+        let dy = sy as f64 - center_y;
+        let r = (dx*dx + dy*dy).sqrt() + BORD;
+        radius_summ += r;
+        bord_pt_cnt += 1;
+    }
+
+    let radius = radius_summ / bord_pt_cnt as f64;
+
+    // radius devation
+
+    let mut deviation_summ = 0_f64;
+    for &(sx, sy) in star_points.iter().filter(|(x, y)| is_border_point(*x, *y) ) {
+        let dx = sx as f64 - center_x;
+        let dy = sy as f64 - center_y;
+        let r = (dx*dx + dy*dy).sqrt() + BORD;
+        let diff = (r - radius).abs();
+        let diff = if diff < BORD { 0.0 } else { diff - BORD };
+        deviation_summ += diff * diff;
+    }
+
+    let radius_dev = (deviation_summ / bord_pt_cnt as f64).sqrt() / radius;
+
+    (center_x, center_y, br, radius, radius_dev)
+}
 
 #[derive(Debug)]
 pub struct ImageOffset {
@@ -596,30 +612,22 @@ fn create_common_star_image(
 }
 
 pub fn calc_stars_stat(stars: &Stars, image: &ImageLayerF32) -> anyhow::Result<StarsStat> {
-    const MAG: Crd = 4;
-
+    const MAG: Crd = 8;
     let common_stars_img = create_common_star_image(stars, image, MAG)?;
-
-    let common_stars = find_stars_on_image(
-        &common_stars_img,
-        None,
-        Some(0.01),
-        false
-    )?;
-
-    let common_star = common_stars.iter()
-        .max_by(|s1, s2| cmp_f32(&s1.max_value,&s2.max_value))
-        .ok_or_else(|| anyhow::anyhow!("Can't find common star"))?;
-
+    let points = common_stars_img.iter_crd()
+        .filter(|(_, _, v)| *v > 0.25)
+        .map(|(x, y, _)| (x, y))
+        .collect();
+    let (_, _, _, _, deviation) =
+        calc_center_brightness_radius_and_deviation(image, 0.0, &points);
     let over_0_5_cnt = common_stars_img
         .as_slice()
         .iter()
         .filter(|&v| *v > 0.5)
         .count();
-
     Ok(StarsStat {
         fwhm:       over_0_5_cnt as f32 / (MAG * MAG) as f32,
-        aver_r_dev: common_star.radius_std_dev as f32,
+        aver_r_dev: deviation as f32,
         common_stars_img
     })
 }

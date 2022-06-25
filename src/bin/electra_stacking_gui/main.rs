@@ -829,26 +829,20 @@ fn update_project_tree(objects: &MainWindowObjectsPtr) {
                                 (String::new(), 0)
                             };
 
-                            let (exp_str, exp) = if let Some(exp) = *file.exp() {
-                                if exp == 0.0 {
-                                    ("0".to_string(), 0.0)
-                                } else if exp > 0.5 {
-                                    (format!("{:.1}s", exp), exp)
-                                } else {
-                                    (format!("1/{:.0}", 1.0/exp), exp)
-                                }
-                            } else {
-                                (String::new(), 0.0)
+                            let (exp_str, exp) = match *file.exp() {
+                                Some(exp) if exp > 0.5 =>
+                                    (format!("{:.1}s", exp), exp),
+                                Some(exp) if 0.0 < exp && exp < 0.5 =>
+                                    (format!("1/{:.0}", 1.0/exp), exp),
+                                _ =>
+                                    (String::new(), 0.0)
                             };
 
-                            let fnumber_str = if let Some(fnumber) = *file.fnumber() {
-                                if fnumber != 0.0 {
-                                    format!("f/{:.1}", fnumber)
-                                } else {
-                                    String::new()
-                                }
-                            } else {
-                                String::new()
+                            let fnumber_str = match *file.fnumber() {
+                                Some(fnumber) if fnumber != 0.0 =>
+                                    format!("f/{:.1}", fnumber),
+                                _ =>
+                                    String::new(),
                             };
 
                             let (focal_len_str, focal_len) = match *file.focal_len() {
@@ -857,9 +851,6 @@ fn update_project_tree(objects: &MainWindowObjectsPtr) {
                                 _ =>
                                     (String::new(), 0.0),
                             };
-
-
-                            // ColIdx::FocLenStr,   ColIdx::FocLen
 
                             let (noise_str, noise, bg_str, bg, stars_cnt_str, stars_cnt,
                                 fwhm_str, fwhm, star_r_dev_str, star_r_dev)

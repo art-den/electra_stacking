@@ -6,8 +6,8 @@ use byteorder::*;
 use crate::{image::*, fs_utils, log_utils::*, calc::*, compression::*, image_formats::*};
 use bitstream_io::{BitWriter, BitWrite};
 
-const CALIBR_FILE_SIG: &[u8] = b"calibr-file-4";
-const MASTER_FILE_SIG: &[u8] = b"master-file-4";
+const CALIBR_FILE_SIG: &[u8] = b"calibr-file-5";
+const MASTER_FILE_SIG: &[u8] = b"master-file-5";
 
 // Color coefficients for camera sensors
 const SONY_IMX294_WB: [f32; 4] = [1.216, 1.000, 1.424, 0.000];
