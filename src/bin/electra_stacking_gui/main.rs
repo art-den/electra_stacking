@@ -479,10 +479,11 @@ fn ask_user_to_save_project(objects: &MainWindowObjectsPtr) -> bool {
         ]);
     }
 
-    let resp = dialog.run();
+    let response = dialog.run();
     dialog.close();
+    gtk::main_iteration_do(true);
 
-    match resp {
+    match response {
         gtk::ResponseType::Yes => {
             action_save_project(objects);
             objects.project.borrow_mut().reset_changed_flag();
@@ -2570,8 +2571,9 @@ fn action_cleanup_light_files(objects: &MainWindowObjectsPtr) {
             update_project_tree(&objects);
             update_project_name_and_time_in_gui(&objects);
         }
-
-        dialog.close();
+        else {
+            dialog.close();
+        }
     }));
 
     dialog.show();
