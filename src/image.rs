@@ -39,6 +39,15 @@ where T: Copy + Clone + ImgLayerDefValue<Type = T> {
         result
     }
 
+    pub fn new_from_vec(width: Crd, height: Crd, data: Vec<T>) -> ImageLayer<T> {
+        assert!((width * height) as usize == data.len());
+        ImageLayer::<T>{
+            data,
+            width,
+            height
+        }
+    }
+
     pub fn new_empty() -> ImageLayer<T> {
         ImageLayer { data: vec![], width: 0, height: 0 }
     }

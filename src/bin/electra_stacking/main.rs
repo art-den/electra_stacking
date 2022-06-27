@@ -11,16 +11,12 @@ mod cmd_convert;
 mod cmd_create_master_dark;
 mod cmd_create_master_flat;
 mod cmd_create_master_bias;
-mod cmd_merge_lrgb;
 mod cmd_register;
 mod cmd_stack_lights;
 mod consts;
 
 #[derive(StructOpt, Debug)]
 enum SubCommands {
-    /// Merge l,r,g,b files into color one
-    MergeLRGB(cmd_merge_lrgb::CmdOptions),
-
     /// Create master dark file from several dark files
     MasterDark(cmd_create_master_dark::CmdOptions),
 
@@ -62,9 +58,6 @@ fn main() -> anyhow::Result<()> {
     }
 
     match opt.cmd {
-        SubCommands::MergeLRGB(opts) =>
-            cmd_merge_lrgb::execute(opts),
-
         SubCommands::MasterDark(opts) =>
             cmd_create_master_dark::execute(opts),
 

@@ -1,6 +1,6 @@
 [package]
 name = "electra_stacking"
-version = "0.1.81"
+version = "0.1.82"
 edition = "2021"
 description = "Astronimical images stacking"
 repository = "https://github.com/art-den/electra_stacking"
@@ -8,7 +8,6 @@ license = "MIT"
 build = "build.rs"
 
 [dependencies]
-fitrs = "0.5.0"
 itertools = "0.10.3"
 num = "0.4.0"
 structopt = "0.3.26"
@@ -33,6 +32,7 @@ chrono = { version = "0.4", features = [ "serde" ] }
 num_cpus = "1.0"
 gettext-rs = { version = "0.7", features = ["gettext-system"] }
 nalgebra = "0.31"
+fitsio = "0.20"
 
 [target.'cfg(windows)'.build-dependencies]
 embed-resource = "1.7"
