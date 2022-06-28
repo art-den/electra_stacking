@@ -118,7 +118,6 @@ fn build_ui(application: &gtk::Application) {
     let mi_cpu_load_min     = builder.object::<gtk::RadioMenuItem>("mi_cpu_load_min").unwrap();
     let mi_cpu_load_half    = builder.object::<gtk::RadioMenuItem>("mi_cpu_load_half").unwrap();
     let mi_cpu_load_max     = builder.object::<gtk::RadioMenuItem>("mi_cpu_load_max").unwrap();
-    let mi_theme            = builder.object::<gtk::MenuItem>("mi_theme").unwrap();
     let mi_cpu_load         = builder.object::<gtk::MenuItem>("mi_cpu_load").unwrap();
 
     let prj_tree_store_columns = get_prj_tree_store_columns();
@@ -355,8 +354,6 @@ fn build_ui(application: &gtk::Application) {
 
     update_project_tree(&objects);
     update_project_name_and_time_in_gui(&objects);
-
-    mi_theme.set_sensitive(cfg!(target_os = "windows"));
 
     objects.window.connect_delete_event(clone!(@strong objects => move |_, _| {
         if objects.trying_to_close.get() {
@@ -1790,19 +1787,15 @@ fn action_register(objects: &MainWindowObjectsPtr) {
 }
 
 fn action_light_theme(_: &MainWindowObjectsPtr) {
-    if cfg!(target_os = "windows") {
-        let settings = gtk::Settings::default().unwrap();
-        settings.set_property("gtk-theme-name", "Adwaita");
-        log::info!("Light theme selected");
-    }
+    let settings = gtk::Settings::default().unwrap();
+    settings.set_property("gtk-application-prefer-dark-theme", false);
+    log::info!("Light theme selected");
 }
 
 fn action_dark_theme(_: &MainWindowObjectsPtr) {
-    if cfg!(target_os = "windows") {
-        let settings = gtk::Settings::default().unwrap();
-        settings.set_property("gtk-theme-name", "Skeuos-Blue-Dark");
-        log::info!("Dark theme selected");
-    }
+    let settings = gtk::Settings::default().unwrap();
+    settings.set_property("gtk-application-prefer-dark-theme", true);
+    log::info!("Dark theme selected");
 }
 
 fn preview_selected_file(objects: &MainWindowObjectsPtr) {
