@@ -319,7 +319,7 @@ msgid "Change type of {count} file(s) from {from_type} into {into_type}?"
 msgstr "Изменить тип {count} файлов из {from_type} на {into_type}?"
 
 msgid "Result file saved to {fn}"
-msgstr "Полученный результат записано в {fn}"
+msgstr "Полученный результат записан в {fn}"
 
 msgid "Remove file '{fn}' from project?"
 msgstr "Убрать файл '{fn}' из проекта?"

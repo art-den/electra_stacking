@@ -39,6 +39,30 @@ pub enum CanExecStackLightsRes {
 }
 
 impl Project {
+    fn make_file_names_absolute(&mut self) {
+        let relative_path = self.file_name
+            .as_ref()
+            .and_then(|file_name| file_name.parent())
+            .map(|file_name| file_name.to_path_buf());
+        if let Some(relative_path) = relative_path {
+            for group in &mut self.groups {
+                group.make_file_names_absolute(&relative_path);
+            }
+        }
+    }
+
+    fn make_file_names_relative(&mut self) {
+        let relative_path = self.file_name
+            .as_ref()
+            .and_then(|file_name| file_name.parent())
+            .map(|file_name| file_name.to_path_buf());
+        if let Some(relative_path) = relative_path {
+            for group in &mut self.groups {
+                group.make_file_names_relative(&relative_path);
+            }
+        }
+    }
+
     pub fn load(&mut self, file_name: &Path) -> anyhow::Result<()> {
         let reader = BufReader::new(File::open(file_name)?);
         *self = serde_json::from_reader(reader)?;
@@ -47,13 +71,16 @@ impl Project {
             group.assign_project_changed_flag(weak_changed.clone());
         }
         self.file_name = Some(file_name.to_path_buf());
+        self.make_file_names_absolute();
         Ok(())
     }
 
     pub fn save(&mut self, file_name: &Path) -> anyhow::Result<()> {
         let writer = BufWriter::new(File::create(file_name)?);
         self.file_name = Some(file_name.to_path_buf());
+        self.make_file_names_relative();
         serde_json::to_writer_pretty(writer, self)?;
+        self.make_file_names_absolute();
         self.reset_changed_flag();
         Ok(())
     }
@@ -510,6 +537,20 @@ impl ProjectGroup {
         self.bias_files.assign_project_changed_flag(project_changed.clone());
         self.flat_files.assign_project_changed_flag(project_changed.clone());
         self.project_changed = project_changed;
+    }
+
+    fn make_file_names_absolute(&mut self, relative_path: &Path) {
+        self.light_files.make_file_names_absolute(relative_path);
+        self.dark_files.make_file_names_absolute(relative_path);
+        self.bias_files.make_file_names_absolute(relative_path);
+        self.flat_files.make_file_names_absolute(relative_path);
+    }
+
+    fn make_file_names_relative(&mut self, relative_path: &Path) {
+        self.light_files.make_file_names_relative(relative_path);
+        self.dark_files.make_file_names_relative(relative_path);
+        self.bias_files.make_file_names_relative(relative_path);
+        self.flat_files.make_file_names_relative(relative_path);
     }
 
     pub fn options(&self) -> &GroupOptions {
@@ -1106,6 +1147,18 @@ impl ProjectFiles {
         self.project_changed = project_changed;
     }
 
+    fn make_file_names_absolute(&mut self, relative_path: &Path) {
+        for file in &mut self.list {
+            file.make_file_names_absolute(relative_path);
+        }
+    }
+
+    fn make_file_names_relative(&mut self, relative_path: &Path) {
+        for file in &mut self.list {
+            file.make_file_names_relative(relative_path);
+        }
+    }
+
     pub fn list(&self) -> &Vec<ProjectFile> {
         &self.list
     }
@@ -1331,6 +1384,20 @@ impl Default for ProjectFile {
 impl ProjectFile {
     fn assign_project_changed_flag(&mut self, project_changed: Weak<Cell<bool>>) {
         self.project_changed = project_changed;
+    }
+
+    fn make_file_names_absolute(&mut self, relative_path: &Path) {
+        use path_absolutize::*;
+        if let Ok(file_name) = self.file_name.absolutize_from(relative_path) {
+            self.file_name = file_name.to_path_buf();
+        }
+    }
+
+    fn make_file_names_relative(&mut self, relative_path: &Path) {
+        use pathdiff::diff_paths;
+        if let Some(file_name) = diff_paths(&self.file_name, relative_path) {
+            self.file_name = file_name;
+        }
     }
 
     fn new_from_info(info: ImageInfo) -> ProjectFile {
