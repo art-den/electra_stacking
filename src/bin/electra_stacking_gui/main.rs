@@ -2348,6 +2348,11 @@ fn configure_project_options<F: Fn(ProjectConfig) + 'static>(
 
     chb_apply_wb.set_active(project_config.raw_params.apply_wb);
     chb_apply_color.set_active(project_config.raw_params.apply_color);
+    chb_apply_color.set_sensitive(chb_apply_wb.is_active());
+
+    chb_apply_wb.connect_active_notify(clone!(@strong chb_apply_color => move |v| {
+        chb_apply_color.set_sensitive(v.is_active());
+    }));
 
     dialog.set_transient_for(Some(&objects.window));
 

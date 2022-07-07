@@ -106,7 +106,7 @@ impl LightFile {
                     raw.info.apply_wb(&mut result);
                 }
 
-                if raw_params.apply_color {
+                if raw_params.apply_color && raw_params.apply_wb {
                     raw.info.convert_color_space_to_srgb(&mut result);
                 }
 

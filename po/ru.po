@@ -337,6 +337,18 @@ msgstr "Удалить группу '{group}' из проекта?"
 msgid "Project options"
 msgstr "Настройки проекта"
 
+msgid "Common"
+msgstr "Основные настройки"
+
+msgid "Stacking"
+msgstr "Сложение"
+
+msgid "For each light file"
+msgstr "Для каждого файла изображения (light)"
+
+msgid "Color camera"
+msgstr "Для цветных камер"
+
 msgid "Project name:"
 msgstr "Имя проекта:"
 
@@ -370,14 +382,17 @@ msgstr "Медианное среднее"
 msgid "Mean"
 msgstr "Среднее"
 
-msgid "For each light file"
-msgstr "Для каждого файла изображения (light)"
-
 msgid "Save calibrated and aligned image"
 msgstr "Сохранить калиброванное и выровненное изображение"
 
 msgid "Save common star image"
 msgstr "Сохранить изображение обобщённой звезды"
+
+msgid "Apply camera white balance"
+msgstr "Применять баланс белого"
+
+msgid "Apply camera color profile"
+msgstr "Применять цветовой профиль"
 
 ###########################################################
 
