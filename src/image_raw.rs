@@ -24,6 +24,13 @@ const SONY_IMX455_CCM: &[f32; 9] = &[
     -0.02383,  0.05566,  0.53220,
 ];
 
+const SONY_IMX178_WB: [f32; 4] = [1.292, 1.000, 1.387, 0.000];
+const SONY_IMX178_CCM: &[f32; 9] = &[
+     1.71221, -0.66253, -0.23873,
+     0.06362,  0.75193,  0.11160,
+     0.03049,  0.04920,  0.53220,
+];
+
 const SONY_IMX571_WB: [f32; 4] = [1.11, 1.00, 1.25, 0.00];  // ???
 const SONY_IMX071_WB: [f32; 4] = [1.11, 1.00, 1.18, 0.00];  // ???
 const SONY_IMX183_WB: [f32; 4] = [1.04, 1.00, 1.25, 0.00];  // ???
@@ -40,6 +47,7 @@ const CAMERAS_TABLE: &[(&str, [f32; 4], Option<CfaType>, Option<&[f32; 9]>)] = &
     ("asi533mc",  SONY_IMX533_WB, None,                None),
     ("asi6200mc", SONY_IMX455_WB, None,                Some(SONY_IMX455_CCM)),
     ("asi2400mc", SONY_IMX410_WB, None,                None),
+    ("asi178mc",  SONY_IMX178_WB, None,                Some(SONY_IMX178_CCM)),
 ];
 
 pub fn find_camera_params(
@@ -739,11 +747,11 @@ impl RawImage {
 
         // red and blue on green
 
-        const PATH_VERT:  &[(Crd, Crd)] = &[(0, -1), (0, 1)];
-        const PATH_HORIZ: &[(Crd, Crd)] = &[(-1, 0), (1, 0)];
-        const PATH_DIAG:  &[(Crd, Crd)] = &[(-1, -1), (1, -1), (-1, 1), (1, 1)];
-
         let demosaic_red_or_blue_on_green = |y, d_row: &mut[f32], ct: CfaColor| {
+            const PATH_VERT:  &[(Crd, Crd)] = &[(0, -1), (0, 1)];
+            const PATH_HORIZ: &[(Crd, Crd)] = &[(-1, 0), (1, 0)];
+            const PATH_DIAG:  &[(Crd, Crd)] = &[(-1, -1), (1, -1), (-1, 1), (1, 1)];
+
             let s_row = self.data.row(y);
             let green_row = result_image.g.row(y);
             for (x, (d, s, &green)) in izip!(d_row.iter_mut(), s_row, green_row).enumerate() {

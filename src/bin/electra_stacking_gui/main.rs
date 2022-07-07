@@ -1929,6 +1929,9 @@ fn preview_image_file(
         ImageSize::Bin2x2 => if is_result_file {1} else {2},
         ImageSize::Original => 1,
     };
+
+    let raw_params = objects.project.borrow().config().raw_params.clone();
+
     objects.preview_tp.spawn(clone!(@strong cancel_flag => move || {
         if cancel_flag.load(Ordering::Relaxed) { return; }
         let calibr_data = CalibrationData::new_empty();
@@ -1944,7 +1947,8 @@ fn preview_image_file(
             &calibr_data,
             load_flags,
             OpenMode::Preview,
-            bin
+            bin,
+            &raw_params
         );
 
         match light_file {
@@ -2256,6 +2260,9 @@ fn action_project_options(objects: &MainWindowObjectsPtr) {
             objects.project.borrow_mut().set_new_config(new_config);
             update_project_tree(&objects);
             update_project_name_and_time_in_gui(&objects);
+
+            *objects.last_preview_file.borrow_mut() = PathBuf::new();
+            preview_selected_file(&objects);
         })
     );
 }
@@ -2282,6 +2289,10 @@ fn configure_project_options<F: Fn(ProjectConfig) + 'static>(
     let bias_stack_mode = builder.object::<gtk::ComboBoxText>("bias_stack_mode").unwrap();
     let bias_stack_kappa = builder.object::<gtk::Entry>("bias_stack_kappa").unwrap();
     let bias_stack_steps = builder.object::<gtk::Entry>("bias_stack_steps").unwrap();
+
+    let cb_cfa_array = builder.object::<gtk::ComboBoxText>("cb_cfa_array").unwrap();
+    let chb_apply_wb = builder.object::<gtk::CheckButton>("chb_apply_wb").unwrap();
+    let chb_apply_color = builder.object::<gtk::CheckButton>("chb_apply_color").unwrap();
 
     let chb_save_calibrated_img = builder.object::<gtk::CheckButton>("chb_save_calibrated_img").unwrap();
     let chb_save_common_star_img = builder.object::<gtk::CheckButton>("chb_save_common_star_img").unwrap();
@@ -2326,6 +2337,17 @@ fn configure_project_options<F: Fn(ProjectConfig) + 'static>(
 
     chb_save_calibrated_img.set_active(project_config.save_aligned_img);
     chb_save_common_star_img.set_active(project_config.save_common_star_img);
+
+    cb_cfa_array.set_active(Some(match project_config.raw_params.force_cfa {
+        None                => 0,
+        Some(CfaType::GBRG) => 1,
+        Some(CfaType::RGGB) => 2,
+        Some(CfaType::BGGR) => 3,
+        Some(CfaType::GRBG) => 4,
+    }));
+
+    chb_apply_wb.set_active(project_config.raw_params.apply_wb);
+    chb_apply_color.set_active(project_config.raw_params.apply_color);
 
     dialog.set_transient_for(Some(&objects.window));
 
@@ -2378,6 +2400,18 @@ fn configure_project_options<F: Fn(ProjectConfig) + 'static>(
 
             project_config.save_aligned_img = chb_save_calibrated_img.is_active();
             project_config.save_common_star_img = chb_save_common_star_img.is_active();
+
+            project_config.raw_params.force_cfa = match cb_cfa_array.active() {
+                Some(0) => None,
+                Some(1) => Some(CfaType::GBRG),
+                Some(2) => Some(CfaType::RGGB),
+                Some(3) => Some(CfaType::BGGR),
+                Some(4) => Some(CfaType::GRBG),
+                _ => panic!("Wrong cb_cfa_array.active(): {:?}", cb_cfa_array.active()),
+            };
+
+            project_config.raw_params.apply_wb = chb_apply_wb.is_active();
+            project_config.raw_params.apply_color = chb_apply_color.is_active();
 
             set_fun(project_config);
         }

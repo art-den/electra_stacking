@@ -1,4 +1,5 @@
 use std::{path::*};
+use serde::*;
 use bitflags::bitflags;
 use itertools::Itertools;
 use crate::{image::*, image_formats::*, image_raw::*, stars::*, log_utils::*, calc::*};
@@ -26,13 +27,32 @@ pub struct LightFile {
     pub background: f32,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(default)]
+pub struct RawOpenParams {
+    pub apply_wb: bool,
+    pub apply_color: bool,
+    pub force_cfa: Option<CfaType>,
+}
+
+impl Default for RawOpenParams {
+    fn default() -> Self {
+        Self {
+            apply_wb: true,
+            apply_color: true,
+            force_cfa: None,
+        }
+    }
+}
+
 impl LightFile {
     pub fn load_and_calc_params(
-        file_name: &Path,
-        cal_data:  &CalibrationData,
-        flags:     LoadLightFlags,
-        open_mode: OpenMode,
-        bin:       usize,
+        file_name:   &Path,
+        cal_data:    &CalibrationData,
+        flags:       LoadLightFlags,
+        open_mode:   OpenMode,
+        bin:         usize,
+        raw_params:  &RawOpenParams,
     ) -> anyhow::Result<LightFile> {
         log::info!(
             "LightFile::load_and_calc_params: file_name={}, flags={:?}, open_mode={:?}, bin={}",
@@ -66,6 +86,10 @@ impl LightFile {
                         DemosaicAlgo::ColorRatio,
                 }};
 
+                if raw.info.cfa == Cfa::Mono && raw_params.force_cfa.is_some() {
+                    raw.info.cfa = Cfa::from_cfa_type(raw_params.force_cfa);
+                }
+
                 let mut overexposures = raw.get_overexposures();
 
                 raw.extract_black();
@@ -78,8 +102,14 @@ impl LightFile {
                     open_mode == OpenMode::Preview
                 )?;
 
-                raw.info.apply_wb(&mut result);
-                raw.info.convert_color_space_to_srgb(&mut result);
+                if raw_params.apply_wb {
+                    raw.info.apply_wb(&mut result);
+                }
+
+                if raw_params.apply_color {
+                    raw.info.convert_color_space_to_srgb(&mut result);
+                }
+
                 raw.info.normalize_image(&mut result);
 
                 log.log(&format!("demosaicing {:?}", demosaic));

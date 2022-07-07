@@ -120,7 +120,8 @@ pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
     let ref_bg_data = RefBgData::new(
         &options.ref_file,
         &ref_cal,
-        options.bin.unwrap_or(1)
+        options.bin.unwrap_or(1),
+        &Default::default(),
     )?;
 
     let thread_pool = rayon::ThreadPoolBuilder::new()
@@ -143,6 +144,7 @@ pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
             item.master_bias.as_deref(),
             &ref_bg_data,
             options.bin.unwrap_or(1),
+            &Default::default(),
             &temp_file_names,
             &files_to_del_later,
             &thread_pool,

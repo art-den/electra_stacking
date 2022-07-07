@@ -290,14 +290,16 @@ impl RefBgData {
     pub fn new(
         ref_file_name: &Path,
         cal_data:      &CalibrationData,
-        bin:           usize
+        bin:           usize,
+        raw_params:    &RawOpenParams,
     ) -> anyhow::Result<RefBgData> {
         let image = LightFile::load_and_calc_params(
             ref_file_name,
             cal_data,
             LoadLightFlags::STARS,
             OpenMode::Processing,
-            bin
+            bin,
+            raw_params
         )?;
 
         let mut mask = ImageMask::new_empty();

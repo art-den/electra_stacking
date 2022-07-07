@@ -482,7 +482,7 @@ fn load_src_file_info_from_fits_hdu(
 ) -> ImageInfo {
     let dt_str = hdu.read_key::<String>(fptr, "DATE-LOC").ok();
     let exp_time = hdu.read_key(fptr, "EXPTIME").ok();
-    let gain = hdu.read_key::<i32>(fptr, "GAIN").ok();
+    let gain = hdu.read_key::<f32>(fptr, "GAIN").ok();
     let bayer = hdu.read_key::<String>(fptr, "BAYERPAT").ok();
     let camera = hdu.read_key(fptr, "INSTRUME").ok();
     let focal_len = hdu.read_key(fptr, "FOCALLEN").ok();

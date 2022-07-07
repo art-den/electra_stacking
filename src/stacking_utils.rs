@@ -358,6 +358,7 @@ pub fn create_temp_light_files(
     master_bias:        Option<&Path>,
     ref_data:           &RefBgData,
     bin:                usize,
+    raw_params:         &RawOpenParams,
     result_list:        &Mutex<Vec<TempFileData>>,
     files_to_del_later: &Mutex<FilesToDeleteLater>,
     thread_pool:        &rayon::ThreadPool,
@@ -414,6 +415,7 @@ pub fn create_temp_light_files(
                     &cal_data,
                     ref_data,
                     bin,
+                    raw_params,
                     files_to_del_later,
                     result_list,
                     save_tx,
@@ -447,6 +449,7 @@ fn create_temp_file_from_light_file(
     cal_data:           &CalibrationData,
     ref_data:           &RefBgData,
     bin:                usize,
+    raw_params:         &RawOpenParams,
     files_to_del_later: &Mutex<FilesToDeleteLater>,
     result_list:        &Mutex<Vec<TempFileData>>,
     save_tx:            mpsc::SyncSender<SaveTempFileData>,
@@ -461,7 +464,8 @@ fn create_temp_file_from_light_file(
         cal_data,
         LoadLightFlags::STARS | LoadLightFlags::NOISE,
         OpenMode::Processing,
-        bin
+        bin,
+        raw_params
     )?;
     log::info!("loaded light file {}!", file.to_str().unwrap_or(""));
     load_log.log("loading light file TOTAL");

@@ -238,7 +238,8 @@ impl Project {
                 cancel_flag,
                 &thread_pool,
                 &result,
-                self.config.save_common_star_img
+                self.config.save_common_star_img,
+                &self.config.raw_params
             )?;
         }
 
@@ -319,7 +320,12 @@ impl Project {
             group_with_ref_file.bias_files.get_master_full_file_name(MASTER_BIAS_FN).as_deref(),
         )?;
 
-        let ref_data = RefBgData::new(self.ref_image.as_ref().unwrap(), &ref_cal, bin)?;
+        let ref_data = RefBgData::new(
+            self.ref_image.as_ref().unwrap(),
+            &ref_cal,
+            bin,
+            &self.config.raw_params
+        )?;
 
         // temporary light files
 
@@ -354,6 +360,7 @@ impl Project {
                 group.bias_files.get_master_full_file_name(MASTER_BIAS_FN).as_deref(),
                 &ref_data,
                 bin,
+                &self.config.raw_params,
                 &temp_file_names,
                 &files_to_del_later,
                 &thread_pool,
@@ -474,6 +481,7 @@ pub struct ProjectConfig {
     pub res_img_type: ResFileType,
     pub save_aligned_img: bool,
     pub save_common_star_img: bool,
+    pub raw_params: RawOpenParams,
 }
 
 impl Default for ProjectConfig {
@@ -488,6 +496,7 @@ impl Default for ProjectConfig {
             res_img_type: ResFileType::Fit,
             save_aligned_img: false,
             save_common_star_img: false,
+            raw_params: RawOpenParams::default(),
         }
     }
 }
@@ -788,6 +797,7 @@ impl ProjectGroup {
         thread_pool:   &rayon::ThreadPool,
         result:        &Mutex<HashMap<PathBuf, anyhow::Result<RegInfo>>>,
         save_star_img: bool,
+        raw_params:    &RawOpenParams,
     ) -> anyhow::Result<()> {
         progress.lock().unwrap().stage(&format!(
             "Registering files for group {}...",
@@ -832,7 +842,8 @@ impl ProjectGroup {
                         | LoadLightFlags::NOISE
                         | LoadLightFlags::BACKGROUND,
                         OpenMode::Processing,
-                        1
+                        1,
+                        raw_params
                     );
 
                     let file_result = match load_light_file_res {
