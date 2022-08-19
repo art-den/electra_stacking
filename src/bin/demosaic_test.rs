@@ -63,7 +63,6 @@ fn correct_image(image: &mut Image) {
         if *v < 0.0 { *v = 0.0; }
         if *v > 1.0 { *v = 1.0; }
     }
-
 }
 
 fn calc_and_show_error(caption: &str, orig_image: &Image, image: &Image) {

@@ -1937,7 +1937,7 @@ fn preview_image_file(
         let calibr_data = CalibrationData::new_empty();
 
         let load_flags = if cfg!(debug_assertions) {
-            LoadLightFlags::empty() //LoadLightFlags::STARS
+            LoadLightFlags::STARS
         } else {
             LoadLightFlags::empty()
         };

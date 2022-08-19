@@ -474,12 +474,28 @@ fn create_temp_file_from_light_file(
     log::info!("info = {:?}", light_file.info);
 
     let diff_log = TimeLogger::start();
-    let img_offset = calc_image_offset_by_stars(
-        &ref_data.image.stars,
-        &light_file.stars,
-        light_file.image.width() as f64,
-        light_file.image.height() as f64,
-    );
+    let mut img_offset: Option<ImageOffset> = None;
+
+    for (max_stars, find_triangle_max_err, triangulation) in [
+        (50,  5.0, false),
+        (100, 3.0, false),
+        (200, 3.0, false),
+        (50,  3.0, true),
+        (100, 3.0, true),
+    ] {
+        img_offset = calc_image_offset_by_stars(
+            &ref_data.image.stars,
+            &light_file.stars,
+            light_file.image.width() as f64,
+            light_file.image.height() as f64,
+            max_stars,
+            find_triangle_max_err,
+            triangulation,
+        );
+        if img_offset.is_some() {
+            break;
+        }
+    }
     diff_log.log("calculating light and ref difference");
 
     if let Some(img_offset) = img_offset {

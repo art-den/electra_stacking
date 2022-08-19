@@ -1,5 +1,5 @@
 use std::{path::*, io::*, fs::*, collections::HashSet, hash::Hash};
-use itertools::{izip};
+use itertools::{izip, Itertools};
 use rayon::prelude::*;
 use serde::{Serialize, Deserialize};
 use byteorder::*;
@@ -857,46 +857,58 @@ impl RawImage {
     }
 
     pub fn find_hot_pixels_in_dark_file(&self) -> HashSet<BadPixel> {
-        const R: Crd = 2;
-        let mut deviations = Vec::new();
-        let mut values_for_median = Vec::new();
-        for (x, y, v) in self.data.iter_crd() {
-            values_for_median.clear();
-            for (_, _, sv) in self.data.iter_rect_crd(x-R, y-R, x+R, y+R) {
-                values_for_median.push(sv);
-            }
-            let median = median_f32(&mut values_for_median).unwrap_or(0.0);
-            deviations.push((median - v) * (median - v));
+        fn find_hot_pixels_in_dark_file_step(img: &RawImage, it: IterType, mut fun: impl FnMut(Crd, Crd, f32, f32)) {
+            let mut test = |center_value, v1, v2, v3, v4, v5, v6, main_crd, values_crd| {
+                let aver = (v1 + v2 + v3 + v4 + v5 + v6) / 6.0;
+                match it {
+                    IterType::Cols =>
+                        fun(main_crd, values_crd, aver, center_value),
+                    IterType::Rows =>
+                    fun(values_crd, main_crd, aver, center_value),
+                    IterType::Both =>
+                        panic!("Wrong usage"),
+                }
+            };
+
+            img.data.foreach_row_and_col(it, |data: &[f32], crd: Crd, _it: IterType| {
+                test(data[0], data[1], data[2], data[3], data[4], data[5], data[6], crd, 0);
+                test(data[1], data[0], data[2], data[3], data[4], data[5], data[6], crd, 1);
+                test(data[2], data[0], data[1], data[3], data[4], data[5], data[6], crd, 2);
+
+                for (i, (v1, v2, v3, v4, v5, v6, v7)) in data.iter().tuple_windows().enumerate() {
+                    test(*v4, *v1, *v2, *v3, *v5, *v6, *v7, crd, i as Crd+3);
+                }
+
+                let end = &data[data.len()-7..];
+                test(end[4], end[0], end[1], end[2], end[3], end[5], end[6], crd, data.len() as Crd - 3);
+                test(end[5], end[0], end[1], end[2], end[3], end[4], end[6], crd, data.len() as Crd - 2);
+                test(end[6], end[0], end[1], end[2], end[3], end[4], end[5], crd, data.len() as Crd - 1);
+            });
         }
 
-        let last_10_pos = deviations.len() - 10;
-        let last_10_dev = *deviations.select_nth_unstable_by(last_10_pos, cmp_f32).1;
-
-        let high_99_pos = 99 * deviations.len() / 100;
-        let high_99_dev = *deviations.select_nth_unstable_by(high_99_pos, cmp_f32).1;
-
-        let mut max_dev = f32::min(high_99_dev * 100.0, last_10_dev / 100.0);
-
+        const PART: usize = 100;
         let mut result = HashSet::new();
-        let max_result_size = deviations.len() / 100;
-        loop {
-            result.clear();
-            for (x, y, v) in self.data.iter_crd() {
-                values_for_median.clear();
-                for (_, _, sv) in self.data.iter_rect_crd(x-R, y-R, x+R, y+R) {
-                    values_for_median.push(sv);
+        let mut diff_values = Vec::new();
+        let mut process_direction = |it: IterType| {
+            diff_values.clear();
+            find_hot_pixels_in_dark_file_step(self, it, |_x, _y, aver, value| {
+                let diff = aver-value;
+                diff_values.push(diff*diff);
+            });
+            let pos = diff_values.len() - diff_values.len()/PART;
+            let border = 5.0 * f32::sqrt(*diff_values.select_nth_unstable_by(pos, cmp_f32).1);
+            find_hot_pixels_in_dark_file_step(self, it, |x, y, aver, value| {
+                let diff = (value-aver).abs();
+                if diff > border {
+                    result.insert(BadPixel { x, y });
                 }
-                let median = median_f32(&mut values_for_median).unwrap_or(0.0);
-                let deviation = (median - v) * (median - v);
-                if deviation > max_dev {
-                    result.insert(BadPixel {x, y});
-                    if result.len() > max_result_size { break; }
-                }
-            }
-            log::info!("possible hot pixels count = {}", result.len());
-            if result.len() < max_result_size { break; }
-            max_dev *= 2.0;
-        }
+            });
+        };
+
+        process_direction(IterType::Cols);
+        process_direction(IterType::Rows);
+
+        dbg!(result.len());
 
         result
     }

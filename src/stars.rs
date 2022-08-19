@@ -251,7 +251,6 @@ pub fn find_stars_on_image(
                 anyhow::bail!("No stars");
             }
         }
-
     }
 
     stars.sort_by(|s1, s2| cmp_f64(&s1.brightness, &s2.brightness).reverse());
@@ -325,47 +324,109 @@ pub struct ImageOffset {
     pub angle:    f64,
 }
 
+
 pub fn calc_image_offset_by_stars(
-    ref_stars:  &Stars,
-    stars:      &Stars,
-    img_width:  f64,
-    img_height: f64
+    ref_stars:             &Stars,
+    stars:                 &Stars,
+    img_width:             f64,
+    img_height:            f64,
+    max_stars:             usize,
+    find_triangle_max_err: f64,
+    add_triangulation:     bool
 ) -> Option<ImageOffset> {
     let image_size = (img_width + img_height) / 2.0;
 
-    const MAX_STARS: usize = 50;
-    let ref_stars = if ref_stars.len() < MAX_STARS { ref_stars } else { &ref_stars[..MAX_STARS] };
-    let stars     = if stars.len()     < MAX_STARS { stars }     else { &stars[..MAX_STARS] };
+    let mut ref_stars: Vec<_> = ref_stars.iter().map(|v| v).collect();
+    let mut stars: Vec<_> = stars.iter().map(|v| v).collect();
+    let stars_sort_key = |s: &&Star| (-1_000_000.0 * s.brightness) as i64;
+    ref_stars.sort_by_key(stars_sort_key);
+    stars.sort_by_key(stars_sort_key);
 
-    let ref_triangles = get_stars_triangles(ref_stars, image_size / 5.0);
-    let triangles = get_stars_triangles(stars, image_size / 5.0);
+    let ref_triangles = get_stars_triangles(&ref_stars, image_size / 5.0, max_stars, add_triangulation);
+    let triangles = get_stars_triangles(&stars, image_size / 5.0, max_stars, add_triangulation);
 
-    log::info!("Align parameters calculation");
+    log::info!(
+        "-*= Align parameters calculation. max_stars={}, add_triangulation={} =*-",
+        max_stars, add_triangulation
+    );
     log::info!("ref_triangles.len() = {}", ref_triangles.len());
     log::info!("triangles.len() = {}", triangles.len());
 
     struct Corr<'a> {
-        ref_triangle: &'a StarsTriangle<'a>,
         triangle: StarsTriangle<'a>,
+        ref_triangle: &'a StarsTriangle<'a>,
         angle: f64,
-        len: f64,
         used: bool,
     }
 
-    let mut corr_items = Vec::new();
-    for ref_tri in ref_triangles.iter() {
-        if let Some(triangle) = find_same_triangle(&triangles, ref_tri) {
-            corr_items.push(Corr {
-                ref_triangle: ref_tri,
-                len: triangle.len,
+    let mut corr_items: Vec<_> = ref_triangles.iter()
+        .filter_map(|ref_tri| {
+            let triangle = find_similar_triangle(
+                &triangles,
+                ref_tri,
+                find_triangle_max_err
+            );
+            triangle.map(|triangle| (triangle, ref_tri))
+        })
+        .map(|(triangle, ref_tri)| {
+            Corr {
                 angle: ref_tri.calc_angle(&triangle),
+                ref_triangle: ref_tri,
                 triangle,
                 used: true,
-            });
-        }
-    }
+            }
+        })
+        .collect();
 
     log::info!("corr_items.len() = {}", corr_items.len());
+    if corr_items.len() < 10 { return None; }
+
+    struct Claster {
+        start_index: usize,
+        end_index: usize,
+    }
+
+    let approximate_angle = {
+        let mut clasters = Vec::new();
+        const MIN_ANGLE_DIFF: f64 = 1.0 * PI / 360.0;
+        corr_items.sort_by_key(|ci| (1_000_000.0 * ci.angle) as i64);
+        let mut start_index = 0_usize;
+        for (i, (c1, c2)) in corr_items.iter().tuple_windows().enumerate() {
+            let angle_diff = c2.angle - c1.angle;
+            if angle_diff > MIN_ANGLE_DIFF {
+                if i != start_index {
+                    clasters.push( Claster { start_index, end_index: i } );
+                }
+                start_index = i+1;
+            }
+        }
+
+        if start_index != corr_items.len()-1 {
+            clasters.push(Claster { start_index, end_index: corr_items.len()-1 });
+        }
+
+        let (start_index, end_index) = if !clasters.is_empty() {
+            let largest_claster = clasters.iter().max_by_key(|cl| cl.end_index - cl.start_index).unwrap();
+            log::info!("largest_claster size = {}", largest_claster.end_index - largest_claster.start_index + 1);
+            (largest_claster.start_index, largest_claster.end_index)
+        } else {
+            log::info!("no angle clasters");
+            (0, corr_items.len()-1)
+        };
+
+        let mut angles: Vec<_> = corr_items[start_index..=end_index]
+            .iter()
+            .map(|c| c.angle)
+            .collect();
+        median_f64(&mut angles)?
+    };
+
+    log::info!("approximate_angle for filtering = {}", approximate_angle);
+    let min_angle = approximate_angle - PI * 2.0 / 360.0;
+    let max_angle = approximate_angle + PI * 2.0 / 360.0;
+    corr_items.retain(|c| c.angle > min_angle && c.angle < max_angle);
+    log::info!("corr_items.len() = {} after angle filter", corr_items.len());
+    if corr_items.len() < 10 { return None; }
 
     let mut angles = Vec::new();
     let mut x_offsets = Vec::new();
@@ -378,7 +439,7 @@ pub fn calc_image_offset_by_stars(
     for _ in 0..30 {
         angles.clear();
         for item in corr_items.iter() {
-            angles.push(CalcValue::new_weighted(item.angle, item.len));
+            angles.push(CalcValue::new_weighted(item.angle, item.triangle.len));
         }
         angle = cappa_sigma_weighted_result(&mut angles, 2.0, 10, true, true)?.result;
 
@@ -418,7 +479,18 @@ pub fn calc_image_offset_by_stars(
         }
     }
 
-    log::info!("(used for calculatiuon) corr_items.len() = {}", corr_items.len());
+    let (_, x_dev) = mean_and_std_dev(&x_offsets)?;
+    let (_, y_dev) = mean_and_std_dev(&y_offsets)?;
+    let (_, a_dev) = mean_and_std_dev(&angles)?;
+
+    log::info!("x_dev = {:.1}, y_dev = {:.1}, a_dev = {:.1}", x_dev, y_dev, 360.0 * a_dev / PI);
+
+    if x_dev > 5.0 || y_dev > 5.0 || 360.0 * a_dev / PI > 5.0 {
+        log::info!("angle={}, offset_x={}, offset_y={}", angle, offset_x, offset_y);
+        return None;
+    }
+
+    log::info!("(used for calculation) corr_items.len() = {}", corr_items.len());
 
     Some(ImageOffset { angle, offset_x, offset_y, })
 }
@@ -426,6 +498,7 @@ pub fn calc_image_offset_by_stars(
 #[derive(Clone)]
 struct StarsTriangle<'a> {
     stars: [&'a Star; 3],
+    edges: [f64; 3],
     len:   f64,
 }
 
@@ -446,23 +519,26 @@ impl<'a> StarsTriangle<'a> {
         let mut sorted = [ (a1, star1), (a2, star2), (a3, star3), ];
         sorted.sort_by(|s1, s2| cmp_f64(&s1.0, &s2.0));
 
+        let sorted_star1 = sorted[0].1;
+        let sorted_star2 = sorted[1].1;
+        let sorted_star3 = sorted[2].1;
+
+        let edge1 = sorted_star1.dist(sorted_star2);
+        let edge2 = sorted_star2.dist(sorted_star3);
+        let edge3 = sorted_star3.dist(sorted_star1);
+
         StarsTriangle {
-            stars: [sorted[0].1, sorted[1].1, sorted[2].1 ],
-            len:   star1.dist(star2) + star2.dist(star3) + star3.dist(star1)
+            stars: [sorted_star1, sorted_star2, sorted_star3 ],
+            edges: [edge1, edge2, edge3],
+            len:   edge1 + edge2 + edge3,
         }
     }
 
     fn compare(&self, other: &StarsTriangle) -> (f64, [usize; 3]) {
         let cmp_fun = |i1: usize, i2: usize, i3: usize| {
-            let s1 = self.stars[i1];
-            let s2 = self.stars[i2];
-            let s3 = self.stars[i3];
-            let o1 = other.stars[0];
-            let o2 = other.stars[1];
-            let o3 = other.stars[2];
-            let diff1 = s1.dist(s2) - o1.dist(o2);
-            let diff2 = s2.dist(s3) - o2.dist(o3);
-            let diff3 = s3.dist(s1) - o3.dist(o1);
+            let diff1 = self.edges[i1] - other.edges[0];
+            let diff2 = self.edges[i2] - other.edges[1];
+            let diff3 = self.edges[i3] - other.edges[2];
             diff1 * diff1 + diff2 * diff2 + diff3 * diff3
         };
 
@@ -496,52 +572,80 @@ impl<'a> StarsTriangle<'a> {
 
 type StarsTriangles<'a> = Vec<StarsTriangle<'a>>;
 
-fn get_stars_triangles(stars: &[Star], min_len: f64) -> StarsTriangles {
+fn get_stars_triangles<'a>(
+    stars:             &'a [&Star],
+    min_len:           f64,
+    mut max_stars:     usize,
+    add_triangulation: bool
+) -> StarsTriangles<'a> {
+    use delaunator::*;
+
     let mut result = StarsTriangles::new();
-    for i in 0..stars.len() { for j in i+1..stars.len() { for k in j+1..stars.len() {
+    if max_stars > stars.len() { max_stars = stars.len(); }
+    for i in 0..max_stars { for j in i+1..max_stars { for k in j+1..max_stars {
         let tr = StarsTriangle::new(&stars[i], &stars[j], &stars[k]);
-        if tr.len > min_len { result.push(tr); }
+        if tr.len < min_len { continue; }
+        let min_edge = tr.len / 20.0;
+        if tr.edges[0] < min_edge || tr.edges[1] < min_edge || tr.edges[2] < min_edge { continue; }
+        result.push(tr);
     }}}
+
+    if add_triangulation {
+        let other_stars = &stars[max_stars..];
+        let points_to_triangulate: Vec<_> = other_stars
+            .iter()
+            .map(|s| Point {x: s.x as f64, y: s.y as f64})
+            .collect();
+
+        let triagulation = triangulate(&points_to_triangulate);
+        for (&i, &j, &k) in triagulation.triangles.iter().tuples() {
+            let tr = StarsTriangle::new(&other_stars[i], &other_stars[j], &other_stars[k]);
+            let min_edge = tr.len / 20.0;
+            if tr.edges[0] < min_edge || tr.edges[1] < min_edge || tr.edges[2] < min_edge { continue; }
+            result.push(tr);
+        }
+    }
+
     result.sort_by(|t1, t2| cmp_f64(&t1.len, &t2.len));
     result
 }
 
-fn find_same_triangle<'a>(
-    triangles: &'a StarsTriangles,
-    triangle:  &StarsTriangle
+fn find_similar_triangle<'a>(
+    triangles:             &'a StarsTriangles,
+    triangle:              &'a StarsTriangle,
+    find_triangle_max_err: f64
 ) -> Option<StarsTriangle<'a>> {
-    const ERR_RANGE: f64 = 3.0;
-
-    let lower_res = triangles.binary_search_by(|t| cmp_f64(&t.len, &(triangle.len-ERR_RANGE)));
-    let upper_res = triangles.binary_search_by(|t| cmp_f64(&t.len, &(triangle.len+ERR_RANGE)));
+    let lower_res = triangles.binary_search_by(|t| cmp_f64(&t.len, &(triangle.len-find_triangle_max_err)));
+    let upper_res = triangles.binary_search_by(|t| cmp_f64(&t.len, &(triangle.len+find_triangle_max_err)));
 
     let lower_index = match lower_res { Ok(v) => v, Err(v) => v };
     let upper_index = match upper_res { Ok(v) => v, Err(v) => v };
 
-    let mut cmp_res: Option<((f64, [usize; 3]), &StarsTriangle)> = None;
-    for test_triangle in &triangles[lower_index..upper_index] {
-        let (test_len_diff, ref test_ind) = test_triangle.compare(triangle);
-        if let Some(((len_diff, ind), tr)) = &mut cmp_res { if test_len_diff < *len_diff {
-            *len_diff = test_len_diff;
-            *ind = *test_ind;
-            *tr = test_triangle;
-        }} else {
-            cmp_res = Some(((test_len_diff, *test_ind), test_triangle));
-        }
-    }
+    triangles[lower_index..upper_index]
+        .iter()
+        .map(|test_triangle|
+            (test_triangle, test_triangle.compare(triangle))
+        )
+        .filter(|(_, (err, _))|
+            *err < find_triangle_max_err
+        )
+        .min_by_key(|(_, (err, _))|
+            (err * 1000.0) as i64
+        )
+        .map(|(tr, (_, res_ind))| {
+            let star1 = tr.stars[res_ind[0]];
+            let star2 = tr.stars[res_ind[1]];
+            let star3 = tr.stars[res_ind[2]];
+            let edge1 = star1.dist(star2);
+            let edge2 = star2.dist(star3);
+            let edge3 = star3.dist(star1);
 
-    if let Some(cmp_res) = cmp_res {
-        let ((len_diff, ref res_ind), res_tr) = cmp_res;
-        if len_diff > ERR_RANGE {
-            return None;
-        }
-        Some(StarsTriangle {
-            stars: [ res_tr.stars[res_ind[0]], res_tr.stars[res_ind[1]], res_tr.stars[res_ind[2]] ],
-            len: res_tr.len,
+            StarsTriangle {
+                stars: [ star1, star2, star3 ],
+                edges: [ edge1, edge2, edge3 ],
+                len: edge1 + edge2 + edge3,
+            }
         })
-    } else {
-        None
-    }
 }
 
 
