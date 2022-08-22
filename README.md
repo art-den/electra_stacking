@@ -20,3 +20,5 @@ To build optimized binaries just type
 ```
 cargo build --release
 ```
+## Simple documentation
+Unfortunately only google translation https://art--den-github-io.translate.goog/electra_stacking/?_x_tr_sl=ru&_x_tr_tl=en
