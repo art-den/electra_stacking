@@ -5,6 +5,7 @@
 pub mod image;
 pub mod image_norm;
 pub mod image_raw;
+pub mod cameras_database;
 pub mod image_formats;
 pub mod light_file;
 pub mod fs_utils;

@@ -5,7 +5,15 @@ use itertools::*;
 use bitstream_io::{BigEndian, BitWriter, BitWrite, BitReader};
 use chrono::prelude::*;
 use fitsio::{*, images::*, hdu::*};
-use crate::{image::*, image_raw::*, fs_utils::*, compression::*, progress::*, calc::*};
+use crate::{
+    image::*,
+    image_raw::*,
+    fs_utils::*,
+    compression::*,
+    progress::*,
+    calc::*,
+    cameras_database::*
+};
 
 pub const FIT_EXTS: &[&str] = &["fit", "fits", "fts"];
 pub const TIF_EXTS: &[&str] = &["tif", "tiff"];
@@ -429,6 +437,41 @@ pub fn save_image_to_tiff_file(
     }
     Ok(())
 }
+
+pub fn save_image_to_tiff16_file(
+    image:     &Image,
+    info:      &ImageInfo,
+    file_name: &Path
+) -> anyhow::Result<()> {
+    assert!(!image.is_empty());
+
+    let mut file = BufWriter::new(File::create(file_name)?);
+    let mut decoder = TiffEncoder::new(&mut file)?;
+    if image.is_greyscale() {
+        let mut tiff = decoder.new_image::<colortype::Gray32Float>(
+            image.width() as u32,
+            image.height() as u32
+        )?;
+        write_info_into_tiff(tiff.encoder(), info)?;
+        tiff.write_data(image.l.iter().as_slice())?;
+    }
+    else if image.is_rgb() {
+        let data: Vec<_> = izip!(image.r.iter(), image.g.iter(), image.b.iter())
+            .map(|(r, g, b)| [(*r * 65535.0) as u16, (*g * 65535.0) as u16, (*b * 65535.0) as u16])
+            .flatten()
+            .collect();
+        let mut tiff = decoder.new_image::<colortype::RGB16>(
+            image.width() as u32,
+            image.height() as u32
+        )?;
+        write_info_into_tiff(tiff.encoder(), info)?;
+        tiff.write_data(&data)?;
+    } else {
+        panic!("Internal error");
+    }
+    Ok(())
+}
+
 
 fn write_info_into_tiff<W: Write + Seek, K: TiffKind>(
     enc:  &mut tiff::encoder::DirectoryEncoder<W, K>,

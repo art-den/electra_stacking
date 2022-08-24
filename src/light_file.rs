@@ -90,8 +90,6 @@ impl LightFile {
                     raw.info.cfa = Cfa::from_cfa_type(raw_params.force_cfa);
                 }
 
-                let mut overexposures = raw.get_overexposures();
-
                 raw.extract_black();
 
                 raw.calibrate(cal_data)?;
@@ -113,6 +111,8 @@ impl LightFile {
                 raw.info.normalize_image(&mut result);
 
                 log.log(&format!("demosaicing {:?}", demosaic));
+
+                let mut overexposures = raw.get_overexposures();
 
                 overexposures.retain(|&(x, y)|
                     !cal_data.hot_pixels.contains(&BadPixel { x, y })
