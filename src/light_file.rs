@@ -202,8 +202,7 @@ impl LightFile {
     }
 }
 
-#[inline(never)]
-fn calc_noise(image: &ImageLayerF32) -> f64 {
+pub fn calc_noise(image: &ImageLayerF32) -> f64 {
     let mut temp_values = Vec::with_capacity(image.as_slice().len());
     for (b1, b2, v, a1, a2) in image.iter().copied().tuple_windows() {
         let back = (b1 + b2 + a1 + a2) * 0.25;

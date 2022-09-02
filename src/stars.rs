@@ -381,13 +381,13 @@ pub fn calc_image_offset_by_stars(
     log::info!("corr_items.len() = {}", corr_items.len());
     if corr_items.len() < 10 { return None; }
 
-    struct Claster {
+    struct Cluster {
         start_index: usize,
         end_index: usize,
     }
 
     let approximate_angle = {
-        let mut clasters = Vec::new();
+        let mut clusters = Vec::new();
         const MIN_ANGLE_DIFF: f64 = 1.0 * PI / 360.0;
         corr_items.sort_by_key(|ci| (1_000_000.0 * ci.angle) as i64);
         let mut start_index = 0_usize;
@@ -395,22 +395,22 @@ pub fn calc_image_offset_by_stars(
             let angle_diff = c2.angle - c1.angle;
             if angle_diff > MIN_ANGLE_DIFF {
                 if i != start_index {
-                    clasters.push( Claster { start_index, end_index: i } );
+                    clusters.push( Cluster { start_index, end_index: i } );
                 }
                 start_index = i+1;
             }
         }
 
         if start_index != corr_items.len()-1 {
-            clasters.push(Claster { start_index, end_index: corr_items.len()-1 });
+            clusters.push(Cluster { start_index, end_index: corr_items.len()-1 });
         }
 
-        let (start_index, end_index) = if !clasters.is_empty() {
-            let largest_claster = clasters.iter().max_by_key(|cl| cl.end_index - cl.start_index).unwrap();
-            log::info!("largest_claster size = {}", largest_claster.end_index - largest_claster.start_index + 1);
-            (largest_claster.start_index, largest_claster.end_index)
+        let (start_index, end_index) = if !clusters.is_empty() {
+            let largest_cluster = clusters.iter().max_by_key(|cl| cl.end_index - cl.start_index).unwrap();
+            log::info!("largest_cluster size = {}", largest_cluster.end_index - largest_cluster.start_index + 1);
+            (largest_cluster.start_index, largest_cluster.end_index)
         } else {
-            log::info!("no angle clasters");
+            log::info!("no angle clusters");
             (0, corr_items.len()-1)
         };
 

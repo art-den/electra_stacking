@@ -455,7 +455,7 @@ impl PixelsSource for ImageLayer<f32> {
 }
 
 impl ImageLayer<f32> {
-    fn rotated_and_translated(
+    pub fn rotated_and_translated(
         &self,
         angle:         f64,
         transl_x:      f64,

@@ -170,6 +170,7 @@ pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
         ref_bg_data.image.image.is_rgb(),
         ref_bg_data.image.image.width(),
         ref_bg_data.image.image.height(),
+        false,
         &options.result_file,
         &cancel_flag
     )?;

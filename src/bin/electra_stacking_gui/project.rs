@@ -390,6 +390,7 @@ impl Project {
             ref_data.image.image.is_rgb(),
             ref_data.image.image.width(),
             ref_data.image.image.height(),
+            self.config.align_rgb,
             &result_file_name,
             cancel_flag
         )?;
@@ -482,6 +483,7 @@ pub struct ProjectConfig {
     pub save_aligned_img: bool,
     pub save_common_star_img: bool,
     pub raw_params: RawOpenParams,
+    pub align_rgb: bool,
 }
 
 impl Default for ProjectConfig {
@@ -497,6 +499,7 @@ impl Default for ProjectConfig {
             save_aligned_img: false,
             save_common_star_img: false,
             raw_params: RawOpenParams::default(),
+            align_rgb: false,
         }
     }
 }

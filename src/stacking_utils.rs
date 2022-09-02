@@ -572,6 +572,7 @@ pub fn merge_temp_light_files(
     is_rgb_image:    bool,
     ref_width:       Crd,
     ref_height:      Crd,
+    align_rgb:       bool,
     result_file:     &Path,
     cancel_flag:     &Arc<AtomicBool>,
 ) -> anyhow::Result<()> {
@@ -719,12 +720,62 @@ pub fn merge_temp_light_files(
     result_image.fill_inf_areas_with_one();
     result_image.check_contains_inf_or_nan(true, true)?;
 
+    if align_rgb && result_image.is_rgb() {
+        align_rgb_layers(&mut result_image)?;
+    }
+
     log::info!("Saving image into file {}", result_file.to_str().unwrap_or(""));
     let mut dst_info = ImageInfo::default();
     dst_info.exp = Some(weighted_time);
     save_image_to_file(&result_image, &dst_info, result_file)?;
 
     progress.lock().unwrap().percent(100, 100, "Done!");
+
+    Ok(())
+}
+
+fn align_rgb_layers(image: &mut Image) -> anyhow::Result<()> {
+    let get_stars = |img| {
+        let noise = calc_noise(img) as f32;
+        find_stars_on_image(img, None, Some(noise), true)
+    };
+    let g_stars = get_stars(&image.g)?;
+    let img_width = image.width();
+    let img_height = image.height();
+    let align_layer = |img| -> anyhow::Result<ImageLayerF32> {
+        let stars = get_stars(img)?;
+        let offset = calc_image_offset_by_stars(
+            &g_stars,
+            &stars,
+            img_width as f64,
+            img_height as f64,
+            50, 5.0, false
+        ).ok_or_else(|| anyhow::anyhow!("Can't calculate offset"))?;
+        log::info!(
+            "offset for rgb align = x:{:.3}, y:{:.3}; rotation = {:.3}°",
+            offset.offset_x,
+            offset.offset_y,
+            180.0 * offset.angle / PI
+        );
+        let mut aligned_layer = img.rotated_and_translated(
+            -offset.angle,
+            -offset.offset_x,
+            -offset.offset_y,
+            NO_VALUE_F32,
+            img_width,
+            img_height
+        );
+        for (orig, aligned) in img.iter().zip(aligned_layer.iter_mut()) {
+            if *aligned == NO_VALUE_F32 {
+                *aligned = *orig;
+            }
+        }
+        Ok(aligned_layer)
+    };
+    let aligned_r_layer = align_layer(&image.r)?;
+    let aligned_b_layer = align_layer(&image.b)?;
+    image.r = aligned_r_layer;
+    image.b = aligned_b_layer;
 
     Ok(())
 }
