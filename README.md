@@ -24,3 +24,6 @@ cargo build --release
 ```
 ## Simple documentation
 Unfortunately only google translation https://art--den-github-io.translate.goog/electra_stacking/?_x_tr_sl=ru&_x_tr_tl=en
+
+## Why Electra?
+Electra is star in the Pleiades cluster: https://en.wikipedia.org/wiki/Electra_(star)
