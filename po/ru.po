@@ -361,6 +361,9 @@ msgstr "Оригинальный"
 msgid "Result image type:"
 msgstr "Тип конечного изображения:"
 
+msgid "Align RGB channels"
+msgstr "Выравнивать RGB-каналы"
+
 msgid "Repeats"
 msgstr "Повторов"
 

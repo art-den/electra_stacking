@@ -772,7 +772,10 @@ fn align_rgb_layers(image: &mut Image) -> anyhow::Result<()> {
         }
         Ok(aligned_layer)
     };
+
+    log::info!("Aligning R layer");
     let aligned_r_layer = align_layer(&image.r)?;
+    log::info!("Aligning B layer");
     let aligned_b_layer = align_layer(&image.b)?;
     image.r = aligned_r_layer;
     image.b = aligned_b_layer;
