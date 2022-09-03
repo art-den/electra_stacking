@@ -1,16 +1,18 @@
 # Electra
 Software for stacking of deep sky astronomical images
 
-## Prerequisites
-
-Windows + MSYS64:
-
+## Prerequisites for Windows
+* Rust compiler: https://www.rust-lang.org/tools/install
+* MSYS: https://www.msys2.org/
+* Libs and tools (type inside MSYS command line):
 ```
 pacman -S mingw-w64-x86_64-cfitsio
 pacman -S mingw-w64-x86_64-gtk3 mingw-w64-x86_64-pkg-config
 pacman -S base-devel mingw-w64-x86_64-gcc libxml2-devel tar
 ```
-Linux:
+## Prerequisites for Linux
+* Rust compiler: https://www.rust-lang.org/tools/install
+* Libs and tools:
 ```
 sudo apt install gcc libgtk-3-dev build-essential libcfitsio-dev
 ```
