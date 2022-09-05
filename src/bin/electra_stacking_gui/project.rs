@@ -24,7 +24,7 @@ const MASTER_BIAS_FN: &str = "master-bias.es_raw";
 #[serde(default)]
 pub struct Project {
     config: ProjectConfig,
-    cleanup_conf: ClenupConf,
+    cleanup_conf: CleanupConf,
     groups: Vec<ProjectGroup>,
     ref_image: Option<PathBuf>,
     file_name: Option<PathBuf>,
@@ -116,11 +116,11 @@ impl Project {
         self.changed.set(true);
     }
 
-    pub fn cleanup_conf(&self) -> &ClenupConf {
+    pub fn cleanup_conf(&self) -> &CleanupConf {
         &self.cleanup_conf
     }
 
-    pub fn set_cleanup_conf(&mut self, new_cleanup_conf: ClenupConf) {
+    pub fn set_cleanup_conf(&mut self, new_cleanup_conf: CleanupConf) {
         self.cleanup_conf = new_cleanup_conf;
         self.changed.set(true);
     }
@@ -909,7 +909,7 @@ impl ProjectGroup {
         true
     }
 
-    pub fn cleanup_light_files(&mut self, conf: &ClenupConf) -> anyhow::Result<usize> {
+    pub fn cleanup_light_files(&mut self, conf: &CleanupConf) -> anyhow::Result<usize> {
         if conf.check_before_execute {
             for file in &mut self.light_files.list {
                 if (file.flags & FILE_FLAG_ERROR) == 0 {
@@ -977,7 +977,7 @@ impl ProjectGroup {
 
     fn cleanup_by_conf<F: Fn(&RegInfo) -> f32>(
         &mut self,
-        conf:         &ClenupConfItem,
+        conf:         &CleanupConfItem,
         remove_min:   bool,
         remove_max:   bool,
         flags_to_set: FileFlags,
@@ -995,7 +995,7 @@ impl ProjectGroup {
 
     fn cleanup_by_sigma_clipping<F: Fn(&RegInfo) -> f32>(
         &mut self,
-        conf:         &ClenupConfItem,
+        conf:         &CleanupConfItem,
         remove_min:   bool,
         remove_max:   bool,
         flags_to_set: FileFlags,
@@ -1055,7 +1055,7 @@ impl ProjectGroup {
 
     fn cleanup_by_percent<F: Fn(&RegInfo) -> f32>(
         &mut self,
-        conf:         &ClenupConfItem,
+        conf:         &CleanupConfItem,
         remove_min:   bool,
         remove_max:   bool,
         flags_to_set: FileFlags,
@@ -1099,7 +1099,7 @@ impl ProjectGroup {
 
     fn cleanup_by_min_max<F: Fn(&RegInfo) -> f32>(
         &mut self,
-        conf:         &ClenupConfItem,
+        conf:         &CleanupConfItem,
         flags_to_set: FileFlags,
         fun:          F,
     ) -> anyhow::Result<()> {
@@ -1527,7 +1527,7 @@ pub enum CleanupMode {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(default)]
-pub struct ClenupConfItem {
+pub struct CleanupConfItem {
     pub used: bool,
     pub mode: CleanupMode,
     pub kappa: f32,
@@ -1537,13 +1537,13 @@ pub struct ClenupConfItem {
     pub max: Option<f32>,
 }
 
-impl ClenupConfItem {
+impl CleanupConfItem {
     fn new(used: bool, mode: CleanupMode) -> Self {
-        Self { used, mode, .. ClenupConfItem::default() }
+        Self { used, mode, .. CleanupConfItem::default() }
     }
 }
 
-impl Default for ClenupConfItem {
+impl Default for CleanupConfItem {
     fn default() -> Self {
         Self {
             used: true,
@@ -1559,24 +1559,24 @@ impl Default for ClenupConfItem {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(default)]
-pub struct ClenupConf {
+pub struct CleanupConf {
     pub check_before_execute: bool,
-    pub stars_r_dev: ClenupConfItem,
-    pub stars_fwhm: ClenupConfItem,
-    pub stars_count: ClenupConfItem,
-    pub noise: ClenupConfItem,
-    pub background: ClenupConfItem,
+    pub stars_r_dev: CleanupConfItem,
+    pub stars_fwhm: CleanupConfItem,
+    pub stars_count: CleanupConfItem,
+    pub noise: CleanupConfItem,
+    pub background: CleanupConfItem,
 }
 
-impl Default for ClenupConf {
+impl Default for CleanupConf {
     fn default() -> Self {
         Self {
             check_before_execute: true,
             stars_r_dev: Default::default(),
             stars_fwhm: Default::default(),
-            stars_count: ClenupConfItem{ kappa: 3.0, .. ClenupConfItem::default() },
-            noise: ClenupConfItem::new(false, CleanupMode::Percent),
-            background: ClenupConfItem::new(false, CleanupMode::Percent),
+            stars_count: CleanupConfItem{ kappa: 3.0, .. CleanupConfItem::default() },
+            noise: CleanupConfItem::new(false, CleanupMode::Percent),
+            background: CleanupConfItem::new(false, CleanupMode::Percent),
         }
     }
 }

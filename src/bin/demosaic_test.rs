@@ -49,17 +49,9 @@ fn make_bayer_image(image: &Image) -> RawImage {
 }
 
 fn correct_image(image: &mut Image) {
-    for v in image.r.iter_mut() {
-        if *v < 0.0 { *v = 0.0; }
-        if *v > 1.0 { *v = 1.0; }
-    }
-
-    for v in image.g.iter_mut() {
-        if *v < 0.0 { *v = 0.0; }
-        if *v > 1.0 { *v = 1.0; }
-    }
-
-    for v in image.b.iter_mut() {
+    for v in image.r.iter_mut()
+    .chain(image.g.iter_mut())
+    .chain(image.b.iter_mut()) {
         if *v < 0.0 { *v = 0.0; }
         if *v > 1.0 { *v = 1.0; }
     }

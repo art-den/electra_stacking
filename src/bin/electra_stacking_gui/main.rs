@@ -2448,7 +2448,7 @@ fn action_cleanup_light_files(objects: &MainWindowObjectsPtr) {
     chbt_check_before.set_active(project.cleanup_conf().check_before_execute);
 
     let show_line = |
-        item: &ClenupConfItem,
+        item: &CleanupConfItem,
         chk_name: &str,
         mode_name: &str,
         kappa_name: &str,
@@ -2550,7 +2550,7 @@ fn action_cleanup_light_files(objects: &MainWindowObjectsPtr) {
             cleanup_conf.check_before_execute = chbt_check_before.is_active();
 
             let get_line = |
-                item:      &mut ClenupConfItem,
+                item:      &mut CleanupConfItem,
                 chb_use:   &gtk::CheckButton,
                 cbt_mode:  &gtk::ComboBoxText,
                 e_kappa:   &gtk::Entry,
