@@ -527,7 +527,9 @@ fn load_src_file_info_from_fits_hdu(
     let exp_time = hdu.read_key(fptr, "EXPTIME").ok();
     let gain = hdu.read_key::<f32>(fptr, "GAIN").ok();
     let bayer = hdu.read_key::<String>(fptr, "BAYERPAT").ok();
-    let camera = hdu.read_key(fptr, "INSTRUME").ok();
+    let camera =
+        hdu.read_key(fptr, "INSTRUME").ok()
+           .or_else(|| hdu.read_key(fptr, "CAMERA").ok());
     let focal_len = hdu.read_key(fptr, "FOCALLEN").ok();
     let focal_ratio = hdu.read_key(fptr, "FOCRATIO").ok();
     let lens = hdu.read_key(fptr, "TELESCOP").ok();
