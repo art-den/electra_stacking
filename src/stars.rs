@@ -260,7 +260,6 @@ pub fn find_stars_on_image(
     }
 
     stars.sort_by(|s1, s2| cmp_f64(&s1.brightness, &s2.brightness).reverse());
-    // common star
 
     Ok(stars)
 }

@@ -161,6 +161,10 @@ impl RawImageInfo {
     }
 
     pub fn apply_wb(&mut self, image: &mut Image) {
+        if image.is_greyscale() {
+            return;
+        }
+
         let apply = |img: &mut ImageLayerF32, k: f32| {
             for v in img.iter_mut() {
                 *v *= k;
@@ -183,13 +187,20 @@ impl RawImageInfo {
             }
         };
 
-        process(&mut image.l, self.max_values[0]);
-        process(&mut image.r, self.max_values[0]);
-        process(&mut image.g, self.max_values[1]);
-        process(&mut image.b, self.max_values[2]);
+        if image.is_greyscale() {
+            process(&mut image.l, self.max_values[0]);
+        } else {
+            process(&mut image.r, self.max_values[0]);
+            process(&mut image.g, self.max_values[1]);
+            process(&mut image.b, self.max_values[2]);
+        }
     }
 
     pub fn convert_color_space_to_srgb(&self, image: &mut Image) {
+        if image.is_greyscale() {
+            return;
+        }
+
         if let Some(xyz_to_cam) = &self.xyz_to_cam {
             use nalgebra::*;
 
@@ -560,10 +571,6 @@ impl RawImage {
         } else {
             let mut grayscale = Image::new_grey(self.info.width, self.info.height);
             grayscale.l = self.data.clone();
-            let k = 1.0/self.info.max_values[0];
-            for v in grayscale.l.iter_mut() {
-                *v *= k;
-            }
             Ok(grayscale)
         }
     }

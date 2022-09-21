@@ -2904,6 +2904,13 @@ fn action_about(objects: &MainWindowObjectsPtr) {
     }
     image.set_pixbuf(Some(&logo_image));
     l_version.set_label(&format!("v{}", env!("CARGO_PKG_VERSION")));
+
+    if gettext("cur_lang") == "ru" {
+        let lb_lb_discussion = builder.object::<gtk::LinkButton>("lb_discussion").unwrap();
+        lb_lb_discussion.set_label("Обсудить на форуме astronomy.ru");
+        lb_lb_discussion.set_uri("https://astronomy.ru/forum/index.php/topic,201076.0.html");
+    }
+
     dialog.set_transient_for(Some(&objects.window));
     dialog.show();
     btn_close.connect_clicked(move |_| dialog.close());

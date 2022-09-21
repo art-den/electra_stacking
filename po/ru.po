@@ -528,3 +528,8 @@ msgstr "Обсуждение программы"
 
 msgid "Project columns"
 msgstr "Колонки проекта"
+
+# misc
+
+msgid "cur_lang"
+msgstr "ru"

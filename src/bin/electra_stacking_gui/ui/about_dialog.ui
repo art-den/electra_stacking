@@ -156,7 +156,7 @@
                   </packing>
                 </child>
                 <child>
-                  <object class="GtkLinkButton">
+                  <object class="GtkLinkButton" id="lb_discussion">
                     <property name="label" translatable="yes">Discussion</property>
                     <property name="visible">True</property>
                     <property name="can-focus">True</property>
