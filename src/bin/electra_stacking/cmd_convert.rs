@@ -18,7 +18,7 @@ pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
 
     if let RawOrImage::Image(mut image) = file.image {
         image.check_contains_inf_or_nan(true, true)?;
-        image.normalize_if_greater_1();
+        image.normalize_to_1(true);
         save_image_to_file(&image, &file.info, &options.dst_file)?;
         Ok(())
     } else {

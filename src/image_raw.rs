@@ -560,7 +560,7 @@ impl RawImage {
         } else {
             let mut grayscale = Image::new_grey(self.info.width, self.info.height);
             grayscale.l = self.data.clone();
-            let k = 1.0/self.info.black_values[0];
+            let k = 1.0/self.info.max_values[0];
             for v in grayscale.l.iter_mut() {
                 *v *= k;
             }

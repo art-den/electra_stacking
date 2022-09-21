@@ -578,14 +578,14 @@ pub fn load_image_from_fits_file(
     if !is_color_image && (info.cfa_type.is_some() || camera_params.is_some() || force_as_raw) {
         let max = match data_type {
             ImageType::UnsignedByte => 127.0,
-            ImageType::Byte =>  255.0,
-            ImageType::Short => 32767.0,
-            ImageType::UnsignedShort => 65535.0,
-            ImageType::Long => ((1u64 << 31) - 1) as f64,
-            ImageType::UnsignedLong => ((1u64 << 32) - 1) as f64,
-            ImageType::LongLong => ((1u64 << 63) - 1) as f64,
-            ImageType::Float => 1.0,
-            ImageType::Double => 1.0,
+            ImageType::Byte  =>  255.0,
+            ImageType::Short  => 32767.0,
+            ImageType::UnsignedShort  => 65535.0,
+            ImageType::Long  => ((1u64 << 31) - 1) as f64,
+            ImageType::UnsignedLong  => ((1u64 << 32) - 1) as f64,
+            ImageType::LongLong  => ((1u64 << 63) - 1) as f64,
+            ImageType::Float  => 1.0,
+            ImageType::Double  => 1.0,
         };
 
         let ct = info.cfa_type.or_else(|| camera_params.map(|(_, ct, _)| ct).flatten());

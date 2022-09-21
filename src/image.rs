@@ -976,7 +976,7 @@ impl Image {
         }
     }
 
-    pub fn normalize_if_greater_1(&mut self) {
+    pub fn normalize_to_1(&mut self, if_greater_1: bool) {
         let max = self.l
             .iter()
             .chain(self.r.iter())
@@ -989,7 +989,7 @@ impl Image {
 
         const MAX: f32 = 0.999;
 
-        if max < MAX { return; }
+        if max < MAX && if_greater_1 { return; }
 
         let do_norm = |k, img: &mut ImageLayerF32| {
             for v in img.iter_mut() {

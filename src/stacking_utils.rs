@@ -259,7 +259,9 @@ where
         temp_file_list.add(file_path);
     }
 
-    if opened_files.is_empty() { bail!("Nothing to merge") }
+    if opened_files.is_empty() {
+        bail!("Nothing to merge")
+    }
 
     let image_info = first_image_info.unwrap();
     let mut image = RawImage::new_from_info(image_info);
@@ -465,7 +467,8 @@ fn create_temp_file_from_light_file(
         LoadLightFlags::STARS | LoadLightFlags::NOISE,
         OpenMode::Processing,
         bin,
-        raw_params
+        raw_params,
+        false
     )?;
     log::info!("loaded light file {}!", file.to_str().unwrap_or(""));
     load_log.log("loading light file TOTAL");
@@ -716,7 +719,7 @@ pub fn merge_temp_light_files(
     progress.lock().unwrap().percent(100, 100, "Saving result...");
 
     result_image.check_contains_inf_or_nan(false, true)?;
-    result_image.normalize_if_greater_1();
+    result_image.normalize_to_1(false);
     result_image.fill_inf_areas_with_one();
     result_image.check_contains_inf_or_nan(true, true)?;
 
@@ -737,7 +740,7 @@ pub fn merge_temp_light_files(
 fn align_rgb_layers(image: &mut Image) -> anyhow::Result<()> {
     let get_stars = |img| {
         let noise = calc_noise(img) as f32;
-        find_stars_on_image(img, None, Some(noise), true)
+        find_stars_on_image(img, None, Some(noise), true, false)
     };
     let g_stars = get_stars(&image.g)?;
     let img_width = image.width();

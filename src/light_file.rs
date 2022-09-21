@@ -53,6 +53,7 @@ impl LightFile {
         open_mode:   OpenMode,
         bin:         usize,
         raw_params:  &RawOpenParams,
+        no_error_if_no_stars: bool,
     ) -> anyhow::Result<LightFile> {
         log::info!(
             "LightFile::load_and_calc_params: file_name={}, flags={:?}, open_mode={:?}, bin={}",
@@ -166,7 +167,8 @@ impl LightFile {
                 &img_layer_to_calc,
                 Some(&image),
                 Some(noise),
-                true
+                true,
+                no_error_if_no_stars
             )?;
             stars_log.log("looking for stars on image");
             log::info!("stars count = {}", result.len());

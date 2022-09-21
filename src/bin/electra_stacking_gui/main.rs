@@ -1948,7 +1948,8 @@ fn preview_image_file(
             load_flags,
             OpenMode::Preview,
             bin,
-            &raw_params
+            &raw_params,
+            true
         );
 
         match light_file {

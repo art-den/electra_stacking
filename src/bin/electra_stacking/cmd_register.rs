@@ -65,6 +65,7 @@ pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
                     OpenMode::Processing,
                     1,
                     &Default::default(),
+                    false,
                 ).expect("Can't load light file");
 
                 let stars_stat = light_file.stars_stat.unwrap();

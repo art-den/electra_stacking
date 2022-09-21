@@ -42,13 +42,15 @@ pub fn find_stars_on_image(
     orig_image:         Option<&Image>,
     noise:              Option<f32>,
     remove_wrong_stars: bool,
+    return_no_error:    bool,
 ) -> anyhow::Result<Stars> {
+    let max_img_value = img.iter().copied().max_by(cmp_f32).unwrap_or(1.0);
     let border = match noise {
-        Some(noise)
-        if noise != 0.0 =>
-            (noise * 20.0).max(STAR_BG_BORDER),
-        _ =>
-            STAR_BG_BORDER,
+        Some(noise) if noise != 0.0 =>
+            (noise * 20.0).max(STAR_BG_BORDER * max_img_value),
+        _ => {
+            STAR_BG_BORDER * max_img_value
+        },
     };
 
     let mut stars = Stars::new();
@@ -233,6 +235,8 @@ pub fn find_stars_on_image(
             if let Some((mean, dev)) = mean_and_std_dev(&star_r_devs) {
                 let max = mean + dev*2.5;
                 stars.retain(|s| (s.radius_std_dev as f64) < max);
+            } else if return_no_error {
+                return Ok(Vec::new());
             } else {
                 anyhow::bail!("No stars");
             }
@@ -247,6 +251,8 @@ pub fn find_stars_on_image(
             if let Some((mean, dev)) = mean_and_std_dev(&star_r_devs) {
                 let max = mean + dev * 8.0;
                 stars.retain(|s| (s.points.len() as f64).sqrt() < max);
+            } else if return_no_error {
+                return Ok(Vec::new());
             } else {
                 anyhow::bail!("No stars");
             }
