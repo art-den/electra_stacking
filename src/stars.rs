@@ -39,7 +39,6 @@ pub type Stars = Vec<Star>;
 
 pub fn find_stars_on_image(
     img:                &ImageLayerF32,
-    orig_image:         Option<&Image>,
     noise:              Option<f32>,
     remove_wrong_stars: bool,
     return_no_error:    bool,
@@ -91,6 +90,8 @@ pub fn find_stars_on_image(
     let mut all_stars_points: HashSet<TmpPt> = HashSet::new();
     let mut star_bg_values = Vec::new();
     let mut flood_filler = FloodFiller::new();
+
+    let mut star_calc = StarCalulator::new();
 
     for &(mut x, mut y, posibble_max_value) in possible_stars.iter() {
         if all_stars_points.contains(&(x, y)) { continue };
@@ -153,34 +154,17 @@ pub fn find_stars_on_image(
 
         // test that found object is star
 
-        if star_points.len() as i64 > MSD*MSD { continue; }
+        if star_points.is_empty() || star_points.len() as i64 > MSD*MSD {
+            continue;
+        }
 
-        let (center_x, center_y, br, radius, radius_dev) = calc_center_brightness_radius_and_deviation(
+        let (center_x, center_y, br, radius, radius_dev) = star_calc.calc_center_brightness_radius_and_deviation(
             &img,
             star_bg,
             &star_points
         );
 
         if radius_dev > 2.0 { continue; }
-
-        let mut star_is_overexposured = false;
-        if let Some(orig_image) = orig_image {
-            for &(sx, sy) in &star_points {
-                if let Some(v) = orig_image.l.get(sx, sy) { if v.is_infinite() {
-                    star_is_overexposured = true;
-                }}
-                if let Some(v) = orig_image.r.get(sx, sy) { if v.is_infinite() {
-                    star_is_overexposured = true;
-                }}
-                if let Some(v) = orig_image.g.get(sx, sy) { if v.is_infinite() {
-                    star_is_overexposured = true;
-                }}
-                if let Some(v) = orig_image.b.get(sx, sy) { if v.is_infinite() {
-                    star_is_overexposured = true;
-                }}
-                if star_is_overexposured { break; }
-            }
-        }
 
         // add star into result list
 
@@ -212,7 +196,7 @@ pub fn find_stars_on_image(
             brightness:     br,
             radius:         radius as f32,
             radius_std_dev: radius_dev as f32,
-            overexposured:  star_is_overexposured,
+            overexposured:  false,
             points,
         });
     }
@@ -264,63 +248,99 @@ pub fn find_stars_on_image(
     Ok(stars)
 }
 
-fn calc_center_brightness_radius_and_deviation(
-    img:         &ImageLayerF32,
-    star_bg:     f32,
-    star_points: &HashSet<(Crd, Crd)>
-) -> (f64, f64, f64, f64, f64) {
-    const BORD: f64 = 0.5;
-
-    // center of star and brightness
-
-    let (x_sum, y_sum, br) = star_points.iter().fold(
-        (0_f64, 0_f64, 0_f64),
-        |(x_sum, y_sum, br), &(x, y)| {
-            let v = (img.get(x, y).unwrap_or(0.0) - star_bg) as f64;
-            (x_sum + v * x as f64, y_sum + v * y as f64, br + v)
+pub fn set_stars_overexposured_flag(
+    stars: &mut Stars,
+    img:   &Image
+) {
+    for star in stars {
+        let mut star_is_overexposured = false;
+        for &StarPoint{x, y} in &star.points {
+            if let Some(v) = img.l.get(x, y) { if v.is_infinite() {
+                star_is_overexposured = true;
+            }}
+            if let Some(v) = img.r.get(x, y) { if v.is_infinite() {
+                star_is_overexposured = true;
+            }}
+            if let Some(v) = img.g.get(x, y) { if v.is_infinite() {
+                star_is_overexposured = true;
+            }}
+            if let Some(v) = img.b.get(x, y) { if v.is_infinite() {
+                star_is_overexposured = true;
+            }}
+            if star_is_overexposured { break; }
         }
-    );
-
-    let center_x = x_sum/br;
-    let center_y = y_sum/br;
-
-    // radius
-
-    let is_border_point = |x, y| {
-        !star_points.contains(&(x+1, y)) ||
-        !star_points.contains(&(x-1, y)) ||
-        !star_points.contains(&(x, y+1)) ||
-        !star_points.contains(&(x, y-1))
-    };
-
-    let mut radius_summ = 0_f64;
-    let mut bord_pt_cnt = 0_u32;
-    for &(sx, sy) in star_points.iter().filter(|(x, y)| is_border_point(*x, *y) ) {
-        let dx = sx as f64 - center_x;
-        let dy = sy as f64 - center_y;
-        let r = (dx*dx + dy*dy).sqrt() + BORD;
-        radius_summ += r;
-        bord_pt_cnt += 1;
+        star.overexposured = star_is_overexposured;
     }
-
-    let radius = radius_summ / bord_pt_cnt as f64;
-
-    // radius devation
-
-    let mut deviation_summ = 0_f64;
-    for &(sx, sy) in star_points.iter().filter(|(x, y)| is_border_point(*x, *y) ) {
-        let dx = sx as f64 - center_x;
-        let dy = sy as f64 - center_y;
-        let r = (dx*dx + dy*dy).sqrt() + BORD;
-        let diff = (r - radius).abs();
-        let diff = if diff < BORD { 0.0 } else { diff - BORD };
-        deviation_summ += diff * diff;
-    }
-
-    let radius_dev = (deviation_summ / bord_pt_cnt as f64).sqrt() / radius;
-
-    (center_x, center_y, br, radius, radius_dev)
 }
+
+struct StarCalulator {
+    r: Vec<f64>,
+}
+
+impl StarCalulator {
+    fn new() -> Self {
+        Self {
+            r: Vec::new(),
+        }
+    }
+
+    fn calc_center_brightness_radius_and_deviation(
+        &mut self,
+        img:         &ImageLayerF32,
+        star_bg:     f32,
+        star_points: &HashSet<(Crd, Crd)>
+    ) -> (f64, f64, f64, f64, f64) {
+        const BORD: f64 = 0.5;
+
+        // center of star and brightness
+
+        let (x_sum, y_sum, br) = star_points.iter().fold(
+            (0_f64, 0_f64, 0_f64),
+            |(x_sum, y_sum, br), &(x, y)| {
+                let v = (img.get(x, y).unwrap_or(0.0) - star_bg) as f64;
+                (x_sum + v * x as f64, y_sum + v * y as f64, br + v)
+            }
+        );
+
+        let center_x = x_sum/br;
+        let center_y = y_sum/br;
+
+        // radius and ovality
+
+        let is_border_point = |x, y| {
+            !star_points.contains(&(x+1, y)) ||
+            !star_points.contains(&(x-1, y)) ||
+            !star_points.contains(&(x, y+1)) ||
+            !star_points.contains(&(x, y-1))
+        };
+
+        self.r.clear();
+        let mut radius_summ = 0_f64;
+        let mut bord_pt_cnt = 0_u32;
+        for &(sx, sy) in star_points.iter().filter(|(x, y)| is_border_point(*x, *y) ) {
+            let dx = sx as f64 - center_x;
+            let dy = sy as f64 - center_y;
+            let r = (dx*dx + dy*dy).sqrt() + BORD;
+            radius_summ += r;
+            bord_pt_cnt += 1;
+            self.r.push(r);
+        }
+
+        let radius = radius_summ / bord_pt_cnt as f64;
+
+        self.r.sort_by(cmp_f64);
+        let low_bound = self.r.len() / 10;
+        let hi_bound = self.r.len() - low_bound - 1;
+        let small_r = self.r[low_bound];
+        let large_r = self.r[hi_bound];
+        let diff_r = (small_r-large_r).abs();
+        let radius_dev = diff_r / radius;
+
+        (center_x, center_y, br, radius, radius_dev)
+    }
+
+}
+
 
 #[derive(Debug)]
 pub struct ImageOffset {
@@ -328,7 +348,6 @@ pub struct ImageOffset {
     pub offset_y: f64,
     pub angle:    f64,
 }
-
 
 pub fn calc_image_offset_by_stars(
     ref_stars:             &Stars,
@@ -341,14 +360,8 @@ pub fn calc_image_offset_by_stars(
 ) -> Option<ImageOffset> {
     let image_size = (img_width + img_height) / 2.0;
 
-    let mut ref_stars: Vec<_> = ref_stars.iter().map(|v| v).collect();
-    let mut stars: Vec<_> = stars.iter().map(|v| v).collect();
-    let stars_sort_key = |s: &&Star| (-1_000_000.0 * s.brightness) as i64;
-    ref_stars.sort_by_key(stars_sort_key);
-    stars.sort_by_key(stars_sort_key);
-
-    let ref_triangles = get_stars_triangles(&ref_stars, image_size / 5.0, max_stars, add_triangulation);
-    let triangles = get_stars_triangles(&stars, image_size / 5.0, max_stars, add_triangulation);
+    let ref_triangles = get_stars_triangles(ref_stars, image_size / 5.0, max_stars, add_triangulation);
+    let triangles = get_stars_triangles(stars, image_size / 5.0, max_stars, add_triangulation);
 
     log::info!(
         "-*= Align parameters calculation. max_stars={}, add_triangulation={} =*-",
@@ -578,7 +591,7 @@ impl<'a> StarsTriangle<'a> {
 type StarsTriangles<'a> = Vec<StarsTriangle<'a>>;
 
 fn get_stars_triangles<'a>(
-    stars:             &'a [&Star],
+    stars:             &'a [Star],
     min_len:           f64,
     mut max_stars:     usize,
     add_triangulation: bool
@@ -659,7 +672,6 @@ pub struct StarsStat {
     pub aver_r_dev: f32,
     pub common_stars_img: ImageLayerF32,
 }
-
 fn create_common_star_image(
     stars: &Stars,
     image: &ImageLayerF32,
@@ -683,7 +695,7 @@ fn create_common_star_image(
         .max_by(cmp_f32)
         .unwrap_or(0.0);
 
-    let range_border = max_range / 10.0;
+    let range_border = max_range / 100.0;
 
     let img_width = max_width * mag * 2 + 1;
     let img_height = max_height * mag * 2 + 1;
@@ -691,10 +703,20 @@ fn create_common_star_image(
     let mut result = ImageLayerF32::new(img_width, img_height);
 
     let mut pt_values = Vec::new();
+    let img_center_x = (image.width() / 2) as f64;
+    let img_center_y = (image.height() / 2) as f64;
+    let max_dist_to_center = (Crd::max(image.width(), image.height()) / 2) as f64;
+
+    const MARGIN_WEIGHT: f64 = 0.2; // weight of stars on image margin
+
+    let mut max_stars_to_use = stars.len() / 2;
+    if max_stars_to_use < 20 {
+        max_stars_to_use = stars.len()
+    }
 
     for (x, y, v) in result.iter_crd_mut() {
         pt_values.clear();
-        for star in stars {
+        for star in &stars[0..max_stars_to_use] {
             if star.overexposured { continue; }
             let range = star.max_value - star.background;
             if range < range_border { continue; }
@@ -705,15 +727,23 @@ fn create_common_star_image(
             let star_x = ox / mag as f64 + star.x;
             let star_y = oy / mag as f64 + star.y;
 
-            let norm_star_values = if let Some(v) = image.get_f64_crd(star_x, star_y) {
-                (v - star.background) / (star.max_value - star.background)
-            } else {
-                0.0
-            };
-            pt_values.push(CalcValue::new(norm_star_values as f64));
+            if let Some(v) = image.get_f64_crd(star_x, star_y) {
+                let norm_star_values = linear_interpol(v as f64, star.background as f64, star.max_value as f64, 0.0, 1.0);
+                let star_dist_to_center = f64::sqrt(
+                    (star.x - img_center_x) * (star.x - img_center_x) +
+                    (star.y - img_center_y) * (star.y - img_center_y)
+                );
+
+                let star_weight = linear_interpol(star_dist_to_center, 0.0, max_dist_to_center, 1.0, MARGIN_WEIGHT);
+
+                if star_weight > 0.0 {
+                    pt_values.push(CalcValue::new_weighted(norm_star_values as f64, star_weight));
+                }
+            }
         }
-        if let Some(filtered_v) = median_result(&mut pt_values) {
-            *v = (filtered_v.result as f32).min(1.0);
+
+        if let Some(filtered_v) = cappa_sigma_weighted_result(&mut pt_values, 1.8, 10, true, true) {
+            *v = (filtered_v.result as f32).min(1.0).max(0.0);
         }
     }
 
@@ -724,11 +754,12 @@ pub fn calc_stars_stat(stars: &Stars, image: &ImageLayerF32) -> anyhow::Result<S
     const MAG: Crd = 8;
     let common_stars_img = create_common_star_image(stars, image, MAG)?;
     let points = common_stars_img.iter_crd()
-        .filter(|(_, _, v)| *v > 0.25)
+        .filter(|(_, _, v)| *v > 0.5)
         .map(|(x, y, _)| (x, y))
         .collect();
+    let mut star_calc = StarCalulator::new();
     let (_, _, _, _, deviation) =
-        calc_center_brightness_radius_and_deviation(image, 0.0, &points);
+        star_calc.calc_center_brightness_radius_and_deviation(image, 0.0, &points);
     let over_0_5_cnt = common_stars_img
         .as_slice()
         .iter()

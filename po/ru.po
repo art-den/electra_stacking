@@ -5,6 +5,10 @@
 msgid "APP_DESCRIPTION"
 msgstr "Программа для сложения астрофотографий"
 
+msgid "cur_lang"
+msgstr "ru"
+
+
 ###########################################################
 
 # Project tree columns
@@ -98,6 +102,9 @@ msgstr "Да"
 
 msgid "_No"
 msgstr "Нет"
+
+msgid "_Add"
+msgstr "Добавить"
 
 ###########################################################
 
@@ -529,7 +536,21 @@ msgstr "Обсуждение программы"
 msgid "Project columns"
 msgstr "Колонки проекта"
 
-# misc
 
-msgid "cur_lang"
-msgstr "ru"
+###########################################################
+
+# Files Drag-n-Drop dialog
+
+msgid "Add files into project"
+msgstr "Добавление файлов в проект"
+
+msgid "Add {files} file(s) into project?"
+msgstr "Добавить {files} файл(ов) в проект?"
+
+msgid "Group:"
+msgstr "Группа:"
+
+msgid "File type:"
+msgstr "Тип файлов:"
+
+

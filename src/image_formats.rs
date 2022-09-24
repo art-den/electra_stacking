@@ -5,6 +5,7 @@ use itertools::*;
 use bitstream_io::{BigEndian, BitWriter, BitWrite, BitReader};
 use chrono::prelude::*;
 use fitsio::{*, images::*, hdu::*};
+use regex::Regex;
 use crate::{
     image::*,
     image_raw::*,
@@ -100,8 +101,9 @@ pub fn is_fits_ext(ext: &str) -> bool {
     FIT_EXTS.iter().any(|e| ext.eq_ignore_ascii_case(e))
 }
 
-pub fn is_image_file_name(file_name: &Path) -> bool {
+pub fn is_source_file_name(file_name: &Path) -> bool {
     let ext = extract_extension(file_name);
+    is_raw_ext(ext) |
     is_tiff_ext(ext) |
     is_fits_ext(ext)
 }
@@ -157,9 +159,12 @@ pub struct ImageInfo {
 }
 
 
-pub fn load_src_file_info(file_name: &Path) -> anyhow::Result<ImageInfo> {
+fn load_src_file_info(
+    file_name:    &Path,
+    fn_extractor: &FromFileNameInfoExtractor
+) -> anyhow::Result<ImageInfo> {
     let ext = extract_extension(file_name);
-    if is_raw_ext(ext) {
+    let mut result = if is_raw_ext(ext) {
         load_src_file_info_raw(file_name)
     } else if is_tiff_ext(ext) {
         load_src_file_info_tiff(file_name)
@@ -167,6 +172,43 @@ pub fn load_src_file_info(file_name: &Path) -> anyhow::Result<ImageInfo> {
         load_src_file_info_fits(file_name)
     } else {
         err_format_not_supported(ext)
+    }?;
+
+    if result.exp.is_none() {
+        result.exp = fn_extractor.extract_exp(file_name)
+    }
+
+    if result.iso.is_none() {
+        result.iso = fn_extractor.extract_gain(file_name)
+    }
+
+    Ok(result)
+}
+
+struct FromFileNameInfoExtractor {
+    gain_re: Regex,
+    exp_ms_re: Regex,
+}
+
+impl FromFileNameInfoExtractor {
+    fn new() -> Self {
+        Self {
+            gain_re: Regex::new(r"(?i)gain=(\d+)").unwrap(),
+            exp_ms_re: Regex::new(r"(?i)exposure=(\d+(?:\.\d+))ms").unwrap(),
+        }
+    }
+
+    fn extract_gain(&self, file_name: &Path) -> Option<u32> {
+        self.gain_re.captures(file_name.to_str().unwrap_or(""))
+            .and_then(|cs| cs.get(1))
+            .and_then(|c| c.as_str().parse::<u32>().ok())
+    }
+
+    fn extract_exp(&self, file_name: &Path) -> Option<f64> {
+        self.exp_ms_re.captures(file_name.to_str().unwrap_or(""))
+            .and_then(|cs| cs.get(1))
+            .and_then(|c| c.as_str().parse::<f64>().ok())
+            .map(|v| v / 1000.0)
     }
 }
 
@@ -178,9 +220,10 @@ pub fn load_src_file_info_for_files(
     let mut result = Vec::new();
     progress.lock().unwrap().stage("Loading short file information...");
     progress.lock().unwrap().set_total(file_names.len());
+    let fn_extractor = FromFileNameInfoExtractor::new();
     for file_name in file_names {
         if cancel_flag.load(Ordering::Relaxed) { break; }
-        let item = load_src_file_info(file_name)?;
+        let item = load_src_file_info(file_name, &fn_extractor)?;
         progress.lock().unwrap().progress(true, file_name.to_str().unwrap_or(""));
         result.push(item);
     }

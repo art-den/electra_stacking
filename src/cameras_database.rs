@@ -22,12 +22,20 @@ const SONY_IMX178_CCM: &[f32; 9] = &[
      0.03049,  0.04920,  0.53220,
 ];
 
+const SONY_IMX183_WB: [f32; 4] = [1.252, 1.000, 1.390, 0.000];
+const SONY_IMX183_CCM: &[f32; 9] = &[
+     1.72028, -0.66152, -0.23730,
+     0.03204,  0.76038,  0.12118,
+     0.01657,  0.05290,  0.53756,
+];
+
 // table for cameras if no params in raw FITS file
 const CAMERAS_TABLE: &[(&str, [f32; 4], Option<CfaType>, Option<&[f32; 9]>)] = &[
     // camera    |color balance  |bayer|color matrix
     ("asi294mc",  SONY_IMX294_WB, None, Some(SONY_IMX294_CCM)),
     ("asi6200mc", SONY_IMX455_WB, None, Some(SONY_IMX455_CCM)),
     ("asi178mc",  SONY_IMX178_WB, None, Some(SONY_IMX178_CCM)),
+    ("asi183mc",  SONY_IMX183_WB, None, Some(SONY_IMX183_CCM)),
 ];
 
 pub fn find_camera_params(

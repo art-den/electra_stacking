@@ -217,6 +217,19 @@ fn build_ui(application: &gtk::Application) {
         trying_to_close: Cell::new(false),
     });
 
+    // Drag-n-drop for files
+
+    let targets = vec![
+        gtk::TargetEntry::new( "text/uri-list", gtk::TargetFlags::OTHER_APP, 0),
+    ];
+
+    window.drag_dest_set(gtk::DestDefaults::DROP, &targets, gtk::gdk::DragAction::COPY);
+    window.drag_dest_set_track_motion(true);
+
+    window.connect_drag_data_received(clone!(@strong objects => move |_w, _, _, _, sd, _, _| {
+        handler_files_dropped(&objects, sd);
+    }));
+
     // Load and apply config
 
     let res = objects.config.borrow_mut().load();
@@ -642,6 +655,7 @@ fn update_project_tree(objects: &MainWindowObjectsPtr) {
             ]);
 
             let sorted_model = gtk::TreeModelSort::new(&result);
+
             objects.prj_tree.set_model(Some(&sorted_model));
             result
         },
@@ -853,9 +867,9 @@ fn update_project_tree(objects: &MainWindowObjectsPtr) {
                             let (noise_str, noise, bg_str, bg, stars_cnt_str, stars_cnt,
                                 fwhm_str, fwhm, star_r_dev_str, star_r_dev)
                                 = if let Some(reg_info) = file.reg_info() {(
-                                    format!("{:.2}%", reg_info.noise * 100.0),
+                                    format!("{:.3}%", reg_info.noise * 100.0),
                                     reg_info.noise,
-                                    format!("{:.1}%", 100.0 * reg_info.background),
+                                    format!("{:.2}%", 100.0 * reg_info.background),
                                     reg_info.background,
                                     if reg_info.stars != 0 { format!("{}", reg_info.stars) } else { String::new() },
                                     reg_info.stars as u32,
@@ -1674,7 +1688,7 @@ fn select_and_add_files_into_project(
 
                 log::info!("Dialog '{}' confirmed", select_group_cap);
                 add_files_into_project(
-                    user_selected_files,
+                    &user_selected_files,
                     &objects,
                     group_index,
                     file_type
@@ -1733,40 +1747,131 @@ fn select_and_add_files_into_project(
 
         fc
     }
-
-    fn add_files_into_project(
-        mut file_names:   Vec<PathBuf>,
-        objects:          &MainWindowObjectsPtr,
-        group_iter_index: usize,
-        file_type:        ProjectFileType
-    ) {
-        let project = objects.project.borrow();
-        let group = project.groups().get(group_iter_index);
-        if let Some(group) = group {
-            let files = &group.get_file_list_by_type(file_type);
-            files.retain_files_if_they_are_not_here(&mut file_names);
-        }
-        drop(project);
-
-        exec_and_show_progress(
-            objects,
-            move |progress, cancel_flag| {
-                load_src_file_info_for_files(&file_names, cancel_flag, progress)
-            },
-            move |objects, result| {
-                let mut project = objects.project.borrow_mut();
-                project.add_default_group_if_empty();
-                let group = project.group_by_index_mut(group_iter_index);
-                let files = &mut group.file_list_by_type_mut(file_type);
-                log::info!("Added {} files", result.len());
-                files.add_files_from_src_file_info(result);
-                drop(project);
-                update_project_tree(objects);
-                update_project_name_and_time_in_gui(objects);
-            }
-        );
-    }
 }
+
+fn handler_files_dropped(objects: &MainWindowObjectsPtr, sd: &gtk::SelectionData) {
+    fn add_dir_to_list(file_name: PathBuf, files_list: &mut Vec<PathBuf>) {
+        let paths = std::fs::read_dir(file_name);
+        if let Ok(paths) = paths {
+            for entry in paths.filter_map(|e| e.ok()) {
+                add_file_to_list(entry.path(), files_list);
+            }
+        }
+    }
+
+    fn add_file_to_list(file_name: PathBuf, files_list: &mut Vec<PathBuf>) {
+        if file_name.is_file() && is_source_file_name(&file_name) {
+            files_list.push(file_name);
+        } else if file_name.is_dir() {
+            add_dir_to_list(file_name, files_list);
+        }
+    }
+
+    fn ask_user_to_select_types_and_add_files(objects: &MainWindowObjectsPtr, files: Vec<PathBuf>) {
+        if files.is_empty() { return; }
+        let builder = gtk::Builder::from_string(include_str!("ui/dnd_files_type_dialog.ui"));
+        let dialog = builder.object::<gtk::Dialog>("dnd_files_type_dialog").unwrap();
+        let l_info = builder.object::<gtk::Label>("l_info").unwrap();
+        let cb_group = builder.object::<gtk::ComboBoxText>("cb_group").unwrap();
+
+        let rb_lights = builder.object::<gtk::RadioButton>("rb_lights").unwrap();
+        let rb_darks = builder.object::<gtk::RadioButton>("rb_darks").unwrap();
+        let rb_flats = builder.object::<gtk::RadioButton>("rb_flats").unwrap();
+
+        l_info.set_label(&transl_and_replace(
+            "Add {files} file(s) into project?",
+            &[("{files}", files.len().to_string())]
+        ));
+
+        let project = objects.project.borrow();
+        for (idx, group) in project.groups().iter().enumerate() {
+            cb_group.append(None, group.name(idx).as_str());
+        }
+        cb_group.set_sensitive(project.groups().len() > 1);
+        let selection = get_current_selection(objects);
+        cb_group.set_active(Some(selection.group_idx.unwrap_or(0) as u32));
+
+        dialog.set_transient_for(Some(&objects.window));
+        if cfg!(target_os = "windows") {
+            dialog.add_buttons(&[
+                (&gettext("_Add"), gtk::ResponseType::Ok),
+                (&gettext("_Cancel"), gtk::ResponseType::Cancel),
+            ]);
+        } else {
+            dialog.add_buttons(&[
+                (&gettext("_Cancel"), gtk::ResponseType::Cancel),
+                (&gettext("_Add"), gtk::ResponseType::Ok),
+            ]);
+        }
+
+        dialog.connect_response(clone!(@strong objects => move |dlg, resp| {
+            if resp == gtk::ResponseType::Ok {
+                let file_type = if rb_lights.is_active() {
+                    ProjectFileType::Light
+                } else if rb_darks.is_active() {
+                    ProjectFileType::Dark
+                } else if rb_flats.is_active() {
+                    ProjectFileType::Flat
+                } else {
+                    ProjectFileType::Bias
+                };
+                add_files_into_project(
+                    &files,
+                    &objects,
+                    cb_group.active().unwrap_or(0_u32) as usize,
+                    file_type
+                );
+            }
+            dlg.close();
+        }));
+
+        dialog.show();
+    }
+
+    let mut files_list = Vec::new();
+    for file in sd.uris() {
+        let file_name = gio::File::for_uri(&file).path();
+        if let Some(file_name) = file_name {
+            add_file_to_list(file_name, &mut files_list);
+        }
+    }
+    ask_user_to_select_types_and_add_files(objects, files_list);
+}
+
+fn add_files_into_project(
+    file_names:       &Vec<PathBuf>,
+    objects:          &MainWindowObjectsPtr,
+    group_iter_index: usize,
+    file_type:        ProjectFileType
+) {
+    let mut file_names = file_names.clone();
+    let project = objects.project.borrow();
+    let group = project.groups().get(group_iter_index);
+    if let Some(group) = group {
+        let files = &group.get_file_list_by_type(file_type);
+        files.retain_files_if_they_are_not_here(&mut file_names);
+    }
+    drop(project);
+
+    exec_and_show_progress(
+        objects,
+        move |progress, cancel_flag| {
+            load_src_file_info_for_files(&file_names, cancel_flag, progress)
+        },
+        move |objects, result| {
+            let mut project = objects.project.borrow_mut();
+            project.add_default_group_if_empty();
+            let group = project.group_by_index_mut(group_iter_index);
+            let files = &mut group.file_list_by_type_mut(file_type);
+            log::info!("Added {} files", result.len());
+            files.add_files_from_src_file_info(result);
+            drop(project);
+            update_project_tree(objects);
+            update_project_name_and_time_in_gui(objects);
+        }
+    );
+}
+
 
 fn action_register(objects: &MainWindowObjectsPtr) {
     log::info!("Registering light files started");

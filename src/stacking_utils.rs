@@ -740,7 +740,7 @@ pub fn merge_temp_light_files(
 fn align_rgb_layers(image: &mut Image) -> anyhow::Result<()> {
     let get_stars = |img| {
         let noise = calc_noise(img) as f32;
-        find_stars_on_image(img, None, Some(noise), true, false)
+        find_stars_on_image(img, Some(noise), true, false)
     };
     let g_stars = get_stars(&image.g)?;
     let img_width = image.width();

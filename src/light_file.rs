@@ -161,11 +161,10 @@ impl LightFile {
             &image.g
         };
 
-        let stars = if stars_flag || stars_stat_flag {
+        let mut stars = if stars_flag || stars_stat_flag {
             let stars_log = TimeLogger::start();
             let result = find_stars_on_image(
                 &img_layer_to_calc,
-                Some(&image),
                 Some(noise),
                 true,
                 no_error_if_no_stars
@@ -192,6 +191,8 @@ impl LightFile {
             }
         }
         image.mark_overexposures(&overexposures);
+
+        set_stars_overexposured_flag(&mut stars, &image);
 
         Ok(LightFile{
             info: image_data.info,
@@ -225,6 +226,6 @@ pub fn calc_noise(image: &ImageLayerF32) -> f64 {
 fn calc_background(image: &ImageLayerF32) -> f32 {
     let mut temp_values = Vec::with_capacity(image.as_slice().len());
     for v in image.as_slice() { temp_values.push(*v); }
-    let pos = temp_values.len() / 4;
+    let pos = 4 * temp_values.len() / 5;
     *temp_values.select_nth_unstable_by(pos, cmp_f32).1
 }

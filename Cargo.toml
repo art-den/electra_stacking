@@ -1,6 +1,6 @@
 [package]
 name = "electra_stacking"
-version = "0.1.91"
+version = "0.1.92"
 edition = "2021"
 description = "Astronimical images stacking"
 repository = "https://github.com/art-den/electra_stacking"
@@ -41,7 +41,7 @@ pathdiff = "0.2"
 embed-resource = "1.7"
 
 [profile.dev]
-opt-level = 0
+opt-level = 1
 
 [profile.dev.package."*"]
 opt-level = 1

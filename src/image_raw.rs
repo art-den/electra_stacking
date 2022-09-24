@@ -1027,9 +1027,6 @@ impl RawImage {
                 -k * *diff_values_neg.select_nth_unstable_by(pos, cmp_f32).1
             };
 
-            dbg!(border_pos);
-            dbg!(border_neg);
-
             for y in 0..self.data.height() {
                 fill_hot_pixels(IterType::Rows, y, cc, &mut coords, &mut values, border_pos, border_neg);
             }
