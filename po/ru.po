@@ -106,6 +106,10 @@ msgstr "Нет"
 msgid "_Add"
 msgstr "Добавить"
 
+msgid "_Assign"
+msgstr "Установить"
+
+
 ###########################################################
 
 # Main window menu
@@ -156,6 +160,9 @@ msgstr "Зарегистрировать файлы изображения"
 
 msgid "Cleanup light files..."
 msgstr "Отключить неудачные файлы изображения"
+
+msgid "Assign reference light image..."
+msgstr "Установить опорный кадр..."
 
 msgid "Stack light files"
 msgstr "Сложить файлы изображения"
@@ -553,4 +560,27 @@ msgstr "Группа:"
 msgid "File type:"
 msgstr "Тип файлов:"
 
+###########################################################
 
+# Assigning reference image dialog
+
+msgid "Assigning reference image"
+msgstr "Установка опорного кадра"
+
+msgid "Assign one of image as reference one by:"
+msgstr "Назначить опорный кадр по:"
+
+msgid "Smallest stars"
+msgstr "Минимальному размеру звёзд"
+
+msgid "Roundest stars"
+msgstr "Самым ровным звёздам"
+
+msgid "Minimum background brightness"
+msgstr "Минимальной яркости фона"
+
+msgid "Minimum noise"
+msgstr "Минимальному шуму изображения"
+
+msgid "Press \"Cancel\" if you want to assign reference image manually"
+msgstr "Нажмите \"Отменить\" если вы хотите установить опорный кадр вручную"

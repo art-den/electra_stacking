@@ -1,4 +1,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 #![allow(clippy::too_many_arguments)]
 #![allow(clippy::new_without_default)]
 
@@ -359,6 +360,7 @@ fn build_ui(application: &gtk::Application) {
     conn_action(&objects, "uncheck_selected_files", action_uncheck_selected_files);
     conn_action(&objects, "about",                  action_about);
     conn_action(&objects, "project_columns",        action_project_columns);
+    conn_action(&objects, "assign_ref_light_image", action_assign_ref_light_image);
 
     if cfg!(target_os = "windows") {
         let settings = gtk::Settings::default().unwrap();
@@ -439,6 +441,17 @@ fn build_ui(application: &gtk::Application) {
     window.show_all();
     objects.progress_cont.set_visible(false);
     enable_actions(&objects);
+}
+
+fn set_dialog_default_button<T: gtk::glib::IsA<gtk::Dialog>>(dialog: &T) {
+    use gtk::ResponseType::*;
+    for resp in [Ok, Yes, Accept, Apply] {
+        if let Some(btn) = dialog.widget_for_response(resp) {
+            btn.set_can_default(true);
+            btn.grab_default();
+            break;
+        }
+    }
 }
 
 fn conn_action<F: Fn(&MainWindowObjectsPtr) + 'static>(
@@ -1825,6 +1838,7 @@ fn handler_files_dropped(objects: &MainWindowObjectsPtr, sd: &gtk::SelectionData
             dlg.close();
         }));
 
+        set_dialog_default_button(&dialog);
         dialog.show();
     }
 
@@ -1874,6 +1888,9 @@ fn add_files_into_project(
 
 
 fn action_register(objects: &MainWindowObjectsPtr) {
+    if objects.project.borrow().total_light_files_count() == 0 {
+        return;
+    }
     log::info!("Registering light files started");
     let project_json = objects.project.borrow().to_json_string();
     let cpu_load = objects.config.borrow().cpu_load;
@@ -2152,6 +2169,7 @@ fn action_new_group(objects: &MainWindowObjectsPtr) {
         })
     );
 
+    set_dialog_default_button(&dialog);
     dialog.show();
 }
 
@@ -2243,6 +2261,7 @@ fn action_item_properties(objects: &MainWindowObjectsPtr) {
                     update_project_tree(&objects);
                 })
             );
+            set_dialog_default_button(&dialog);
             dialog.show();
         },
 
@@ -2534,15 +2553,27 @@ fn configure_project_options<F: Fn(ProjectConfig) + 'static>(
         dialog.close();
     }));
 
+    set_dialog_default_button(&dialog);
     dialog.show();
 }
 
-fn action_cleanup_light_files(objects: &MainWindowObjectsPtr) {
-    if !objects.project.borrow().can_exec_cleanup() {
+fn check_all_light_files_are_registered(objects: &MainWindowObjectsPtr) -> bool {
+    let project = objects.project.borrow();
+    if !project.is_any_used_light_file() {
+        return false;
+    }
+    if !project.is_all_light_files_are_registered() {
         show_error_message(
             &gettext("You have execute register light files first!"),
             objects
         );
+        return false;
+    }
+    true
+}
+
+fn action_cleanup_light_files(objects: &MainWindowObjectsPtr) {
+    if !check_all_light_files_are_registered(objects) {
         return;
     }
 
@@ -2692,7 +2723,7 @@ fn action_cleanup_light_files(objects: &MainWindowObjectsPtr) {
             let result = objects.project.borrow_mut().cleanup_light_files();
             match result {
                 Ok(cleaned_up_count) => {
-                    let total_files = objects.project.borrow().get_total_light_files_count();
+                    let total_files = objects.project.borrow().total_light_files_count();
 
                     let message = transl_and_replace(
                         "Cleaned up {cleaned} files of {total} ({percent}%)", &[
@@ -2719,11 +2750,98 @@ fn action_cleanup_light_files(objects: &MainWindowObjectsPtr) {
         }
     }));
 
+    set_dialog_default_button(&dialog);
     dialog.show();
 }
 
+fn ask_user_to_assign_ref_light_image_auto(
+    objects:              &MainWindowObjectsPtr,
+    start_stacking_after: bool
+){
+    let builder = gtk::Builder::from_string(include_str!("ui/assign_ref_light_frame.ui"));
+    let dialog = builder.object::<gtk::Dialog>("assign_key_light_frame_dialog").unwrap();
+
+    let rb_smallest_stars = builder.object::<gtk::RadioButton>("rb_smallest_stars").unwrap();
+    let rb_roundest_stars = builder.object::<gtk::RadioButton>("rb_roundest_stars").unwrap();
+    let rb_min_bg = builder.object::<gtk::RadioButton>("rb_min_bg").unwrap();
+    let rb_min_noise = builder.object::<gtk::RadioButton>("rb_min_noise").unwrap();
+
+    dialog.set_transient_for(Some(&objects.window));
+    if cfg!(target_os = "windows") {
+        dialog.add_buttons(&[
+            (&gettext("_Assign"), gtk::ResponseType::Ok),
+            (&gettext("_Cancel"), gtk::ResponseType::Cancel),
+        ]);
+    } else {
+        dialog.add_buttons(&[
+            (&gettext("_Cancel"), gtk::ResponseType::Cancel),
+            (&gettext("_Assign"), gtk::ResponseType::Ok),
+        ]);
+    }
+
+    match objects.project.borrow().config().ref_image_auto_mode {
+        RefImageAutoMode::SmallestStars => rb_smallest_stars.set_active(true),
+        RefImageAutoMode::RoundestStars => rb_roundest_stars.set_active(true),
+        RefImageAutoMode::MinBg         => rb_min_bg.set_active(true),
+        RefImageAutoMode::NinNoise      => rb_min_noise.set_active(true),
+    }
+
+    dialog.connect_response(clone!(@strong objects => move |dialog, response| {
+        if response == gtk::ResponseType::Ok {
+            let mut project = objects.project.borrow_mut();
+            let mut config = project.config().clone();
+            config.ref_image_auto_mode =
+                if rb_smallest_stars.is_active()      { RefImageAutoMode::SmallestStars }
+                else if rb_roundest_stars.is_active() { RefImageAutoMode::RoundestStars }
+                else if rb_min_bg.is_active()         { RefImageAutoMode::MinBg }
+                else                                  { RefImageAutoMode::NinNoise };
+
+            project.set_config(config);
+            project.assign_ref_light_frame_automatically();
+
+            drop(project);
+
+            update_project_tree(&objects);
+            update_project_name_and_time_in_gui(&objects);
+
+            if start_stacking_after {
+                action_stack(&objects);
+            }
+        }
+        dialog.close();
+    }));
+
+    set_dialog_default_button(&dialog);
+    dialog.show();
+}
+
+fn action_assign_ref_light_image(objects: &MainWindowObjectsPtr) {
+    if !check_all_light_files_are_registered(objects) {
+        return;
+    }
+
+    if !objects.project.borrow().is_possible_assign_ref_light_frame_automatically() {
+        show_error_message(
+            &gettext("It is not possible to assign reference light image automatically"),
+            objects
+        );
+        return;
+    }
+
+    ask_user_to_assign_ref_light_image_auto(objects, false);
+}
+
 fn action_stack(objects: &MainWindowObjectsPtr) {
-    match objects.project.borrow().can_exec_stack_light_files() {
+    let project = objects.project.borrow();
+    if !project.is_any_used_light_file() {
+        return;
+    }
+    if !project.is_ref_image_assigned()
+    && project.is_possible_assign_ref_light_frame_automatically() {
+        ask_user_to_assign_ref_light_image_auto(objects, true);
+        return;
+    }
+    match project.can_exec_stack_light_files() {
         CanExecStackLightsRes::Ok => (),
         CanExecStackLightsRes::NoRefFile => {
             show_error_message(
@@ -2733,11 +2851,10 @@ fn action_stack(objects: &MainWindowObjectsPtr) {
             return;
         },
     }
-
     log::info!("Stacking light files started");
-
-    let project_json = objects.project.borrow().to_json_string();
+    let project_json = project.to_json_string();
     let cpu_load = objects.config.borrow().cpu_load;
+    drop(project);
     exec_and_show_progress(
         objects,
         move|progress, cancel_flag| {
@@ -2849,6 +2966,7 @@ fn change_selected_files_type(
         dlg.close();
     }));
 
+    set_dialog_default_button(&dialog);
     dialog.show();
 }
 
@@ -2943,6 +3061,7 @@ fn action_move_file_to_group(objects: &MainWindowObjectsPtr) {
         dlg.close();
     }));
 
+    set_dialog_default_button(&dialog);
     dialog.show();
 }
 
@@ -3009,14 +3128,13 @@ fn action_about(objects: &MainWindowObjectsPtr) {
     }
     image.set_pixbuf(Some(&logo_image));
     l_version.set_label(&format!("v{}", env!("CARGO_PKG_VERSION")));
-
     if gettext("cur_lang") == "ru" {
         let lb_lb_discussion = builder.object::<gtk::LinkButton>("lb_discussion").unwrap();
         lb_lb_discussion.set_label("Обсудить на форуме astronomy.ru");
         lb_lb_discussion.set_uri("https://astronomy.ru/forum/index.php/topic,201076.0.html");
     }
-
     dialog.set_transient_for(Some(&objects.window));
+    set_dialog_default_button(&dialog);
     dialog.show();
     btn_close.connect_clicked(move |_| dialog.close());
 }
@@ -3070,6 +3188,7 @@ fn action_project_columns(objects: &MainWindowObjectsPtr) {
         model.set(&iter, &[(COLUMN_CHECK as u32, &tree_col.is_visible())])
     }));
     dialog.set_transient_for(Some(&objects.window));
+    set_dialog_default_button(&dialog);
     dialog.show();
     btn_close.connect_clicked(move |_| dialog.close());
 }

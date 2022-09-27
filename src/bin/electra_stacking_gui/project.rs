@@ -198,18 +198,20 @@ impl Project {
         self.changed.set(true);
     }
 
+    pub fn get_total_light_files(&self) -> usize {
+        self.groups
+            .iter()
+            .map(|g| g.light_files.list.len())
+            .sum()
+    }
+
     pub fn register_light_files(
         &self,
         progress:    &ProgressTs,
         cancel_flag: &Arc<AtomicBool>,
         cpu_load:    CpuLoad,
     ) -> anyhow::Result<HashMap<PathBuf, anyhow::Result<RegInfo>>> {
-        let total_files_cnt: usize =
-            self.groups.iter()
-            .map(|g| g.light_files.list.len())
-            .sum();
-
-        if total_files_cnt == 0 {
+        if self.get_total_light_files() == 0 {
             anyhow::bail!(gettext("No files to register"));
         }
 
@@ -252,11 +254,36 @@ impl Project {
         }
     }
 
-    pub fn can_exec_cleanup(&self) -> bool {
+    pub fn is_all_light_files_are_registered(&self) -> bool {
         for group in &self.groups {
             if !group.can_exec_cleanup() { return false; }
         }
         true
+    }
+
+    pub fn is_any_used_light_file(&self) -> bool {
+        self.groups.iter().any(|g|
+            g.used && g.light_files.list.iter().any(|f|
+                f.used
+            )
+        )
+    }
+
+    pub fn is_ref_image_assigned(&self) -> bool {
+        if let Some(ref_image) = &self.ref_image {
+            self.groups
+                .iter()
+                .any(|g| g.light_files.find_file_by_name(ref_image).is_some())
+        } else {
+            false
+        }
+    }
+
+    pub fn is_possible_assign_ref_light_frame_automatically(&self) -> bool {
+        if self.groups.len() != 1 {
+            return false;
+        }
+        self.is_all_light_files_are_registered()
     }
 
     pub fn cleanup_light_files(&mut self) -> anyhow::Result<usize> {
@@ -272,6 +299,31 @@ impl Project {
             return CanExecStackLightsRes::NoRefFile;
         }
         CanExecStackLightsRes::Ok
+    }
+
+    pub fn assign_ref_light_frame_automatically(&mut self) {
+        assert!(self.is_possible_assign_ref_light_frame_automatically());
+        let group = &mut self.groups[0];
+        let key_fun = match self.config.ref_image_auto_mode {
+            RefImageAutoMode::SmallestStars => |info: &RegInfo| info.fwhm,
+            RefImageAutoMode::RoundestStars => |info: &RegInfo| info.stars_r_dev,
+            RefImageAutoMode::MinBg         => |info: &RegInfo| info.background,
+            RefImageAutoMode::NinNoise      => |info: &RegInfo| info.noise,
+        };
+        let min_file = group.light_files.list
+            .iter_mut()
+            .filter(|f| f.used)
+            .min_by(|f1, f2| {
+                if let (Some(info1), Some(info2)) = (&f1.reg_info, &f2.reg_info) {
+                    cmp_f32(&key_fun(info1), &key_fun(info2))
+                } else {
+                    core::cmp::Ordering::Equal
+                }
+            });
+        if let Some(file) = min_file {
+            let file_name = file.file_name.clone();
+            self.set_ref_image(file_name);
+        }
     }
 
     pub fn stack_light_files(
@@ -433,7 +485,7 @@ impl Project {
         }
     }
 
-    pub fn get_total_light_files_count(&self) -> usize {
+    pub fn total_light_files_count(&self) -> usize {
         self.groups.iter()
             .map(|g| g.light_files.list.len())
             .sum()
@@ -470,6 +522,14 @@ impl ResFileType {
     }
 }
 
+#[derive(Serialize, Deserialize, Clone, Copy, Debug)]
+pub enum RefImageAutoMode {
+    SmallestStars,
+    RoundestStars,
+    MinBg,
+    NinNoise,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(default)]
 pub struct ProjectConfig {
@@ -484,6 +544,7 @@ pub struct ProjectConfig {
     pub save_common_star_img: bool,
     pub raw_params: RawOpenParams,
     pub align_rgb: bool,
+    pub ref_image_auto_mode: RefImageAutoMode,
 }
 
 impl Default for ProjectConfig {
@@ -500,6 +561,7 @@ impl Default for ProjectConfig {
             save_common_star_img: false,
             raw_params: RawOpenParams::default(),
             align_rgb: false,
+            ref_image_auto_mode: RefImageAutoMode::SmallestStars,
         }
     }
 }
@@ -1315,6 +1377,10 @@ impl ProjectFiles {
 
     fn find_file_by_name_mut(&mut self, file_name: &Path) -> Option<&mut ProjectFile> {
         self.list.iter_mut().find(|f| f.file_name == file_name)
+    }
+
+    fn find_file_by_name(&self, file_name: &Path) -> Option<&ProjectFile> {
+        self.list.iter().find(|f| f.file_name == file_name)
     }
 }
 
