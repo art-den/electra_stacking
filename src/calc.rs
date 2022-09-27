@@ -41,6 +41,19 @@ impl Default for CalcOpts {
     }
 }
 
+impl CalcOpts {
+    pub fn to_short_str(&self) -> String {
+        match self.mode {
+            CalcMode::CappaSigma =>
+                format!("sigma_clip{:.1}_{}", self.kappa, self.repeats),
+            CalcMode::Median =>
+                "median".to_string(),
+            CalcMode::Mean =>
+                "mean".to_string(),
+        }
+    }
+}
+
 #[inline]
 pub fn cmp_f32(v1: &f32, v2: &f32) -> core::cmp::Ordering {
     if *v1 < *v2 { core::cmp::Ordering::Less }
@@ -78,6 +91,21 @@ pub struct CalcResult {
 }
 
 pub fn mean(values: &[CalcValue]) -> Option<f64> {
+    let mut cnt = 0_usize;
+    let mut sum = 0_f64;
+    for v in values {
+        if !v.used { continue; }
+        sum += v.value;
+        cnt += 1;
+    }
+    if cnt != 0 {
+        Some(sum / cnt as f64)
+    } else {
+        None
+    }
+}
+
+pub fn mean_weighted(values: &[CalcValue]) -> Option<f64> {
     if values.is_empty() { return None; }
     let mut sum: f64 = 0.0;
     let mut cnt: f64 = 0.0;
@@ -89,16 +117,22 @@ pub fn mean(values: &[CalcValue]) -> Option<f64> {
     Some(sum/cnt)
 }
 
-pub fn mean_result(values: &[CalcValue]) -> Option<CalcResult> {
-    mean(values)
+pub fn mean_weighted_result(values: &[CalcValue]) -> Option<CalcResult> {
+    mean_weighted(values)
         .map(|v| CalcResult{ result: v, discarded: 0 })
 }
 
 pub fn mean_and_std_dev(values: &[CalcValue]) -> Option<(f64, f64)> {
     if values.is_empty() { return None; }
     if let Some(m) = mean(values) {
-        let dev = values.iter().fold(0_f64, |acc, v| acc + (v.value-m) * (v.value-m));
-        let std_dev = f64::sqrt(dev / values.len() as f64);
+        let mut sum = 0_f64;
+        let mut cnt = 0_usize;
+        for v in values.iter() {
+            if !v.used { continue; }
+            sum += (v.value-m) * (v.value-m);
+            cnt += 1;
+        }
+        let std_dev = f64::sqrt(sum / cnt as f64);
         Some((m, std_dev))
     } else {
         None
@@ -192,7 +226,7 @@ pub fn calc(values: &mut [CalcValue], opts: &CalcOpts) -> Option<CalcResult> {
             cappa_sigma_weighted_result(values, opts.kappa, opts.repeats, true, true),
 
         CalcMode::Mean =>
-            mean_result(values),
+            mean_weighted_result(values),
     }
 }
 

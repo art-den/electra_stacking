@@ -752,7 +752,7 @@ fn update_project_tree(objects: &MainWindowObjectsPtr) {
                 } else  {
                     let total_files = files.list().len();
                     let selected_files = files.get_checked_count();
-                    let total_time = seconds_to_total_time_str(files.calc_total_exp_time());
+                    let total_time = seconds_to_total_time_str(files.calc_total_exp_time(), false);
 
                     if show_time && selected_files == total_files {
                         format!(r#"{} <span alpha="50%">[{}] ({})</span>"#, file_type_caption, total_time, total_files)
@@ -1124,7 +1124,7 @@ fn get_project_title(project: &Project, markup: bool) -> String {
     if time != 0.0 {
         result.push_str(&format!(
             " - {} total",
-            seconds_to_total_time_str(time)
+            seconds_to_total_time_str(time, false)
         ));
     }
 

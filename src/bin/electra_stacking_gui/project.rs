@@ -475,11 +475,18 @@ impl Project {
     }
 
     pub fn get_result_file_name(&self) -> anyhow::Result<PathBuf> {
-        if let Some(file_name) = &self.file_name {
-            Ok(file_name
-                .with_file_name(self.config.name.as_ref().unwrap_or(&"result".to_string()).trim())
-                .with_extension(self.config.res_img_type.get_file_ext())
-            )
+        if let Some(parent) = self.file_name.as_ref().and_then(|fname| fname.parent()) {
+            let project_name = self.config.name.clone().unwrap_or("result".to_string());
+            let project_name = project_name.trim();
+            let file_name = format!(
+                "{}-{}-{}.{}",
+                project_name,
+                self.config.light_calc_opts.to_short_str(),
+                seconds_to_total_time_str(self.calc_time(), true),
+                self.config.res_img_type.get_file_ext()
+            );
+            let result = [parent, &Path::new(&file_name)].iter().collect();
+            Ok(result)
         } else {
             anyhow::bail!(gettext("You have to save project before"));
         }

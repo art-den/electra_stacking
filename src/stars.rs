@@ -161,7 +161,8 @@ pub fn find_stars_on_image(
         let (center_x, center_y, br, radius, radius_dev) = star_calc.calc_center_brightness_radius_and_deviation(
             &img,
             star_bg,
-            &star_points
+            &star_points,
+            true
         );
 
         if radius_dev > 2.0 { continue; }
@@ -284,11 +285,13 @@ impl StarCalulator {
         }
     }
 
+    #[inline(never)]
     fn calc_center_brightness_radius_and_deviation(
         &mut self,
         img:         &ImageLayerF32,
         star_bg:     f32,
-        star_points: &HashSet<(Crd, Crd)>
+        star_points: &HashSet<(Crd, Crd)>,
+        use_image_for_center_calc: bool,
     ) -> (f64, f64, f64, f64, f64) {
         const BORD: f64 = 0.5;
 
@@ -297,7 +300,11 @@ impl StarCalulator {
         let (x_sum, y_sum, br) = star_points.iter().fold(
             (0_f64, 0_f64, 0_f64),
             |(x_sum, y_sum, br), &(x, y)| {
-                let v = (img.get(x, y).unwrap_or(0.0) - star_bg) as f64;
+                let v = if use_image_for_center_calc {
+                    (img.get(x, y).unwrap_or(0.0) - star_bg) as f64
+                } else {
+                    1.0
+                };
                 (x_sum + v * x as f64, y_sum + v * y as f64, br + v)
             }
         );
@@ -672,6 +679,7 @@ pub struct StarsStat {
     pub aver_r_dev: f32,
     pub common_stars_img: ImageLayerF32,
 }
+
 fn create_common_star_image(
     stars: &Stars,
     image: &ImageLayerF32,
@@ -759,7 +767,7 @@ pub fn calc_stars_stat(stars: &Stars, image: &ImageLayerF32) -> anyhow::Result<S
         .collect();
     let mut star_calc = StarCalulator::new();
     let (_, _, _, _, deviation) =
-        star_calc.calc_center_brightness_radius_and_deviation(image, 0.0, &points);
+        star_calc.calc_center_brightness_radius_and_deviation(image, 0.0, &points, false);
     let over_0_5_cnt = common_stars_img
         .as_slice()
         .iter()

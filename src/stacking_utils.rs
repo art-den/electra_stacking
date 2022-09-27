@@ -556,15 +556,23 @@ fn create_temp_file_from_light_file(
     Ok(())
 }
 
-pub fn seconds_to_total_time_str(seconds: f64) -> String {
+pub fn seconds_to_total_time_str(seconds: f64, short: bool) -> String {
     let secs_total = seconds as u64;
     let minutes_total = secs_total / 60;
     let hours = minutes_total / 60;
 
     if hours != 0 {
-        format!("{} h. {} min.", hours, minutes_total % 60)
+        if !short {
+            format!("{} h. {} min.", hours, minutes_total % 60)
+        } else {
+            format!("{}h{}m", hours, minutes_total % 60)
+        }
     } else {
-        format!("{} min.", minutes_total % 60)
+        if !short {
+            format!("{} min.", minutes_total % 60)
+        } else {
+            format!("{}m", minutes_total % 60)
+        }
     }
 }
 
@@ -621,8 +629,8 @@ pub fn merge_temp_light_files(
         });
     }
 
-    log::info!("Total time    = {}", seconds_to_total_time_str(total_time));
-    log::info!("Weighted time = {}", seconds_to_total_time_str(weighted_time));
+    log::info!("Total time    = {}", seconds_to_total_time_str(total_time, false));
+    log::info!("Weighted time = {}", seconds_to_total_time_str(weighted_time, false));
 
     let time_log = TimeLogger::start();
 
