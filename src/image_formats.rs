@@ -756,6 +756,8 @@ pub fn save_image_to_fits_file(
         hdu.write_key(&mut fptr, "TELESCOP", lens.as_str())?;
     }
 
+    hdu.write_key(&mut fptr, "ROWORDER", "TOP-DOWN")?;
+
     Ok(())
 }
 
