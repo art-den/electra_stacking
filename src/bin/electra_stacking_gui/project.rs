@@ -1,5 +1,5 @@
 use std::{path::*, io::*, fs::*, collections::*, rc::*, cell::*};
-use std::sync::{Arc, Mutex, atomic::AtomicBool, atomic::Ordering};
+use std::sync::Mutex;
 use electra_stacking::log_utils::TimeLogger;
 use serde::*;
 use gettextrs::*;
@@ -208,7 +208,7 @@ impl Project {
     pub fn register_light_files(
         &self,
         progress:    &ProgressTs,
-        cancel_flag: &Arc<AtomicBool>,
+        cancel_flag: &IsCancelledFun,
         cpu_load:    CpuLoad,
     ) -> anyhow::Result<HashMap<PathBuf, anyhow::Result<RegInfo>>> {
         if self.get_total_light_files() == 0 {
@@ -221,7 +221,7 @@ impl Project {
 
         // master-files
         for (idx, group) in self.groups.iter().enumerate() {
-            if cancel_flag.load(Ordering::Relaxed) { return Ok(HashMap::new()); }
+            if cancel_flag() { return Ok(HashMap::new()); }
             group.create_master_files(
                 idx,
                 progress,
@@ -233,7 +233,7 @@ impl Project {
 
         let result = Mutex::new(HashMap::new());
         for (idx, group) in self.groups.iter().enumerate() {
-            if cancel_flag.load(Ordering::Relaxed) { return Ok(HashMap::new()); }
+            if cancel_flag() { return Ok(HashMap::new()); }
             group.register_light_files(
                 idx,
                 progress,
@@ -329,7 +329,7 @@ impl Project {
     pub fn stack_light_files(
         &self,
         progress:    &ProgressTs,
-        cancel_flag: &Arc<AtomicBool>,
+        cancel_flag: &IsCancelledFun,
         cpu_load:    CpuLoad,
     ) -> anyhow::Result<StackLightsResult> {
         let result_file_name = self.get_result_file_name()?;
@@ -341,7 +341,7 @@ impl Project {
         // master-files
 
         for (idx, group) in self.groups.iter().filter(|g| g.used).enumerate() {
-            if cancel_flag.load(Ordering::Relaxed) { anyhow::bail!("Termimated") }
+            if cancel_flag() { anyhow::bail!("Termimated") }
             group.create_master_files(
                 idx,
                 progress,
@@ -385,7 +385,7 @@ impl Project {
         let files_to_del_later = Mutex::new(FilesToDeleteLater::new());
 
         for (idx, group) in self.groups.iter().enumerate() {
-            if cancel_flag.load(Ordering::Relaxed) {
+            if cancel_flag() {
                 anyhow::bail!(gettext("Termimated"))
             }
             if !group.used {
@@ -422,7 +422,7 @@ impl Project {
             )?;
         }
 
-        if cancel_flag.load(Ordering::Relaxed) {
+        if cancel_flag() {
             anyhow::bail!(gettext("Termimated"))
         }
         if temp_file_names.lock().unwrap().is_empty() {
@@ -447,7 +447,7 @@ impl Project {
             cancel_flag
         )?;
 
-        if cancel_flag.load(Ordering::Relaxed) {
+        if cancel_flag() {
             anyhow::bail!(gettext("Termimated"))
         }
 
@@ -716,7 +716,7 @@ impl ProjectGroup {
         &self,
         group_index: usize,
         progress:    &ProgressTs,
-        cancel_flag: &Arc<AtomicBool>,
+        cancel_flag: &IsCancelledFun,
         config:      &ProjectConfig,
         thread_pool: &rayon::ThreadPool,
     ) -> anyhow::Result<()> {
@@ -754,7 +754,7 @@ impl ProjectGroup {
         &self,
         group_index: usize,
         progress:    &ProgressTs,
-        cancel_flag: &Arc<AtomicBool>,
+        cancel_flag: &IsCancelledFun,
         calc_opts:   &CalcOpts,
         thread_pool: &rayon::ThreadPool,
     ) -> anyhow::Result<()> {
@@ -785,7 +785,7 @@ impl ProjectGroup {
         &self,
         group_index:         usize,
         progress:            &ProgressTs,
-        cancel_flag:         &Arc<AtomicBool>,
+        cancel_flag:         &IsCancelledFun,
         calc_opts:           &CalcOpts,
         master_bias_file:    &Option<PathBuf>,
         thread_pool:         &rayon::ThreadPool,
@@ -820,7 +820,7 @@ impl ProjectGroup {
         &self,
         group_index: usize,
         progress:    &ProgressTs,
-        cancel_flag: &Arc<AtomicBool>,
+        cancel_flag: &IsCancelledFun,
         calc_opts:   &CalcOpts,
         thread_pool: &rayon::ThreadPool,
     ) -> anyhow::Result<bool> {
@@ -848,13 +848,13 @@ impl ProjectGroup {
 
     fn create_master_file<F>(
         calibr_files: &ProjectFiles,
-        cancel_flag:  &Arc<AtomicBool>,
+        cancel_flag:  &IsCancelledFun,
         file_name:    &str,
         create_fun:   F,
     ) -> anyhow::Result<bool>
         where F: FnOnce(&[PathBuf], &Path) -> anyhow::Result<bool>
     {
-        if cancel_flag.load(Ordering::Relaxed) { return Ok(false); }
+        if cancel_flag() { return Ok(false); }
         let file_names = calibr_files.get_selected_file_names();
         if file_names.is_empty() { return Ok(false); }
         let file_name = calibr_files.get_master_full_file_name(file_name).unwrap();
@@ -865,7 +865,7 @@ impl ProjectGroup {
         &self,
         group_idx:     usize,
         progress:      &ProgressTs,
-        cancel_flag:   &Arc<AtomicBool>,
+        cancel_flag:   &IsCancelledFun,
         thread_pool:   &rayon::ThreadPool,
         result:        &Mutex<HashMap<PathBuf, anyhow::Result<RegInfo>>>,
         save_star_img: bool,
@@ -899,7 +899,7 @@ impl ProjectGroup {
             for file_name in file_names {
                 s.spawn(|_| {
                     let file_name = file_name;
-                    if cancel_flag.load(Ordering::Relaxed)
+                    if cancel_flag()
                     || cur_result.lock().unwrap().is_err() {
                         return;
                     }
@@ -964,8 +964,8 @@ impl ProjectGroup {
             }
         });
 
-        if cancel_flag.load(Ordering::Relaxed) {
-            anyhow::bail!(gettext("Terminated"));
+        if cancel_flag() {
+            anyhow::bail!(gettext("Cancelled"));
         }
 
         cur_result.into_inner()?

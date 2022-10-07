@@ -1,4 +1,4 @@
-use std::{path::*, io::*, fs::*, sync::atomic::*, sync::Arc};
+use std::{path::*, io::*, fs::*};
 use serde::*;
 use tiff::{*, decoder::*, encoder::*};
 use itertools::*;
@@ -6,6 +6,7 @@ use bitstream_io::{BigEndian, BitWriter, BitWrite, BitReader};
 use chrono::prelude::*;
 use fitsio::{*, images::*, hdu::*};
 use regex::Regex;
+use gettextrs::*;
 use crate::{
     image::*,
     image_raw::*,
@@ -213,16 +214,18 @@ impl FromFileNameInfoExtractor {
 }
 
 pub fn load_src_file_info_for_files(
-    file_names:  &Vec<PathBuf>,
-    cancel_flag: &Arc<AtomicBool>,
-    progress:    &ProgressTs,
+    file_names:   &Vec<PathBuf>,
+    is_cancelled: &IsCancelledFun,
+    progress:     &ProgressTs,
 ) -> anyhow::Result<Vec<ImageInfo>> {
     let mut result = Vec::new();
     progress.lock().unwrap().stage("Loading short file information...");
     progress.lock().unwrap().set_total(file_names.len());
     let fn_extractor = FromFileNameInfoExtractor::new();
     for file_name in file_names {
-        if cancel_flag.load(Ordering::Relaxed) { break; }
+        if is_cancelled() {
+            anyhow::bail!(gettext("Cancelled"));
+        }
         let item = load_src_file_info(file_name, &fn_extractor)?;
         progress.lock().unwrap().progress(true, file_name.to_str().unwrap_or(""));
         result.push(item);

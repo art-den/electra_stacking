@@ -1,5 +1,5 @@
 use structopt::*;
-use std::{path::*, sync::*, sync::atomic::AtomicBool};
+use std::{path::*, sync::*};
 use crate::{
     stacking_utils::*,
     calc::*,
@@ -37,7 +37,6 @@ pub struct CmdOptions {
 
 pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
     let files_list = get_files_list(&options.path, &options.exts, true)?;
-    let cancel_flag = Arc::new(AtomicBool::new(false));
     let progress = ProgressConsole::new_ts();
 
     let thread_pool = rayon::ThreadPoolBuilder::new()
@@ -51,7 +50,7 @@ pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
         &options.result_file,
         &progress,
         &thread_pool,
-        &cancel_flag,
+        &(Arc::new(|| false) as _),
         true
     )?;
     Ok(())

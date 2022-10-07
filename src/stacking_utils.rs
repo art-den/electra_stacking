@@ -1,5 +1,5 @@
 use std::{path::*, io::*, fs::*};
-use std::sync::{*, mpsc, atomic::{AtomicBool, Ordering}};
+use std::sync::*;
 use anyhow::bail;
 use bitstream_io::{BigEndian, BitReader};
 use crate::{
@@ -28,7 +28,7 @@ pub fn create_master_dark_or_bias_file(
     result_file:       &Path,
     progress:          &ProgressTs,
     thread_pool:       &rayon::ThreadPool,
-    cancel_flag:       &Arc<AtomicBool>,
+    cancel_flag:       &IsCancelledFun,
 ) -> anyhow::Result<bool> {
     create_master_calibr_file(
         files_list,
@@ -137,7 +137,7 @@ pub fn create_master_flat_file(
     result_file:         &Path,
     progress:            &ProgressTs,
     thread_pool:         &rayon::ThreadPool,
-    cancel_flag:         &Arc<AtomicBool>,
+    cancel_flag:         &IsCancelledFun,
     force_even_if_exist: bool,
 ) -> anyhow::Result<bool> {
     let bias_image = match master_bias_file {
@@ -166,7 +166,7 @@ fn create_master_calibr_file<PF>(
     postprocess_fun:     PF,
     progress:            &ProgressTs,
     thread_pool:         &rayon::ThreadPool,
-    cancel_flag:         &Arc<AtomicBool>,
+    cancel_flag:         &IsCancelledFun,
     force_even_if_exist: bool) -> anyhow::Result<bool>
 where
     PF: Fn (&mut RawImage) -> bool + Send + Sync + 'static
@@ -193,7 +193,7 @@ where
     thread_pool.scope(|s| {
         for file_path in files_list.iter() {
             s.spawn(|_| {
-                if cancel_flag.load(Ordering::Relaxed)
+                if cancel_flag()
                 || cur_result.lock().unwrap().is_err() {
                     return;
                 }
@@ -225,7 +225,9 @@ where
         }
     });
 
-    if cancel_flag.load(Ordering::Relaxed) { return Ok(false); }
+    if cancel_flag() {
+        return Ok(false);
+    }
 
     if cur_result.lock().unwrap().is_err() {
         return cur_result.into_inner()?;
@@ -271,7 +273,9 @@ where
     let img_height = image.data.height() as usize;
     for (_, y, v) in image.data.iter_crd_mut() {
         if y != prev_y {
-            if cancel_flag.load(Ordering::Relaxed) { return Ok(false); }
+            if cancel_flag() {
+                return Ok(false);
+            }
             progress.lock().unwrap().percent(y as usize + 1, img_height, "Stacking values...");
             prev_y = y;
         }
@@ -364,7 +368,7 @@ pub fn create_temp_light_files(
     result_list:        &Mutex<Vec<TempFileData>>,
     files_to_del_later: &Mutex<FilesToDeleteLater>,
     thread_pool:        &rayon::ThreadPool,
-    cancel_flag:        &Arc<AtomicBool>,
+    cancel_flag:        &IsCancelledFun,
     group_idx:          usize,
     save_aligned:       SaveAlignedImageMode,
 ) -> anyhow::Result<()> {
@@ -403,11 +407,12 @@ pub fn create_temp_light_files(
         })
     };
 
+    let cancel_flag = Arc::clone(cancel_flag);
     thread_pool.scope(|s| {
         for file in files_list.iter() {
             let save_tx = save_tx.clone();
             s.spawn(|_| {
-                if cancel_flag.load(Ordering::Relaxed)
+                if cancel_flag()
                 || cur_result.lock().unwrap().is_err() {
                     return;
                 }
@@ -585,7 +590,7 @@ pub fn merge_temp_light_files(
     ref_height:      Crd,
     align_rgb:       bool,
     result_file:     &Path,
-    cancel_flag:     &Arc<AtomicBool>,
+    cancel_flag:     &IsCancelledFun,
 ) -> anyhow::Result<()> {
     let min_noise = temp_file_names.iter().map(|v| v.noise).min_by(cmp_f32).unwrap();
 
@@ -658,7 +663,9 @@ pub fn merge_temp_light_files(
         let mut prev_y = -1;
         for (x, y, r, g, b) in result_image.iter_rgb_crd_mut() {
             if y != prev_y {
-                if cancel_flag.load(Ordering::Relaxed) { return Ok(()); }
+                if cancel_flag() {
+                    return Ok(());
+                }
                 progress.lock().unwrap().percent(
                     y as usize + 1,
                     ref_height as usize,
@@ -701,7 +708,9 @@ pub fn merge_temp_light_files(
         let mut prev_y = -1;
         for (_, y, l) in result_image.l.iter_crd_mut() {
             if y != prev_y {
-                if cancel_flag.load(Ordering::Relaxed) { return Ok(()); }
+                if cancel_flag() {
+                    return Ok(());
+                }
                 progress.lock().unwrap().percent(
                     y as usize + 1,
                     ref_height as usize,

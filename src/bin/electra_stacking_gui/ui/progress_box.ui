@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Generated with glade 3.40.0 -->
+<interface>
+  <requires lib="gtk+" version="3.24"/>
+  <!-- n-columns=2 n-rows=2 -->
+  <object class="GtkGrid" id="progress_box">
+    <property name="visible">True</property>
+    <property name="can-focus">False</property>
+    <property name="margin-start">3</property>
+    <property name="margin-end">3</property>
+    <property name="margin-top">3</property>
+    <property name="margin-bottom">3</property>
+    <property name="row-spacing">1</property>
+    <property name="column-spacing">1</property>
+    <child>
+      <object class="GtkLabel" id="progress_text">
+        <property name="visible">True</property>
+        <property name="can-focus">False</property>
+        <property name="label" translatable="yes">Progress</property>
+        <attributes>
+          <attribute name="weight" value="bold"/>
+        </attributes>
+      </object>
+      <packing>
+        <property name="left-attach">0</property>
+        <property name="top-attach">0</property>
+      </packing>
+    </child>
+    <child>
+      <object class="GtkProgressBar" id="progress_bar">
+        <property name="visible">True</property>
+        <property name="can-focus">False</property>
+        <property name="hexpand">True</property>
+        <property name="show-text">True</property>
+      </object>
+      <packing>
+        <property name="left-attach">0</property>
+        <property name="top-attach">1</property>
+      </packing>
+    </child>
+    <child>
+      <object class="GtkButton" id="cancel_btn">
+        <property name="label" translatable="yes">Cancel</property>
+        <property name="visible">True</property>
+        <property name="can-focus">True</property>
+        <property name="receives-default">True</property>
+      </object>
+      <packing>
+        <property name="left-attach">1</property>
+        <property name="top-attach">1</property>
+      </packing>
+    </child>
+    <child>
+      <placeholder/>
+    </child>
+  </object>
+</interface>

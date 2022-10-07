@@ -1,4 +1,4 @@
-use std::{path::*, sync::{*, atomic::AtomicBool}};
+use std::{path::*, sync::*};
 use anyhow::bail;
 use structopt::*;
 use crate::{
@@ -107,7 +107,6 @@ pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
     }
 
     let progress = ProgressConsole::new_ts();
-    let cancel_flag = Arc::new(AtomicBool::new(false));
 
     progress.lock().unwrap().percent(0, 100, "Loading reference file...");
 
@@ -148,7 +147,7 @@ pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
             &temp_file_names,
             &files_to_del_later,
             &thread_pool,
-            &cancel_flag,
+            &(Arc::new(|| false) as _),
             0,
             SaveAlignedImageMode::No
         )?;
@@ -172,7 +171,7 @@ pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
         ref_bg_data.image.image.height(),
         false,
         &options.result_file,
-        &cancel_flag
+        &(Arc::new(|| false) as _),
     )?;
 
     drop(files_to_del_later);

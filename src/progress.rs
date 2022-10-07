@@ -7,6 +7,8 @@ pub trait Progress {
     fn percent(&mut self, value: usize, total: usize, text: &str);
 }
 
+pub type IsCancelledFun = Arc::<dyn Fn() -> bool + Send + Sync + 'static>;
+
 pub type ProgressTs = Arc<Mutex<dyn Progress + Send>>;
 
 pub struct ProgressConsole {

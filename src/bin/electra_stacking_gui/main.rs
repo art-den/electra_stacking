@@ -100,10 +100,7 @@ fn build_ui(application: &gtk::Application) {
     let window              = builder.object::<gtk::ApplicationWindow>("main_window").unwrap();
     let prj_tree_menu       = builder.object::<gtk::Menu>("prj_tree_menu").unwrap();
     let project_tree        = builder.object::<gtk::TreeView>("project_tree").unwrap();
-    let progress_bar        = builder.object::<gtk::ProgressBar>("progress_bar").unwrap();
-    let progress_box        = builder.object::<gtk::Grid>("progress_box").unwrap();
-    let progress_text       = builder.object::<gtk::Label>("progress_text").unwrap();
-    let cancel_btn          = builder.object::<gtk::Button>("cancel_btn").unwrap();
+    let progress_container  = builder.object::<gtk::Box>("progress_container").unwrap();
     let preview_img_scr     = builder.object::<gtk::ScrolledWindow>("preview_image_scrolled").unwrap();
     let prj_img_paned       = builder.object::<gtk::Paned>("prj_img_paned").unwrap();
     let preview_img_scale   = builder.object::<gtk::ComboBoxText>("preview_img_scale").unwrap();
@@ -119,7 +116,6 @@ fn build_ui(application: &gtk::Application) {
     let mi_cpu_load_min     = builder.object::<gtk::RadioMenuItem>("mi_cpu_load_min").unwrap();
     let mi_cpu_load_half    = builder.object::<gtk::RadioMenuItem>("mi_cpu_load_half").unwrap();
     let mi_cpu_load_max     = builder.object::<gtk::RadioMenuItem>("mi_cpu_load_max").unwrap();
-    let mi_cpu_load         = builder.object::<gtk::MenuItem>("mi_cpu_load").unwrap();
 
     let prj_tree_store_columns = get_prj_tree_store_columns();
 
@@ -183,7 +179,6 @@ fn build_ui(application: &gtk::Application) {
         prj_tree: project_tree.clone(),
         prj_tree_is_building: Cell::new(false),
         prj_img_paned,
-        mi_cpu_load,
         recent_menu: recent_menu.clone(),
         mi_dark_theme: mi_dark_theme.clone(),
         mi_light_theme: mi_light_theme.clone(),
@@ -191,16 +186,14 @@ fn build_ui(application: &gtk::Application) {
         mi_cpu_load_half: mi_cpu_load_half.clone(),
         mi_cpu_load_max: mi_cpu_load_max.clone(),
         mi_change_file_type,
-        progress_bar,
-        progress_cont: progress_box.upcast(),
-        progress_text,
+        progress_container,
         icon_photo,
         icon_folder,
         icon_image,
         icon_ref_image,
         preview_image,
         last_preview_file: RefCell::new(PathBuf::new()),
-        cancel_flag: Arc::new(AtomicBool::new(false)),
+        global_cancel_flag: Arc::new(AtomicBool::new(false)),
         preview_img_scale: preview_img_scale.clone(),
         preview_auto_min: preview_auto_min.clone(),
         preview_auto_wb: preview_auto_wb.clone(),
@@ -214,7 +207,7 @@ fn build_ui(application: &gtk::Application) {
         preview_scroll_pos: RefCell::new(None),
         move_to_group_last_uuid: RefCell::new(String::new()),
 
-        process_mode_flag: Cell::new(false),
+        tasks_count: Cell::new(0),
         trying_to_close: Cell::new(false),
     });
 
@@ -240,10 +233,6 @@ fn build_ui(application: &gtk::Application) {
     apply_config(&objects);
 
     // Events + Actions
-
-    cancel_btn.connect_clicked(clone!(@strong objects => move |_| {
-        objects.cancel_flag.store(true, Ordering::Relaxed);
-    }));
 
     project_tree.connect_destroy(clone!{ @weak prj_tree_menu => move |_| {
         prj_tree_menu.unparent();
@@ -372,14 +361,14 @@ fn build_ui(application: &gtk::Application) {
 
     objects.window.connect_delete_event(clone!(@strong objects => move |_, _| {
         if objects.trying_to_close.get() {
-            return gtk::Inhibit(objects.process_mode_flag.get());
+            return gtk::Inhibit(objects.tasks_count.get() != 0);
         }
 
         let can_close = ask_user_to_save_project(&objects);
 
-        if can_close && objects.process_mode_flag.get() {
+        if can_close && objects.tasks_count.get() != 0 {
             objects.trying_to_close.set(true);
-            objects.cancel_flag.store(true, Ordering::Relaxed);
+            objects.global_cancel_flag.store(true, Ordering::Relaxed);
             return gtk::Inhibit(true);
         }
 
@@ -439,7 +428,6 @@ fn build_ui(application: &gtk::Application) {
 
     window.set_application(Some(application));
     window.show_all();
-    objects.progress_cont.set_visible(false);
     enable_actions(&objects);
 }
 
@@ -531,9 +519,7 @@ struct MainWindowObjects {
     prj_tree: gtk::TreeView,
     prj_img_paned: gtk::Paned,
 
-    progress_bar: gtk::ProgressBar,
-    progress_cont: gtk::Widget,
-    progress_text: gtk::Label,
+    progress_container: gtk::Box,
 
     preview_image: gtk::Image,
     preview_img_scale: gtk::ComboBoxText,
@@ -549,7 +535,6 @@ struct MainWindowObjects {
     preview_ctrls_box: gtk::Widget,
     preview_scroll_pos: RefCell<Option<((f64, f64), (f64, f64))>>,
 
-    mi_cpu_load: gtk::MenuItem,
     recent_menu: gtk::RecentChooserMenu,
 
     mi_dark_theme: gtk::RadioMenuItem,
@@ -564,11 +549,11 @@ struct MainWindowObjects {
     icon_photo: Option<gdk_pixbuf::Pixbuf>,
     icon_ref_image: Option<gdk_pixbuf::Pixbuf>,
 
-    cancel_flag: Arc<AtomicBool>,
+    global_cancel_flag: Arc<AtomicBool>,
     move_to_group_last_uuid: RefCell<String>,
 
     prj_tree_is_building: Cell<bool>,
-    process_mode_flag: Cell<bool>,
+    tasks_count: Cell<u32>,
     trying_to_close: Cell<bool>,
 }
 
@@ -982,7 +967,7 @@ fn update_project_name_and_time_in_gui(objects: &MainWindowObjectsPtr) {
 
 fn enable_actions(objects: &MainWindowObjectsPtr) {
     let selection = get_current_selection(objects);
-    let is_processing = objects.process_mode_flag.get();
+    let is_processing = objects.tasks_count.get() != 0;
     let is_file = selection.item_type == SelItemType::File;
     let is_group = selection.item_type == SelItemType::Group;
     let is_file_type = selection.item_type == SelItemType::FileType;
@@ -1036,7 +1021,9 @@ fn enable_actions(objects: &MainWindowObjectsPtr) {
     enable_action(&objects.window, "cleanup_light_files", !is_processing);
 
     objects.recent_menu.set_sensitive(!is_processing);
-    objects.mi_cpu_load.set_sensitive(!is_processing);
+    objects.mi_cpu_load_min.set_sensitive(!is_processing);
+    objects.mi_cpu_load_half.set_sensitive(!is_processing);
+    objects.mi_cpu_load_max.set_sensitive(!is_processing);
 }
 
 fn create_file_filter_for_project() -> gtk::FileFilter {
@@ -1131,21 +1118,13 @@ fn get_project_title(project: &Project, markup: bool) -> String {
     result
 }
 
-fn enable_progress_bar(objects: &MainWindowObjectsPtr, enable: bool) {
-    objects.progress_cont.set_visible(enable);
-    if enable {
-        objects.progress_bar.set_fraction(0.0);
-        objects.progress_bar.set_text(None);
-    }
-}
-
 fn exec_and_show_progress<R, ExecFun, OkFun> (
     objects:  &MainWindowObjectsPtr,
     exec_fun: ExecFun,
     ok_fun:   OkFun
 ) where
     R:       Sized + Send + 'static,
-    ExecFun: Fn(&ProgressTs, &Arc<AtomicBool>) -> anyhow::Result<R> + Send + 'static,
+    ExecFun: Fn(&ProgressTs, &IsCancelledFun) -> anyhow::Result<R> + Send + 'static,
     OkFun:   Fn(&MainWindowObjectsPtr, R) + 'static
 {
     enum UiMessage<R: Sized> {
@@ -1157,9 +1136,25 @@ fn exec_and_show_progress<R, ExecFun, OkFun> (
 
     let (sender, receiver) = MainContext::channel(PRIORITY_DEFAULT);
 
-    objects.process_mode_flag.set(true);
-    let cancel_flag = Arc::clone(&objects.cancel_flag);
-    cancel_flag.store(false, Ordering::Relaxed);
+    objects.tasks_count.set(objects.tasks_count.get() + 1);
+    let cancel_flag = Arc::new(AtomicBool::new(false));
+
+    let builder = gtk::Builder::from_string(include_str!("ui/progress_box.ui"));
+    let progress_box = builder.object::<gtk::Grid>("progress_box").unwrap();
+    let progress_text = builder.object::<gtk::Label>("progress_text").unwrap();
+    let progress_bar = builder.object::<gtk::ProgressBar>("progress_bar").unwrap();
+    let cancel_btn = builder.object::<gtk::Button>("cancel_btn").unwrap();
+
+    objects.progress_container.add(&progress_box);
+
+    cancel_btn.connect_clicked(clone!(@strong cancel_flag => move |_| {
+        cancel_flag.store(true, Ordering::Relaxed);
+    }));
+
+    let global_cancel_flag = Arc::clone(&objects.global_cancel_flag);
+    let is_cancelled_fun = move || {
+        cancel_flag.load(Ordering::Relaxed) || global_cancel_flag.load(Ordering::Relaxed)
+    };
 
     /* Worker */
     thread::spawn(move || {
@@ -1178,7 +1173,7 @@ fn exec_and_show_progress<R, ExecFun, OkFun> (
                 }).unwrap();
             }
         );
-        let result = exec_fun(&progress, &cancel_flag);
+        let result = exec_fun(&progress, &(Arc::new(is_cancelled_fun) as _));
         match result {
             Ok(result) => sender.send(UiMessage::Finished(result)).unwrap(),
             Err(error) => sender.send(UiMessage::Error(error.to_string())).unwrap(),
@@ -1186,44 +1181,43 @@ fn exec_and_show_progress<R, ExecFun, OkFun> (
     });
 
     /* Ui events */
-    enable_progress_bar(objects, true);
     enable_actions(objects);
     receiver.attach(
         None,
         clone!(@strong objects => move |message| {
             match message {
                 UiMessage::ProgressStage{ text } => {
-                    objects.progress_text.set_label(&text);
-                    objects.progress_bar.set_fraction(0.0);
-                    objects.progress_bar.set_text(None);
+                    progress_text.set_label(&text);
+                    progress_bar.set_fraction(0.0);
+                    progress_bar.set_text(None);
                     Continue(true)
                 },
                 UiMessage::ProgressPercent { text, percent } => {
                     let text = format!("{} {}%", text, percent);
-                    objects.progress_bar.set_fraction(percent as f64 / 100.0);
-                    objects.progress_bar.set_text(Some(&text));
+                    progress_bar.set_fraction(percent as f64 / 100.0);
+                    progress_bar.set_text(Some(&text));
                     Continue(true)
                 },
                 UiMessage::Finished(reg_info) => {
-                    objects.process_mode_flag.set(false);
+                    objects.tasks_count.set(objects.tasks_count.get() - 1);
                     if objects.trying_to_close.get() {
                         objects.window.close();
                     } else {
                         enable_actions(&objects);
-                        enable_progress_bar(&objects, false);
                         ok_fun(&objects, reg_info);
                     }
+                    objects.progress_container.remove(&progress_box);
                     Continue(false)
                 },
                 UiMessage::Error(error) => {
-                    objects.process_mode_flag.set(false);
+                    objects.tasks_count.set(objects.tasks_count.get() - 1);
                     if objects.trying_to_close.get() {
                         objects.window.close();
                     } else {
                         enable_actions(&objects);
-                        enable_progress_bar(&objects, false);
                         show_error_message(&error, &objects);
                     }
+                    objects.progress_container.remove(&progress_box);
                     Continue(false)
                 },
             }
@@ -1896,9 +1890,9 @@ fn action_register(objects: &MainWindowObjectsPtr) {
     let cpu_load = objects.config.borrow().cpu_load;
     exec_and_show_progress(
         objects,
-        move |progress, cancel_flag| {
+        move |progress, is_canceled| {
             let project = Project::from_json_string(&project_json);
-            project.register_light_files(progress, cancel_flag, cpu_load)
+            project.register_light_files(progress, is_canceled, cpu_load)
         },
         move |objects, result| {
             objects.project.borrow_mut().update_light_files_reg_info(result);
@@ -2857,9 +2851,9 @@ fn action_stack(objects: &MainWindowObjectsPtr) {
     drop(project);
     exec_and_show_progress(
         objects,
-        move|progress, cancel_flag| {
+        move|progress, is_canceled| {
             let project = Project::from_json_string(&project_json);
-            project.stack_light_files(progress, cancel_flag, cpu_load)
+            project.stack_light_files(progress, is_canceled, cpu_load)
         },
         move |objects, result| {
             preview_image_file(objects, &result.file_name, true);
