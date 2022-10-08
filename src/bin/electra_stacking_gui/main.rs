@@ -138,6 +138,8 @@ fn build_ui(application: &gtk::Application) {
             .clickable(true)
             .build();
 
+        col.set_sort_column_id(sidx as i32);
+
         if idx == ColIdx::FileName {
             let cell_img = gtk::CellRendererPixbuf::new();
             col.pack_start(&cell_check, false);
@@ -151,8 +153,6 @@ fn build_ui(application: &gtk::Application) {
             col.pack_start(&cell_text, true);
             col.add_attribute(&cell_text, "markup", idx as i32);
         }
-
-        col.set_sort_column_id(sidx as i32);
 
         project_tree.append_column(&col);
     }
@@ -559,7 +559,7 @@ struct MainWindowObjects {
 
 type MainWindowObjectsPtr = Rc::<MainWindowObjects>;
 
-#[derive(PartialEq, Clone, Copy)]
+#[derive(PartialEq, Clone, Copy, Debug)]
 enum ColIdx {
     None = -1,
     FileName = 0,
@@ -589,12 +589,13 @@ enum ColIdx {
     Ovality,
     Guid,
     ChangeCount,
+    FileSort
 }
 
 fn get_prj_tree_store_columns() -> Vec::<(&'static str, &'static str, ColIdx, ColIdx, glib::Type)> {
     vec![
       // Column name in tree | ID       | Model column       | Sort model column | Model column type
-        ("Project/File name", "filename", ColIdx::FileName,    ColIdx::FileName,   String::static_type()),
+        ("Project/File name", "filename", ColIdx::FileName,    ColIdx::FileSort,   String::static_type()),
         ("File path",         "path",     ColIdx::FilePath,    ColIdx::FilePath,   String::static_type()),
         ("File time",         "time",     ColIdx::FileTime,    ColIdx::FileTime,   String::static_type()),
         ("Dimensions",        "dims",     ColIdx::Dim,         ColIdx::Dim,        String::static_type()),
@@ -623,6 +624,7 @@ fn get_prj_tree_store_columns() -> Vec::<(&'static str, &'static str, ColIdx, Co
         ("",                  "",         ColIdx::Ovality,     ColIdx::None,       f32::static_type()),
         ("",                  "",         ColIdx::Guid,        ColIdx::None,       String::static_type()),
         ("",                  "",         ColIdx::ChangeCount, ColIdx::None,       u32::static_type()),
+        ("",                  "",         ColIdx::FileSort,    ColIdx::None,       String::static_type()),
     ]
 }
 
@@ -718,6 +720,7 @@ fn update_project_tree(objects: &MainWindowObjectsPtr) {
             tree_store.set(&group_iter, &[
                 (ColIdx::FileName as u32, &group.name(group_index)),
                 (ColIdx::Checkbox as u32, &group.used()),
+                (ColIdx::FileSort as u32, &""), // to disable sorting
             ]);
 
             let file_types = [
@@ -749,8 +752,10 @@ fn update_project_tree(objects: &MainWindowObjectsPtr) {
                         format!(r#"{} <span alpha="50%">({}/{})</span>"#, file_type_caption, selected_files, total_files)
                     }
                 };
+
                 tree_store.set(&files_iter, &[
                     (ColIdx::FileName as u32, &folder_text),
+                    (ColIdx::FileSort as u32, &""), // to disable sorting
                 ]);
 
                 let file_index_by_name: HashMap<_,_> = files.list().into_iter()
@@ -911,6 +916,7 @@ fn update_project_tree(objects: &MainWindowObjectsPtr) {
                                 (ColIdx::Checkbox    as u32, &file.used()),
                                 (ColIdx::CheckboxVis as u32, &true),
                                 (ColIdx::FileName    as u32, &file_name),
+                                (ColIdx::FileSort    as u32, &file_name.to_lowercase()),
                                 (ColIdx::FilePath    as u32, &path),
                                 (ColIdx::FileTime    as u32, &file_time_str),
                                 (ColIdx::Dim         as u32, &dim_str),
