@@ -17,7 +17,7 @@ fn mask_stars(mask: &mut ImageMask, width: Crd, height: Crd, stars: &Stars) {
         }
     }
 
-pub fn normalize(
+pub fn normalize_range_and_bg(
     ref_data:   &RefBgData,
     light_file: &mut LightFile
 ) -> anyhow::Result<NormResult> {

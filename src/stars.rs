@@ -43,7 +43,11 @@ pub fn find_stars_on_image(
     remove_wrong_stars: bool,
     return_no_error:    bool,
 ) -> anyhow::Result<Stars> {
-    let max_img_value = img.iter().copied().max_by(cmp_f32).unwrap_or(1.0);
+    let max_img_value = img.iter()
+        .copied()
+        .filter(|v| !v.is_infinite())
+        .max_by(cmp_f32)
+        .unwrap_or(1.0);
     let border = match noise {
         Some(noise) if noise != 0.0 =>
             (noise * 20.0).max(STAR_BG_BORDER * max_img_value),
@@ -51,6 +55,8 @@ pub fn find_stars_on_image(
             STAR_BG_BORDER * max_img_value
         },
     };
+
+    dbg!(border);
 
     let mut stars = Stars::new();
 

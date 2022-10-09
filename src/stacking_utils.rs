@@ -371,6 +371,7 @@ pub fn create_temp_light_files(
     cancel_flag:        &IsCancelledFun,
     group_idx:          usize,
     save_aligned:       SaveAlignedImageMode,
+    align_rgb_each:     bool,
 ) -> anyhow::Result<()> {
     progress.lock().unwrap().percent(0, 100, "Loading calibration images...");
     let cal_data = CalibrationData::load(
@@ -426,7 +427,8 @@ pub fn create_temp_light_files(
                     files_to_del_later,
                     result_list,
                     save_tx,
-                    save_aligned
+                    save_aligned,
+                    align_rgb_each
                 );
                 if let Err(err) = res {
                     *cur_result.lock().unwrap() = Err(anyhow::anyhow!(
@@ -461,6 +463,7 @@ fn create_temp_file_from_light_file(
     result_list:        &Mutex<Vec<TempFileData>>,
     save_tx:            mpsc::SyncSender<SaveTempFileData>,
     save_aligned:       SaveAlignedImageMode,
+    align_rgb:          bool
 ) -> anyhow::Result<()> {
     let file_total_log = TimeLogger::start();
 
@@ -480,6 +483,10 @@ fn create_temp_file_from_light_file(
 
     log::info!("noise = {:.8}", light_file.noise);
     log::info!("info = {:?}", light_file.info);
+
+    if align_rgb && light_file.image.is_rgb() {
+        align_rgb_layers(&mut light_file.image)?;
+    }
 
     let diff_log = TimeLogger::start();
     let mut img_offset: Option<ImageOffset> = None;
@@ -526,7 +533,7 @@ fn create_temp_file_from_light_file(
         rot_log.log("rotating image");
 
         let norm_log = TimeLogger::start();
-        let norm_res = normalize(ref_data, &mut light_file)?;
+        let norm_res = normalize_range_and_bg(ref_data, &mut light_file)?;
         norm_log.log("bg normalization TOTAL");
 
         let nan_log = TimeLogger::start();

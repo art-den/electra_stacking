@@ -52,6 +52,14 @@ pub struct CmdOptions {
     /// Only value 2 is supported
     #[structopt(long)]
     bin: Option<usize>,
+
+    /// Align RGB chennels in result image
+    #[structopt(long, parse(try_from_str), default_value = "false")]
+    align_rgb: bool,
+
+    /// Align RGB chennels in each frame (slow)
+    #[structopt(long, parse(try_from_str), default_value = "false")]
+    align_rgb_each: bool,
 }
 
 struct DirData {
@@ -149,7 +157,8 @@ pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
             &thread_pool,
             &(Arc::new(|| false) as _),
             0,
-            SaveAlignedImageMode::No
+            SaveAlignedImageMode::No,
+            options.align_rgb_each,
         )?;
 
         progress.lock().unwrap().percent(
@@ -169,7 +178,7 @@ pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
         ref_bg_data.image.image.is_rgb(),
         ref_bg_data.image.image.width(),
         ref_bg_data.image.image.height(),
-        false,
+        options.align_rgb,
         &options.result_file,
         &(Arc::new(|| false) as _),
     )?;

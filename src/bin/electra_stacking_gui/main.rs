@@ -2403,6 +2403,7 @@ fn configure_project_options<F: Fn(ProjectConfig) + 'static>(
     let img_size = builder.object::<gtk::ComboBoxText>("img_size").unwrap();
     let res_img_type = builder.object::<gtk::ComboBoxText>("res_img_type").unwrap();
     let align_rgb = builder.object::<gtk::CheckButton>("chb_align_rgb").unwrap();
+    let align_rgb_each = builder.object::<gtk::CheckButton>("chb_align_rgb_each").unwrap();
     let lights_stack_mode = builder.object::<gtk::ComboBoxText>("lights_stack_mode").unwrap();
     let lights_stack_kappa = builder.object::<gtk::Entry>("lights_stack_kappa").unwrap();
     let lights_stack_steps = builder.object::<gtk::Entry>("lights_stack_steps").unwrap();
@@ -2436,6 +2437,7 @@ fn configure_project_options<F: Fn(ProjectConfig) + 'static>(
     }));
 
     align_rgb.set_active(project_config.align_rgb);
+    align_rgb_each.set_active(project_config.align_rgb_each);
 
     let show_calc_opts = |opts: &CalcOpts, mode: &gtk::ComboBoxText, kappa: &gtk::Entry, steps: &gtk::Entry| {
         mode.append_text("Kappa-Sigma clipping");
@@ -2532,6 +2534,7 @@ fn configure_project_options<F: Fn(ProjectConfig) + 'static>(
             };
 
             project_config.align_rgb = align_rgb.is_active();
+            project_config.align_rgb_each = align_rgb_each.is_active();
 
             project_config.save_aligned_img = chb_save_calibrated_img.is_active();
             project_config.save_common_star_img = chb_save_common_star_img.is_active();

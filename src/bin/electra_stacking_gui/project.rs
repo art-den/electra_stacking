@@ -418,7 +418,8 @@ impl Project {
                 &thread_pool,
                 cancel_flag,
                 idx,
-                save_aligned_mode
+                save_aligned_mode,
+                self.config.align_rgb_each
             )?;
         }
 
@@ -551,6 +552,7 @@ pub struct ProjectConfig {
     pub save_common_star_img: bool,
     pub raw_params: RawOpenParams,
     pub align_rgb: bool,
+    pub align_rgb_each: bool,
     pub ref_image_auto_mode: RefImageAutoMode,
 }
 
@@ -568,6 +570,7 @@ impl Default for ProjectConfig {
             save_common_star_img: false,
             raw_params: RawOpenParams::default(),
             align_rgb: false,
+            align_rgb_each: false,
             ref_image_auto_mode: RefImageAutoMode::SmallestStars,
         }
     }
