@@ -116,6 +116,8 @@ fn build_ui(application: &gtk::Application) {
     let mi_cpu_load_min     = builder.object::<gtk::RadioMenuItem>("mi_cpu_load_min").unwrap();
     let mi_cpu_load_half    = builder.object::<gtk::RadioMenuItem>("mi_cpu_load_half").unwrap();
     let mi_cpu_load_max     = builder.object::<gtk::RadioMenuItem>("mi_cpu_load_max").unwrap();
+    let star_img            = builder.object::<gtk::Image>("img_star").unwrap();
+    let star_scr            = builder.object::<gtk::ScrolledWindow>("scr_star").unwrap();
 
     let prj_tree_store_columns = get_prj_tree_store_columns();
 
@@ -192,6 +194,8 @@ fn build_ui(application: &gtk::Application) {
         icon_image,
         icon_ref_image,
         preview_image,
+        star_scr,
+        star_img,
         last_preview_file: RefCell::new(PathBuf::new()),
         global_cancel_flag: Arc::new(AtomicBool::new(false)),
         preview_img_scale: preview_img_scale.clone(),
@@ -522,6 +526,10 @@ struct MainWindowObjects {
     progress_container: gtk::Box,
 
     preview_image: gtk::Image,
+
+    star_scr: gtk::ScrolledWindow,
+    star_img: gtk::Image,
+
     preview_img_scale: gtk::ComboBoxText,
     preview_auto_min: gtk::CheckButton,
     preview_auto_wb: gtk::CheckButton,
@@ -1921,7 +1929,7 @@ fn action_dark_theme(_: &MainWindowObjectsPtr) {
 }
 
 fn preview_selected_file(objects: &MainWindowObjectsPtr) {
-    let (file_name, is_result_file) = {
+    let (file_name, is_result_file, show_common_star) = {
         match get_current_selection(objects) {
             SelectedItem {
                 item_type: SelItemType::File,
@@ -1933,7 +1941,7 @@ fn preview_selected_file(objects: &MainWindowObjectsPtr) {
                 let project = objects.project.borrow();
                 let file_list = project.groups()[group_idx].get_file_list_by_type(file_type);
                 let project_file = &file_list.list()[files[0]];
-                (project_file.file_name().clone(), false)
+                (project_file.file_name().clone(), false, file_type == ProjectFileType::Light)
             },
 
             SelectedItem {
@@ -1942,7 +1950,7 @@ fn preview_selected_file(objects: &MainWindowObjectsPtr) {
             } => {
                 let project = objects.project.borrow();
                 match project.get_result_file_name() {
-                    Ok(file_name) => (file_name, true),
+                    Ok(file_name) => (file_name, true, true),
                     Err(_) => return,
                 }
             },
@@ -1955,7 +1963,7 @@ fn preview_selected_file(objects: &MainWindowObjectsPtr) {
         return;
     }
 
-    preview_image_file(objects, &file_name, is_result_file);
+    preview_image_file(objects, &file_name, is_result_file, show_common_star);
 }
 
 fn preview_image_after_change_view_opts(
@@ -1986,12 +1994,16 @@ fn preview_image_after_change_view_opts(
 }
 
 fn preview_image_file(
-    objects:        &MainWindowObjectsPtr,
-    file_name:      &Path,
-    is_result_file: bool
+    objects:          &MainWindowObjectsPtr,
+    file_name:        &Path,
+    is_result_file:   bool,
+    show_common_star: bool,
 ) {
     enum UiMessage {
-        Image{ image: image::Image, file_name: PathBuf },
+        Image{
+            image:     LightFile,
+            file_name: PathBuf
+        },
         Error(String),
     }
 
@@ -2008,23 +2020,48 @@ fn preview_image_file(
             match message {
                 UiMessage::Image { image, file_name } => {
                     let config = objects.config.borrow();
-                    let params = image.calc_to_bytes_params(
+
+                    // show preview image
+                    let params = image.image.calc_to_bytes_params(
                         config.preview_auto_min,
                         config.preview_auto_wb
                     );
 
-                    let bytes = image.to_rgb_bytes(&params, config.preview_gamma);
+                    let bytes = image.image.to_rgb_bytes(&params, config.preview_gamma);
                     show_preview_image(
                         &objects,
                         bytes,
-                        image.width() as i32,
-                        image.height() as i32,
+                        image.image.width() as i32,
+                        image.image.height() as i32,
                         config.preview_scale
                     );
 
+                    // Show common star image
+                    if let Some(mut star_stat) = image.stars_stat {
+                        for v in star_stat.common_stars_img.as_slice_mut() {
+                            *v = (*v - 0.5) * 10.0 + 0.5; // + contrast
+                        }
+                        let bytes = star_stat.common_stars_img.to_rgb_bytes(0.0, 1.0, 1.0);
+                        let bytes = glib::Bytes::from_owned(bytes);
+                        let pixbuf = gdk_pixbuf::Pixbuf::from_bytes(
+                            &bytes,
+                            gdk_pixbuf::Colorspace::Rgb,
+                            false,
+                            8,
+                            star_stat.common_stars_img.width() as i32,
+                            star_stat.common_stars_img.height() as i32,
+                            star_stat.common_stars_img.width() as i32 * 3,
+                        );
+
+                        objects.star_img.set_pixbuf(Some(&pixbuf));
+                        objects.star_scr.set_width_request(star_stat.common_stars_img.width() as i32 + 4);
+                    } else {
+                        objects.star_img.set_pixbuf(None);
+                    }
+
                     objects.preview_file_name.set_label(file_name.to_str().unwrap_or(""));
                     *objects.last_preview_file.borrow_mut() = file_name;
-                    *objects.prev_preview_img.borrow_mut() = image;
+                    *objects.prev_preview_img.borrow_mut() = image.image;
                     *objects.prev_preview_params.borrow_mut() = params;
                     objects.preview_ctrls_box.set_sensitive(true);
                 },
@@ -2058,8 +2095,8 @@ fn preview_image_file(
         if cancel_flag.load(Ordering::Relaxed) { return; }
         let calibr_data = CalibrationData::new_empty();
 
-        let load_flags = if cfg!(debug_assertions) {
-            LoadLightFlags::STARS
+        let flags = if show_common_star {
+            LoadLightFlags::STARS_STAT | LoadLightFlags::STARS | LoadLightFlags::NO_ERR_IF_NO_STARS
         } else {
             LoadLightFlags::empty()
         };
@@ -2067,46 +2104,15 @@ fn preview_image_file(
         let light_file = LightFile::load_and_calc_params(
             &file_name,
             &calibr_data,
-            load_flags,
+            flags,
             OpenMode::Preview,
             bin,
-            &raw_params,
-            true
+            &raw_params
         );
 
         match light_file {
-            Ok(mut light_file) => {
-                // fill stars with green for debug purposes
-                if cfg!(debug_assertions) {
-                    const COLORS: &[(f32, f32, f32)] = &[
-                        (0.0, 1.0, 0.0),
-                        (0.0, 0.0, 1.0),
-                        (0.0, 1.0, 1.0),
-                        (1.0, 0.0, 1.0),
-                    ];
-
-                    for (idx, star) in light_file.stars.iter().enumerate() {
-                        let (r, g, b) = if star.overexposured {
-                            (1.0, 0.0, 0.0)
-                        } else {
-                            COLORS[idx % COLORS.len()]
-                        };
-                        for pt in &star.points {
-                            if light_file.image.is_rgb() {
-                                light_file.image.r.set(pt.x, pt.y, r);
-                                light_file.image.g.set(pt.x, pt.y, g);
-                                light_file.image.b.set(pt.x, pt.y, b);
-                            } else if light_file.image.is_greyscale() {
-                                light_file.image.l.set(pt.x, pt.y, 0.5);
-                            }
-                        }
-                    }
-                }
-
-                sender.send(UiMessage::Image {
-                    image:     light_file.image,
-                    file_name,
-                }).unwrap();
+            Ok(light_file) => {
+                sender.send(UiMessage::Image { image: light_file, file_name}).unwrap();
             },
             Err(error) => {
                 sender.send(UiMessage::Error(error.to_string())).unwrap();
@@ -2865,7 +2871,7 @@ fn action_stack(objects: &MainWindowObjectsPtr) {
             project.stack_light_files(progress, is_canceled, cpu_load)
         },
         move |objects, result| {
-            preview_image_file(objects, &result.file_name, true);
+            preview_image_file(objects, &result.file_name, true, true);
             show_message(
                 objects,
                 &gettext("Finished"),

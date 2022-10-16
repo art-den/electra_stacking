@@ -64,8 +64,7 @@ pub fn execute(options: CmdOptions) -> anyhow::Result<()> {
                     | LoadLightFlags::BACKGROUND,
                     OpenMode::Processing,
                     1,
-                    &Default::default(),
-                    false,
+                    &Default::default()
                 ).expect("Can't load light file");
 
                 let stars_stat = light_file.stars_stat.unwrap();

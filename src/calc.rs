@@ -158,6 +158,13 @@ pub fn median_f32(values: &mut [f32]) -> Option<f32> {
     Some(values[median_index])
 }
 
+pub fn median_i64(values: &mut [i64]) -> Option<i64> {
+    if values.is_empty() { return None; }
+    let median_index = values.len() / 2;
+    values.select_nth_unstable(median_index);
+    Some(values[median_index])
+}
+
 pub fn median_result(values: &mut [CalcValue]) -> Option<CalcResult> {
     if values.is_empty() { return None; }
 
@@ -417,6 +424,7 @@ pub fn square_ls(x_values: &[f64], y_values: &[f64]) -> Option<SquareCoeffs> {
     })
 }
 
+#[inline(always)]
 pub fn linear_interpol(x: f64, x1: f64, x2: f64, y1: f64, y2: f64) -> f64 {
     (x - x1) * (y2 - y1) / (x2 - x1) + y1
 }

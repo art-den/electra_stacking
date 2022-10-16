@@ -300,7 +300,6 @@ impl RefBgData {
             OpenMode::Processing,
             bin,
             raw_params,
-            false
         )?;
 
         let mut mask = ImageMask::new_empty();

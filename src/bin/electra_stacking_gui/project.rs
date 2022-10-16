@@ -918,8 +918,7 @@ impl ProjectGroup {
                         | LoadLightFlags::BACKGROUND,
                         OpenMode::Processing,
                         1,
-                        raw_params,
-                        false
+                        raw_params
                     );
 
                     let file_result = match load_light_file_res {

@@ -6,10 +6,11 @@ use crate::{image::*, image_formats::*, image_raw::*, stars::*, log_utils::*, ca
 
 
 bitflags! { pub struct LoadLightFlags: u32 {
-    const STARS       = 1;
-    const STARS_STAT  = 2;
-    const NOISE       = 4;
-    const BACKGROUND  = 8;
+    const STARS              = 1;
+    const STARS_STAT         = 2;
+    const NOISE              = 4;
+    const BACKGROUND         = 8;
+    const NO_ERR_IF_NO_STARS = 16;
 }}
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -53,7 +54,6 @@ impl LightFile {
         open_mode:   OpenMode,
         bin:         usize,
         raw_params:  &RawOpenParams,
-        no_error_if_no_stars: bool,
     ) -> anyhow::Result<LightFile> {
         log::info!(
             "LightFile::load_and_calc_params: file_name={}, flags={:?}, open_mode={:?}, bin={}",
@@ -167,7 +167,7 @@ impl LightFile {
                 &img_layer_to_calc,
                 Some(noise),
                 true,
-                no_error_if_no_stars
+                flags.contains(LoadLightFlags::NO_ERR_IF_NO_STARS)
             )?;
             stars_log.log("looking for stars on image");
             log::info!("stars count = {}", result.len());
@@ -177,7 +177,7 @@ impl LightFile {
         };
 
         let stars_stat = if stars_stat_flag {
-            Some(calc_stars_stat(&stars, &img_layer_to_calc)?)
+            Some(calc_stars_stat(&stars, &img_layer_to_calc, open_mode == OpenMode::Preview)?)
         } else {
             None
         };

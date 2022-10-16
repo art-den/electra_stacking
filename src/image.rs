@@ -601,6 +601,24 @@ impl ImageLayer<f32> {
             self.set_safe(x, y, f32::INFINITY);
         }
     }
+
+    pub fn to_rgb_bytes(&self, min: f32, range: f32, gamma: f32) -> Vec<u8> {
+        let gamma_div = 1.0/gamma as f64;
+        self.data.par_iter()
+            .map(|l| {
+                if !l.is_infinite() {
+                    let mut l = (256.0 * fast_pow(((l-min)*range) as f64, gamma_div)) as i32;
+                    if l < 0 { l = 0; }
+                    if l > 255 { l = 255; }
+                    let l = l as u8;
+                    [l, l, l]
+                } else {
+                    [0, 255, 0]
+                }
+            })
+            .flatten_iter()
+            .collect()
+    }
 }
 
 impl std::ops::SubAssign<&ImageLayerF32> for ImageLayerF32 {
@@ -1244,20 +1262,7 @@ impl Image {
                 .flatten_iter()
                 .collect()
         } else {
-            self.l.as_slice().par_iter()
-                .map(|l| {
-                    if !l.is_infinite() {
-                        let mut l = (256.0 * fast_pow(((l-params.l_min)*params.range) as f64, gamma_div)) as i32;
-                        if l < 0 { l = 0; }
-                        if l > 255 { l = 255; }
-                        let l = l as u8;
-                        [l, l, l]
-                    } else {
-                        [0, 255, 0]
-                    }
-                })
-                .flatten_iter()
-                .collect()
+            self.l.to_rgb_bytes(params.l_min, params.range, gamma)
         }
     }
 }

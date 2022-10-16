@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use itertools::*;
-use crate::{image::*, calc::*};
+use rayon::prelude::*;
+use crate::{image::*, calc::*, log_utils::*};
 use std::f64::consts::PI;
 
 pub const MAX_STAR_DIAMETER: Crd = 25; // in pixels
@@ -55,8 +56,6 @@ pub fn find_stars_on_image(
             STAR_BG_BORDER * max_img_value
         },
     };
-
-    dbg!(border);
 
     let mut stars = Stars::new();
 
@@ -360,6 +359,7 @@ pub struct ImageOffset {
     pub offset_x: f64,
     pub offset_y: f64,
     pub angle:    f64,
+    pub ratio:    f64,
 }
 
 pub fn calc_image_offset_by_stars(
@@ -412,12 +412,11 @@ pub fn calc_image_offset_by_stars(
     log::info!("corr_items.len() = {}", corr_items.len());
     if corr_items.len() < 10 { return None; }
 
-    struct Cluster {
-        start_index: usize,
-        end_index: usize,
-    }
-
     let approximate_angle = {
+        struct Cluster {
+            start_index: usize,
+            end_index: usize,
+        }
         let mut clusters = Vec::new();
         const MIN_ANGLE_DIFF: f64 = 1.0 * PI / 360.0;
         corr_items.sort_by_key(|ci| (1_000_000.0 * ci.angle) as i64);
@@ -433,7 +432,10 @@ pub fn calc_image_offset_by_stars(
         }
 
         if start_index != corr_items.len()-1 {
-            clusters.push(Cluster { start_index, end_index: corr_items.len()-1 });
+            clusters.push(Cluster {
+                start_index,
+                end_index: corr_items.len()-1
+            });
         }
 
         let (start_index, end_index) = if !clusters.is_empty() {
@@ -521,9 +523,18 @@ pub fn calc_image_offset_by_stars(
         return None;
     }
 
+    let ref_sum: f64 = corr_items.iter().map(|item| item.ref_triangle.len).sum();
+    let sum: f64 = corr_items.iter().map(|item| item.triangle.len).sum();
+    let ratio = sum/ref_sum;
+
     log::info!("(used for calculation) corr_items.len() = {}", corr_items.len());
 
-    Some(ImageOffset { angle, offset_x, offset_y, })
+    Some(ImageOffset {
+        angle,
+        offset_x,
+        offset_y,
+        ratio,
+    })
 }
 
 #[derive(Clone)]
@@ -686,87 +697,122 @@ pub struct StarsStat {
     pub common_stars_img: ImageLayerF32,
 }
 
-fn create_common_star_image(
+pub fn create_common_star_image(
     stars: &Stars,
     image: &ImageLayerF32,
     mag:   Crd,
+    fast:  bool,
 ) -> anyhow::Result<ImageLayerF32> {
-    let max_width = stars.iter()
-        .filter(|s| !s.overexposured)
+    let not_overexposured_stars = || {
+        stars.iter().filter(|s| !s.overexposured)
+    };
+
+    let mut star_widths: Vec<_> = not_overexposured_stars()
         .map(|s| s.width)
-        .max()
-        .unwrap_or(0);
+        .collect();
 
-    let max_height = stars.iter()
-        .filter(|s| !s.overexposured)
+    let mut star_heights: Vec<_> = not_overexposured_stars()
         .map(|s| s.height)
-        .max()
-        .unwrap_or(0);
+        .collect();
 
-    let max_range = stars.iter()
-        .filter(|s| !s.overexposured)
-        .map(|s| s.max_value - s.background)
-        .max_by(cmp_f32)
-        .unwrap_or(0.0);
-
-    let range_border = max_range / 100.0;
+    let max_width = median_i64(&mut star_widths).unwrap_or(0);
+    let max_height = median_i64(&mut star_heights).unwrap_or(0);
 
     let img_width = max_width * mag * 2 + 1;
     let img_height = max_height * mag * 2 + 1;
 
     let mut result = ImageLayerF32::new(img_width, img_height);
 
-    let mut pt_values = Vec::new();
     let img_center_x = (image.width() / 2) as f64;
     let img_center_y = (image.height() / 2) as f64;
     let max_dist_to_center = (Crd::max(image.width(), image.height()) / 2) as f64;
 
-    const MARGIN_WEIGHT: f64 = 0.2; // weight of stars on image margin
+    let mut used_stars_cnt = not_overexposured_stars().count() / 2;
 
-    let mut max_stars_to_use = stars.len() / 2;
-    if max_stars_to_use < 20 {
-        max_stars_to_use = stars.len()
+    const MAX_USED_STARS_COUNT: usize = 200;
+    const MIN_USED_STARS_COUNT: usize = 30;
+
+    if fast && used_stars_cnt > MAX_USED_STARS_COUNT {
+        used_stars_cnt = MAX_USED_STARS_COUNT;
+    } else if used_stars_cnt < MIN_USED_STARS_COUNT {
+        used_stars_cnt = MIN_USED_STARS_COUNT;
     }
 
-    for (x, y, v) in result.iter_crd_mut() {
-        pt_values.clear();
-        for star in &stars[0..max_stars_to_use] {
-            if star.overexposured { continue; }
-            let range = star.max_value - star.background;
-            if range < range_border { continue; }
+    const MARGIN_WEIGHT: f64 = 0.2; // weight of stars on image margin
 
-            let ox = (x - mag * max_width) as f64;
-            let oy = (y - mag * max_height) as f64;
+    let stars_for_image = || { stars
+        .iter()
+        .filter(|s| !s.overexposured)
+        .take(used_stars_cnt)
+    };
 
-            let star_x = ox / mag as f64 + star.x;
-            let star_y = oy / mag as f64 + star.y;
+    let star_weights: Vec<f64> = stars_for_image()
+        .map(|star| {
+            f64::sqrt(
+                (star.x - img_center_x) * (star.x - img_center_x) +
+                (star.y - img_center_y) * (star.y - img_center_y))
+            }
+        )
+        .map(|dist_to_center| {
+            linear_interpol(dist_to_center, 0.0, max_dist_to_center, 1.0, MARGIN_WEIGHT)
+        })
+        .collect();
 
-            if let Some(v) = image.get_f64_crd(star_x, star_y) {
-                let norm_star_values = linear_interpol(v as f64, star.background as f64, star.max_value as f64, 0.0, 1.0);
-                let star_dist_to_center = f64::sqrt(
-                    (star.x - img_center_x) * (star.x - img_center_x) +
-                    (star.y - img_center_y) * (star.y - img_center_y)
+    let max_mul_max_width = mag * max_width;
+    let mag_mul_max_height = mag * max_height;
+    let div_mag = 1.0 / mag as f64;
+    let result_width = result.width() as usize;
+    let result_height = result.width() as usize;
+
+    let calc_one_common_star_value = |v: &mut f32, x, y, pt_values: &mut Vec<CalcValue>| {
+        for (star, &star_weight) in izip!(stars_for_image(), &star_weights) {
+            let ox = (x - max_mul_max_width) as f64;
+            let oy = (y - mag_mul_max_height) as f64;
+            let src_x = ox * div_mag + star.x;
+            let src_y = oy * div_mag + star.y;
+            if let Some(v) = image.get_f64_crd(src_x, src_y) {
+                let norm_star_values = linear_interpol(
+                    v as f64,
+                    star.background as f64,
+                    star.max_value as f64,
+                    0.0,
+                    1.0
                 );
-
-                let star_weight = linear_interpol(star_dist_to_center, 0.0, max_dist_to_center, 1.0, MARGIN_WEIGHT);
-
                 if star_weight > 0.0 {
                     pt_values.push(CalcValue::new_weighted(norm_star_values as f64, star_weight));
                 }
             }
         }
 
-        if let Some(filtered_v) = cappa_sigma_weighted_result(&mut pt_values, 1.8, 10, true, true) {
+        if let Some(filtered_v) = cappa_sigma_weighted_result(pt_values, 1.8, 10, true, true) {
             *v = (filtered_v.result as f32).min(1.0).max(0.0);
+        }
+    };
+
+    if fast { // multi-threaded
+        result.as_slice_mut().par_iter_mut().enumerate().for_each(|(i, v)| {
+            let x = (i % result_width) as Crd;
+            let y = (i / result_height) as Crd;
+            let mut pt_values = Vec::new();
+            calc_one_common_star_value(v, x, y, &mut pt_values);
+        });
+    } else { // single-threaded
+        let mut pt_values = Vec::new();
+        for (x, y, v) in result.iter_crd_mut() {
+            pt_values.clear();
+            calc_one_common_star_value(v, x, y, &mut pt_values);
         }
     }
 
     Ok(result)
 }
 
-pub fn calc_stars_stat(stars: &Stars, image: &ImageLayerF32) -> anyhow::Result<StarsStat> {
-    const MAG: Crd = 8;
-    let common_stars_img = create_common_star_image(stars, image, MAG)?;
+pub fn calc_stars_stat(stars: &Stars, image: &ImageLayerF32, fast: bool) -> anyhow::Result<StarsStat> {
+    let mag = if !fast { 8 } else { 8 };
+    log::info!("calc_stars_stat: stars_count = {}, fast = {}", stars.len(), fast);
+    let profiler = TimeLogger::start();
+    let common_stars_img = create_common_star_image(stars, image, mag, fast)?;
+    profiler.log("create_common_star_image");
     let points = common_stars_img.iter_crd()
         .filter(|(_, _, v)| *v > 0.5)
         .map(|(x, y, _)| (x, y))
@@ -780,7 +826,7 @@ pub fn calc_stars_stat(stars: &Stars, image: &ImageLayerF32) -> anyhow::Result<S
         .filter(|&v| *v > 0.5)
         .count();
     Ok(StarsStat {
-        fwhm:       over_0_5_cnt as f32 / (MAG * MAG) as f32,
+        fwhm:       over_0_5_cnt as f32 / (mag * mag) as f32,
         aver_r_dev: deviation as f32,
         common_stars_img
     })

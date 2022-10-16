@@ -475,8 +475,7 @@ fn create_temp_file_from_light_file(
         LoadLightFlags::STARS | LoadLightFlags::NOISE,
         OpenMode::Processing,
         bin,
-        raw_params,
-        false
+        raw_params
     )?;
     log::info!("loaded light file {}!", file.to_str().unwrap_or(""));
     load_log.log("loading light file TOTAL");
@@ -779,10 +778,11 @@ fn align_rgb_layers(image: &mut Image) -> anyhow::Result<()> {
             50, 5.0, false
         ).ok_or_else(|| anyhow::anyhow!("Can't calculate offset"))?;
         log::info!(
-            "offset for rgb align = x:{:.3}, y:{:.3}; rotation = {:.3}°",
+            "offset for rgb align = x:{:.3}, y:{:.3}; rotation = {:.3}°, ratio = {:.6}",
             offset.offset_x,
             offset.offset_y,
-            180.0 * offset.angle / PI
+            180.0 * offset.angle / PI,
+            offset.ratio
         );
         let mut aligned_layer = img.rotated_and_translated(
             -offset.angle,
