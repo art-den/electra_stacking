@@ -39,10 +39,9 @@ impl Star {
 pub type Stars = Vec<Star>;
 
 pub fn find_stars_on_image(
-    img:                &ImageLayerF32,
-    noise:              Option<f32>,
-    remove_wrong_stars: bool,
-    return_no_error:    bool,
+    img:             &ImageLayerF32,
+    noise:           Option<f32>,
+    return_no_error: bool,
 ) -> anyhow::Result<Stars> {
     let max_img_value = img.iter()
         .copied()
@@ -207,45 +206,44 @@ pub fn find_stars_on_image(
         });
     }
 
-    if remove_wrong_stars {
-        // remove strange stars by radius
-        stars.retain(|s| {
-            let by_area_r = f64::sqrt(s.points.len() as f64 / PI);
-            let ratio = by_area_r / s.radius as f64;
-            ratio < 1.2 && ratio > 0.8
-        });
 
-        // remove strange stars by radius deviation
-        let mut star_r_devs = Vec::new();
-        for _ in 0..10 {
-            star_r_devs.clear();
-            for star in &stars {
-                star_r_devs.push(CalcValue::new(star.radius_std_dev as f64));
-            }
-            if let Some((mean, dev)) = mean_and_std_dev(&star_r_devs) {
-                let max = mean + dev*2.5;
-                stars.retain(|s| (s.radius_std_dev as f64) < max);
-            } else if return_no_error {
-                return Ok(Vec::new());
-            } else {
-                anyhow::bail!("No stars");
-            }
+    // remove strange stars by radius
+    stars.retain(|s| {
+        let by_area_r = f64::sqrt(s.points.len() as f64 / PI);
+        let ratio = by_area_r / s.radius as f64;
+        ratio < 1.2 && ratio > 0.8
+    });
+
+    // remove strange stars by radius deviation
+    let mut star_r_devs = Vec::new();
+    for _ in 0..10 {
+        star_r_devs.clear();
+        for star in &stars {
+            star_r_devs.push(CalcValue::new(star.radius_std_dev as f64));
         }
+        if let Some((mean, dev)) = mean_and_std_dev(&star_r_devs) {
+            let max = mean + dev*2.5;
+            stars.retain(|s| (s.radius_std_dev as f64) < max);
+        } else if return_no_error {
+            return Ok(Vec::new());
+        } else {
+            anyhow::bail!("No stars");
+        }
+    }
 
-        // remove strange stars by area
-        for _ in 0..10 {
-            star_r_devs.clear();
-            for star in &stars {
-                star_r_devs.push(CalcValue::new((star.points.len() as f64).sqrt()));
-            }
-            if let Some((mean, dev)) = mean_and_std_dev(&star_r_devs) {
-                let max = mean + dev * 8.0;
-                stars.retain(|s| (s.points.len() as f64).sqrt() < max);
-            } else if return_no_error {
-                return Ok(Vec::new());
-            } else {
-                anyhow::bail!("No stars");
-            }
+    // remove strange stars by area
+    for _ in 0..10 {
+        star_r_devs.clear();
+        for star in &stars {
+            star_r_devs.push(CalcValue::new((star.points.len() as f64).sqrt()));
+        }
+        if let Some((mean, dev)) = mean_and_std_dev(&star_r_devs) {
+            let max = mean + dev * 8.0;
+            stars.retain(|s| (s.points.len() as f64).sqrt() < max);
+        } else if return_no_error {
+            return Ok(Vec::new());
+        } else {
+            anyhow::bail!("No stars");
         }
     }
 

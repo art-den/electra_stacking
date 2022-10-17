@@ -662,6 +662,7 @@
                             <property name="label" translatable="yes">Preview file name</property>
                             <property name="ellipsize">start</property>
                             <property name="single-line-mode">True</property>
+                            <property name="max-width-chars">90</property>
                           </object>
                           <packing>
                             <property name="expand">False</property>
@@ -839,7 +840,6 @@
                                 <property name="can-focus">False</property>
                                 <property name="halign">center</property>
                                 <property name="valign">center</property>
-                                <property name="stock">gtk-missing-image</property>
                               </object>
                             </child>
                           </object>
@@ -864,7 +864,22 @@
                     <property name="can-focus">True</property>
                     <property name="kinetic-scrolling">False</property>
                     <child>
-                      <placeholder/>
+                      <object class="GtkViewport">
+                        <property name="visible">True</property>
+                        <property name="can-focus">False</property>
+                        <child>
+                          <object class="GtkEventBox" id="eb_preview">
+                            <property name="visible">True</property>
+                            <property name="can-focus">False</property>
+                            <child>
+                              <object class="GtkImage" id="img_preview">
+                                <property name="visible">True</property>
+                                <property name="can-focus">False</property>
+                              </object>
+                            </child>
+                          </object>
+                        </child>
+                      </object>
                     </child>
                   </object>
                   <packing>

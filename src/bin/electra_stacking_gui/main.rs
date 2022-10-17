@@ -88,36 +88,66 @@ fn build_ui(application: &gtk::Application) {
 
     project.make_default();
 
-    let icons = gtk::IconTheme::default().unwrap();
+    // Icons
 
+    let icons = gtk::IconTheme::default().unwrap();
     let icon_folder = icons.load_icon("folder", 16, gtk::IconLookupFlags::empty()).ok().flatten();
     let icon_image = icons.load_icon("image-x-generic", 16, gtk::IconLookupFlags::empty()).ok().flatten();
     let icon_photo = icons.load_icon("camera-photo-symbolic.symbolic", 16, gtk::IconLookupFlags::empty()).ok().flatten();
     let icon_ref_image = gdk_pixbuf::Pixbuf::from_read(include_bytes!(r"ui/key.png").as_slice()).ok();
 
-    let builder = gtk::Builder::from_string(include_str!(r"ui/main_window.ui"));
+    // Creating main window and getting some widgets
 
+    let builder = gtk::Builder::from_string(include_str!(r"ui/main_window.ui"));
     let window              = builder.object::<gtk::ApplicationWindow>("main_window").unwrap();
     let prj_tree_menu       = builder.object::<gtk::Menu>("prj_tree_menu").unwrap();
     let project_tree        = builder.object::<gtk::TreeView>("project_tree").unwrap();
-    let progress_container  = builder.object::<gtk::Box>("progress_container").unwrap();
     let preview_img_scr     = builder.object::<gtk::ScrolledWindow>("preview_image_scrolled").unwrap();
-    let prj_img_paned       = builder.object::<gtk::Paned>("prj_img_paned").unwrap();
     let preview_img_scale   = builder.object::<gtk::ComboBoxText>("preview_img_scale").unwrap();
     let preview_auto_min    = builder.object::<gtk::CheckButton>("preview_auto_min").unwrap();
     let preview_auto_wb     = builder.object::<gtk::CheckButton>("preview_auto_wb").unwrap();
     let preview_img_gamma   = builder.object::<gtk::Scale>("preview_img_gamma").unwrap();
-    let preview_file_name   = builder.object::<gtk::Label>("preview_file_name").unwrap();
-    let preview_ctrls_box   = builder.object::<gtk::Widget>("preview_ctrls_box").unwrap();
     let recent_menu         = builder.object::<gtk::RecentChooserMenu>("recent_menu").unwrap();
-    let mi_change_file_type = builder.object::<gtk::MenuItem>("mi_change_file_type").unwrap();
     let mi_dark_theme       = builder.object::<gtk::RadioMenuItem>("dark_theme_mi").unwrap();
     let mi_light_theme      = builder.object::<gtk::RadioMenuItem>("light_theme_mi").unwrap();
     let mi_cpu_load_min     = builder.object::<gtk::RadioMenuItem>("mi_cpu_load_min").unwrap();
     let mi_cpu_load_half    = builder.object::<gtk::RadioMenuItem>("mi_cpu_load_half").unwrap();
     let mi_cpu_load_max     = builder.object::<gtk::RadioMenuItem>("mi_cpu_load_max").unwrap();
-    let star_img            = builder.object::<gtk::Image>("img_star").unwrap();
-    let star_scr            = builder.object::<gtk::ScrolledWindow>("scr_star").unwrap();
+    let preview_image       = builder.object::<gtk::Image>("img_preview").unwrap();
+    let preview_event_box   = builder.object::<gtk::EventBox>("eb_preview").unwrap();
+
+    let preview_tp = rayon::ThreadPoolBuilder::new()
+        .num_threads(2)
+        .build()
+        .unwrap();
+
+    // Shared objects for main window
+
+    let objects = Rc::new(MainWindowObjects {
+        project: RefCell::new(project),
+        config: RefCell::new(config),
+        builder,
+        window: window.clone(),
+        prj_tree: project_tree.clone(),
+        prj_tree_is_building: Cell::new(false),
+        icon_photo,
+        icon_folder,
+        icon_image,
+        icon_ref_image,
+        preview_image,
+        last_preview_file: RefCell::new(PathBuf::new()),
+        global_cancel_flag: Arc::new(AtomicBool::new(false)),
+        preview_tp,
+        prev_preview_cancel_flags: RefCell::new(None),
+        prev_preview_img: RefCell::new(image::Image::new()),
+        prev_preview_params: RefCell::new(image::ToRgbBytesParams::new()),
+        preview_scroll_pos: RefCell::new(None),
+        move_to_group_last_uuid: RefCell::new(String::new()),
+        tasks_count: Cell::new(0),
+        trying_to_close: Cell::new(false),
+    });
+
+    // Columns for project tree
 
     let prj_tree_store_columns = get_prj_tree_store_columns();
 
@@ -159,62 +189,6 @@ fn build_ui(application: &gtk::Application) {
         project_tree.append_column(&col);
     }
 
-    let preview_event_box = gtk::EventBox::builder()
-        .expand(true)
-        .parent(&preview_img_scr)
-        .build();
-
-    let preview_image = gtk::Image::builder()
-        .expand(true)
-        .parent(&preview_event_box)
-        .build();
-
-    let preview_tp = rayon::ThreadPoolBuilder::new()
-        .num_threads(2)
-        .build()
-        .unwrap();
-
-    let objects = Rc::new(MainWindowObjects {
-        project: RefCell::new(project),
-        config: RefCell::new(config),
-        window: window.clone(),
-        prj_tree: project_tree.clone(),
-        prj_tree_is_building: Cell::new(false),
-        prj_img_paned,
-        recent_menu: recent_menu.clone(),
-        mi_dark_theme: mi_dark_theme.clone(),
-        mi_light_theme: mi_light_theme.clone(),
-        mi_cpu_load_min: mi_cpu_load_min.clone(),
-        mi_cpu_load_half: mi_cpu_load_half.clone(),
-        mi_cpu_load_max: mi_cpu_load_max.clone(),
-        mi_change_file_type,
-        progress_container,
-        icon_photo,
-        icon_folder,
-        icon_image,
-        icon_ref_image,
-        preview_image,
-        star_scr,
-        star_img,
-        last_preview_file: RefCell::new(PathBuf::new()),
-        global_cancel_flag: Arc::new(AtomicBool::new(false)),
-        preview_img_scale: preview_img_scale.clone(),
-        preview_auto_min: preview_auto_min.clone(),
-        preview_auto_wb: preview_auto_wb.clone(),
-        preview_tp,
-        prev_preview_cancel_flags: RefCell::new(None),
-        prev_preview_img: RefCell::new(image::Image::new()),
-        prev_preview_params: RefCell::new(image::ToRgbBytesParams::new()),
-        preview_img_gamma: preview_img_gamma.clone(),
-        preview_file_name,
-        preview_ctrls_box,
-        preview_scroll_pos: RefCell::new(None),
-        move_to_group_last_uuid: RefCell::new(String::new()),
-
-        tasks_count: Cell::new(0),
-        trying_to_close: Cell::new(false),
-    });
-
     // Drag-n-drop for files
 
     let targets = vec![
@@ -236,7 +210,53 @@ fn build_ui(application: &gtk::Application) {
     }
     apply_config(&objects);
 
-    // Events + Actions
+    // Font (only for MS Windows)
+
+    if cfg!(target_os = "windows") {
+        let settings = gtk::Settings::default().unwrap();
+        settings.set_property("gtk-font-name", "Tahoma 9");
+    }
+
+    // Show empty project in tree
+
+    update_project_tree(&objects);
+    update_project_name_and_time_in_gui(&objects);
+
+    // Actions + events
+
+    conn_action(&objects, "new_project",            action_new_project);
+    conn_action(&objects, "open_project",           action_open_project);
+    conn_action(&objects, "save_project_as",        action_save_project_as);
+    conn_action(&objects, "save_project",           action_save_project);
+    conn_action(&objects, "exit",                   action_exit);
+    conn_action(&objects, "add_light_files",        action_add_light_files);
+    conn_action(&objects, "add_dark_files",         action_add_dark_files);
+    conn_action(&objects, "add_flat_files",         action_add_flat_files);
+    conn_action(&objects, "add_bias_files",         action_add_bias_files);
+    conn_action(&objects, "new_group",              action_new_group);
+    conn_action(&objects, "delete_item",            action_delete_item);
+    conn_action(&objects, "use_as_ref_image",       action_use_as_reference_image);
+    conn_action(&objects, "item_properties",        action_item_properties);
+    conn_action(&objects, "register_light_files",   action_register);
+    conn_action(&objects, "stack_light_files",      action_stack);
+    conn_action(&objects, "project_options",        action_project_options);
+    conn_action(&objects, "light_theme",            action_light_theme);
+    conn_action(&objects, "dark_theme",             action_dark_theme);
+    conn_action(&objects, "cleanup_light_files",    action_cleanup_light_files);
+    conn_action(&objects, "change_file_to_light",   action_change_file_to_light);
+    conn_action(&objects, "change_file_to_dark",    action_change_file_to_dark);
+    conn_action(&objects, "change_file_to_flat",    action_change_file_to_flat);
+    conn_action(&objects, "change_file_to_bias",    action_change_file_to_bias);
+    conn_action(&objects, "move_file_to_group",     action_move_file_to_group);
+    conn_action(&objects, "check_all_files",        action_check_all_files);
+    conn_action(&objects, "uncheck_all_files",      action_uncheck_all_files);
+    conn_action(&objects, "check_selected_files",   action_check_selected_files);
+    conn_action(&objects, "uncheck_selected_files", action_uncheck_selected_files);
+    conn_action(&objects, "about",                  action_about);
+    conn_action(&objects, "project_columns",        action_project_columns);
+    conn_action(&objects, "assign_ref_light_image", action_assign_ref_light_image);
+
+    enable_actions(&objects);
 
     project_tree.connect_destroy(clone!{ @weak prj_tree_menu => move |_| {
         prj_tree_menu.unparent();
@@ -323,46 +343,6 @@ fn build_ui(application: &gtk::Application) {
         Inhibit(false)
     }));
 
-    conn_action(&objects, "new_project",            action_new_project);
-    conn_action(&objects, "open_project",           action_open_project);
-    conn_action(&objects, "save_project_as",        action_save_project_as);
-    conn_action(&objects, "save_project",           action_save_project);
-    conn_action(&objects, "exit",                   action_exit);
-    conn_action(&objects, "add_light_files",        action_add_light_files);
-    conn_action(&objects, "add_dark_files",         action_add_dark_files);
-    conn_action(&objects, "add_flat_files",         action_add_flat_files);
-    conn_action(&objects, "add_bias_files",         action_add_bias_files);
-    conn_action(&objects, "new_group",              action_new_group);
-    conn_action(&objects, "delete_item",            action_delete_item);
-    conn_action(&objects, "use_as_ref_image",       action_use_as_reference_image);
-    conn_action(&objects, "item_properties",        action_item_properties);
-    conn_action(&objects, "register_light_files",   action_register);
-    conn_action(&objects, "stack_light_files",      action_stack);
-    conn_action(&objects, "project_options",        action_project_options);
-    conn_action(&objects, "light_theme",            action_light_theme);
-    conn_action(&objects, "dark_theme",             action_dark_theme);
-    conn_action(&objects, "cleanup_light_files",    action_cleanup_light_files);
-    conn_action(&objects, "change_file_to_light",   action_change_file_to_light);
-    conn_action(&objects, "change_file_to_dark",    action_change_file_to_dark);
-    conn_action(&objects, "change_file_to_flat",    action_change_file_to_flat);
-    conn_action(&objects, "change_file_to_bias",    action_change_file_to_bias);
-    conn_action(&objects, "move_file_to_group",     action_move_file_to_group);
-    conn_action(&objects, "check_all_files",        action_check_all_files);
-    conn_action(&objects, "uncheck_all_files",      action_uncheck_all_files);
-    conn_action(&objects, "check_selected_files",   action_check_selected_files);
-    conn_action(&objects, "uncheck_selected_files", action_uncheck_selected_files);
-    conn_action(&objects, "about",                  action_about);
-    conn_action(&objects, "project_columns",        action_project_columns);
-    conn_action(&objects, "assign_ref_light_image", action_assign_ref_light_image);
-
-    if cfg!(target_os = "windows") {
-        let settings = gtk::Settings::default().unwrap();
-        settings.set_property("gtk-font-name", "Tahoma 9");
-    }
-
-    update_project_tree(&objects);
-    update_project_name_and_time_in_gui(&objects);
-
     objects.window.connect_delete_event(clone!(@strong objects => move |_, _| {
         if objects.trying_to_close.get() {
             return gtk::Inhibit(objects.tasks_count.get() != 0);
@@ -430,9 +410,10 @@ fn build_ui(application: &gtk::Application) {
         Inhibit(false)
     }));
 
+    // Show main window
+
     window.set_application(Some(application));
     window.show_all();
-    enable_actions(&objects);
 }
 
 fn set_dialog_default_button<T: gtk::glib::IsA<gtk::Dialog>>(dialog: &T) {
@@ -517,40 +498,16 @@ fn ask_user_to_save_project(objects: &MainWindowObjectsPtr) -> bool {
 struct MainWindowObjects {
     project: RefCell<Project>,
     config: RefCell<Config>,
-
+    builder: gtk::Builder,
     window: gtk::ApplicationWindow,
-
     prj_tree: gtk::TreeView,
-    prj_img_paned: gtk::Paned,
-
-    progress_container: gtk::Box,
-
     preview_image: gtk::Image,
-
-    star_scr: gtk::ScrolledWindow,
-    star_img: gtk::Image,
-
-    preview_img_scale: gtk::ComboBoxText,
-    preview_auto_min: gtk::CheckButton,
-    preview_auto_wb: gtk::CheckButton,
-    preview_img_gamma: gtk::Scale,
     last_preview_file: RefCell<PathBuf>,
     preview_tp: rayon::ThreadPool,
     prev_preview_cancel_flags: RefCell<Option<Arc<AtomicBool>>>,
     prev_preview_img: RefCell<image::Image>,
     prev_preview_params: RefCell<image::ToRgbBytesParams>,
-    preview_file_name: gtk::Label,
-    preview_ctrls_box: gtk::Widget,
     preview_scroll_pos: RefCell<Option<((f64, f64), (f64, f64))>>,
-
-    recent_menu: gtk::RecentChooserMenu,
-
-    mi_dark_theme: gtk::RadioMenuItem,
-    mi_light_theme: gtk::RadioMenuItem,
-    mi_change_file_type: gtk::MenuItem,
-    mi_cpu_load_min: gtk::RadioMenuItem,
-    mi_cpu_load_half: gtk::RadioMenuItem,
-    mi_cpu_load_max: gtk::RadioMenuItem,
 
     icon_folder: Option<gdk_pixbuf::Pixbuf>,
     icon_image: Option<gdk_pixbuf::Pixbuf>,
@@ -980,6 +937,13 @@ fn update_project_name_and_time_in_gui(objects: &MainWindowObjectsPtr) {
 }
 
 fn enable_actions(objects: &MainWindowObjectsPtr) {
+    let mi_change_file_type = objects.builder.object::<gtk::MenuItem>("mi_change_file_type").unwrap();
+    let mi_cpu_load_min     = objects.builder.object::<gtk::RadioMenuItem>("mi_cpu_load_min").unwrap();
+    let mi_cpu_load_half    = objects.builder.object::<gtk::RadioMenuItem>("mi_cpu_load_half").unwrap();
+    let mi_cpu_load_max     = objects.builder.object::<gtk::RadioMenuItem>("mi_cpu_load_max").unwrap();
+    let recent_menu         = objects.builder.object::<gtk::RecentChooserMenu>("recent_menu").unwrap();
+
+
     let selection = get_current_selection(objects);
     let is_processing = objects.tasks_count.get() != 0;
     let is_file = selection.item_type == SelItemType::File;
@@ -996,7 +960,7 @@ fn enable_actions(objects: &MainWindowObjectsPtr) {
     enable_action(&objects.window, "delete_item", support_delete && !is_processing);
     enable_action(&objects.window, "use_as_ref_image", support_use_as_ref_image && !is_processing);
     enable_action(&objects.window, "move_file_to_group", is_file && !is_processing);
-    objects.mi_change_file_type.set_sensitive(is_file);
+    mi_change_file_type.set_sensitive(is_file);
     enable_action(
         &objects.window,
         "change_file_to_light",
@@ -1034,10 +998,10 @@ fn enable_actions(objects: &MainWindowObjectsPtr) {
     enable_action(&objects.window, "project_options", !is_processing);
     enable_action(&objects.window, "cleanup_light_files", !is_processing);
 
-    objects.recent_menu.set_sensitive(!is_processing);
-    objects.mi_cpu_load_min.set_sensitive(!is_processing);
-    objects.mi_cpu_load_half.set_sensitive(!is_processing);
-    objects.mi_cpu_load_max.set_sensitive(!is_processing);
+    recent_menu.set_sensitive(!is_processing);
+    mi_cpu_load_min.set_sensitive(!is_processing);
+    mi_cpu_load_half.set_sensitive(!is_processing);
+    mi_cpu_load_max.set_sensitive(!is_processing);
 }
 
 fn create_file_filter_for_project() -> gtk::FileFilter {
@@ -1159,7 +1123,9 @@ fn exec_and_show_progress<R, ExecFun, OkFun> (
     let progress_bar = builder.object::<gtk::ProgressBar>("progress_bar").unwrap();
     let cancel_btn = builder.object::<gtk::Button>("cancel_btn").unwrap();
 
-    objects.progress_container.add(&progress_box);
+    let progress_container = objects.builder.object::<gtk::Box>("progress_container").unwrap();
+
+    progress_container.add(&progress_box);
 
     cancel_btn.connect_clicked(clone!(@strong cancel_flag => move |_| {
         cancel_flag.store(true, Ordering::Relaxed);
@@ -1220,7 +1186,7 @@ fn exec_and_show_progress<R, ExecFun, OkFun> (
                         enable_actions(&objects);
                         ok_fun(&objects, reg_info);
                     }
-                    objects.progress_container.remove(&progress_box);
+                    progress_container.remove(&progress_box);
                     Continue(false)
                 },
                 UiMessage::Error(error) => {
@@ -1231,7 +1197,7 @@ fn exec_and_show_progress<R, ExecFun, OkFun> (
                         enable_actions(&objects);
                         show_error_message(&error, &objects);
                     }
-                    objects.progress_container.remove(&progress_box);
+                    progress_container.remove(&progress_box);
                     Continue(false)
                 },
             }
@@ -1289,12 +1255,17 @@ fn handler_project_tree_checked_changed(
 
 // widgets -> config
 fn assign_config(objects: &MainWindowObjectsPtr) {
-    let mut config = objects.config.borrow_mut();
-    config.prj_tree_width = objects.prj_img_paned.position();
+    let prj_img_paned  = objects.builder.object::<gtk::Paned>("prj_img_paned").unwrap();
+    let mi_dark_theme  = objects.builder.object::<gtk::RadioMenuItem>("dark_theme_mi").unwrap();
+    let mi_light_theme = objects.builder.object::<gtk::RadioMenuItem>("light_theme_mi").unwrap();
 
-    if objects.mi_dark_theme.is_active() {
+    let mut config = objects.config.borrow_mut();
+
+    config.prj_tree_width = prj_img_paned.position();
+
+    if mi_dark_theme.is_active() {
         config.theme = Theme::Dark;
-    } else if objects.mi_light_theme.is_active() {
+    } else if mi_light_theme.is_active() {
         config.theme = Theme::Light;
     }
 
@@ -1320,32 +1291,44 @@ fn assign_config(objects: &MainWindowObjectsPtr) {
 
 // config -> widgets
 fn apply_config(objects: &MainWindowObjectsPtr) {
+    let preview_img_gamma = objects.builder.object::<gtk::Scale>("preview_img_gamma").unwrap();
+    let prj_img_paned     = objects.builder.object::<gtk::Paned>("prj_img_paned").unwrap();
+    let preview_img_scale = objects.builder.object::<gtk::ComboBoxText>("preview_img_scale").unwrap();
+    let mi_dark_theme     = objects.builder.object::<gtk::RadioMenuItem>("dark_theme_mi").unwrap();
+    let mi_light_theme    = objects.builder.object::<gtk::RadioMenuItem>("light_theme_mi").unwrap();
+    let mi_cpu_load_min   = objects.builder.object::<gtk::RadioMenuItem>("mi_cpu_load_min").unwrap();
+    let mi_cpu_load_half  = objects.builder.object::<gtk::RadioMenuItem>("mi_cpu_load_half").unwrap();
+    let mi_cpu_load_max   = objects.builder.object::<gtk::RadioMenuItem>("mi_cpu_load_max").unwrap();
+    let preview_auto_min  = objects.builder.object::<gtk::CheckButton>("preview_auto_min").unwrap();
+    let preview_auto_wb   = objects.builder.object::<gtk::CheckButton>("preview_auto_wb").unwrap();
+
+
     let config = objects.config.borrow();
 
     match config.theme {
-        Theme::Dark     => {
+        Theme::Dark => {
             action_dark_theme(objects);
-            objects.mi_dark_theme.set_active(true);
+            mi_dark_theme.set_active(true);
         },
-        Theme::Light    => {
+        Theme::Light => {
             action_light_theme(objects);
-            objects.mi_light_theme.set_active(true);
+            mi_light_theme.set_active(true);
         },
         Theme::Other(_) => (),
     }
 
     match config.cpu_load {
         CpuLoad::OneThread =>
-            objects.mi_cpu_load_min.set_active(true),
+            mi_cpu_load_min.set_active(true),
         CpuLoad::HalfCPUs =>
-            objects.mi_cpu_load_half.set_active(true),
+            mi_cpu_load_half.set_active(true),
         CpuLoad::AllCPUs =>
-            objects.mi_cpu_load_max.set_active(true),
+            mi_cpu_load_max.set_active(true),
         _ => {},
     };
 
     if config.prj_tree_width != -1 {
-        objects.prj_img_paned.set_position(config.prj_tree_width);
+        prj_img_paned.set_position(config.prj_tree_width);
     }
 
     let tree_columns = get_prj_tree_store_columns();
@@ -1370,15 +1353,15 @@ fn apply_config(objects: &MainWindowObjectsPtr) {
 
     match config.preview_scale {
         ImgScale::Original =>
-            objects.preview_img_scale.set_active(Some(0)),
+            preview_img_scale.set_active(Some(0)),
         ImgScale::FitWindow =>
-            objects.preview_img_scale.set_active(Some(1)),
+            preview_img_scale.set_active(Some(1)),
     }
 
-    objects.preview_auto_min.set_active(config.preview_auto_min);
-    objects.preview_auto_wb.set_active(config.preview_auto_wb);
+    preview_auto_min.set_active(config.preview_auto_min);
+    preview_auto_wb.set_active(config.preview_auto_wb);
 
-    objects.preview_img_gamma.set_value(config.preview_gamma as f64);
+    preview_img_gamma.set_value(config.preview_gamma as f64);
 }
 
 #[derive(PartialEq, Clone)]
@@ -2014,9 +1997,14 @@ fn preview_image_file(
 
     let (sender, receiver) = MainContext::channel(PRIORITY_DEFAULT);
 
+    let preview_file_name = objects.builder.object::<gtk::Label>("preview_file_name").unwrap();
+    let star_img          = objects.builder.object::<gtk::Image>("img_star").unwrap();
+    let star_scr          = objects.builder.object::<gtk::ScrolledWindow>("scr_star").unwrap();
+    let preview_ctrls_box   = objects.builder.object::<gtk::Widget>("preview_ctrls_box").unwrap();
+
     receiver.attach(
         None,
-        clone!(@strong objects => move |message: UiMessage| {
+        clone!(@strong objects, @strong preview_file_name, @strong preview_ctrls_box => move |message: UiMessage| {
             match message {
                 UiMessage::Image { image, file_name } => {
                     let config = objects.config.borrow();
@@ -2053,22 +2041,22 @@ fn preview_image_file(
                             star_stat.common_stars_img.width() as i32 * 3,
                         );
 
-                        objects.star_img.set_pixbuf(Some(&pixbuf));
-                        objects.star_scr.set_width_request(star_stat.common_stars_img.width() as i32 + 4);
+                        star_img.set_pixbuf(Some(&pixbuf));
+                        star_scr.set_width_request(star_stat.common_stars_img.width() as i32 + 4);
                     } else {
-                        objects.star_img.set_pixbuf(None);
+                        star_img.set_pixbuf(None);
                     }
 
-                    objects.preview_file_name.set_label(file_name.to_str().unwrap_or(""));
+                    preview_file_name.set_label(file_name.to_str().unwrap_or(""));
                     *objects.last_preview_file.borrow_mut() = file_name;
                     *objects.prev_preview_img.borrow_mut() = image.image;
                     *objects.prev_preview_params.borrow_mut() = params;
-                    objects.preview_ctrls_box.set_sensitive(true);
+                    preview_ctrls_box.set_sensitive(true);
                 },
 
                 UiMessage::Error(text) => {
-                    objects.preview_ctrls_box.set_sensitive(true);
-                    objects.preview_file_name.set_label(&text);
+                    preview_ctrls_box.set_sensitive(true);
+                    preview_file_name.set_label(&text);
                     objects.preview_image.clear();
                     objects.prev_preview_img.borrow_mut().clear();
                     objects.last_preview_file.borrow_mut().clear();
@@ -2080,8 +2068,8 @@ fn preview_image_file(
 
     let cancel_flag = Arc::new(AtomicBool::new(false));
     *objects.prev_preview_cancel_flags.borrow_mut() = Some(cancel_flag.clone());
-    objects.preview_file_name.set_label("???");
-    objects.preview_ctrls_box.set_sensitive(false);
+    preview_file_name.set_label("???");
+    preview_ctrls_box.set_sensitive(false);
 
     let file_name = file_name.to_path_buf();
     let bin = match objects.project.borrow().config().image_size {
@@ -3005,25 +2993,25 @@ fn action_move_file_to_group(objects: &MainWindowObjectsPtr) {
         ]);
     }
 
-    {
-        let project = objects.project.borrow();
-        for (idx, group) in project.groups().iter().enumerate() {
-            if Some(idx) != selection.group_idx {
-                cbx_existing_groups.append(Some(group.uuid()), &group.name(idx));
-            }
-        }
-        let move_to_group_last_uuid = objects.move_to_group_last_uuid.borrow();
-        if !move_to_group_last_uuid.is_empty() {
-            cbx_existing_groups.set_active_id(Some(&*move_to_group_last_uuid));
-        }
-
-        if project.groups().len() <= 1 {
-            rbtn_existing_group.set_sensitive(false);
-            rbtn_new_group.set_active(true);
-        } else {
-            rbtn_existing_group.set_active(true);
+    let project = objects.project.borrow();
+    for (idx, group) in project.groups().iter().enumerate() {
+        if Some(idx) != selection.group_idx {
+            cbx_existing_groups.append(Some(group.uuid()), &group.name(idx));
         }
     }
+    let move_to_group_last_uuid = objects.move_to_group_last_uuid.borrow();
+    if !move_to_group_last_uuid.is_empty() {
+        cbx_existing_groups.set_active_id(Some(&*move_to_group_last_uuid));
+    }
+
+    if project.groups().len() <= 1 {
+        rbtn_existing_group.set_sensitive(false);
+        rbtn_new_group.set_active(true);
+    } else {
+        rbtn_existing_group.set_active(true);
+    }
+
+    drop(project);
 
     cbx_existing_groups.set_sensitive(rbtn_existing_group.is_active());
     e_new_group.set_sensitive(rbtn_new_group.is_active());

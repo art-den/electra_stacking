@@ -166,7 +166,6 @@ impl LightFile {
             let result = find_stars_on_image(
                 &img_layer_to_calc,
                 Some(noise),
-                true,
                 flags.contains(LoadLightFlags::NO_ERR_IF_NO_STARS)
             )?;
             stars_log.log("looking for stars on image");
