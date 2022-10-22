@@ -176,7 +176,7 @@ impl LightFile {
         };
 
         let stars_stat = if stars_stat_flag {
-            Some(calc_stars_stat(&stars, &img_layer_to_calc, open_mode == OpenMode::Preview)?)
+            calc_stars_stat(&stars, &img_layer_to_calc, open_mode == OpenMode::Preview).ok()
         } else {
             None
         };

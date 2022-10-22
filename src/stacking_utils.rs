@@ -752,7 +752,7 @@ pub fn merge_temp_light_files(
 
     log::info!("Saving image into file {}", result_file.to_str().unwrap_or(""));
     let mut dst_info = ImageInfo::default();
-    dst_info.exp = Some(weighted_time);
+    dst_info.exp = Some(total_time);
     save_image_to_file(&result_image, &dst_info, result_file)?;
 
     progress.lock().unwrap().percent(100, 100, "Done!");
