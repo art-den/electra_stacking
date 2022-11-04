@@ -1912,7 +1912,7 @@ fn action_dark_theme(_: &MainWindowObjectsPtr) {
 }
 
 fn preview_selected_file(objects: &MainWindowObjectsPtr) {
-    let (file_name, is_result_file, show_common_star) = {
+    let (file_name, mode) = {
         match get_current_selection(objects) {
             SelectedItem {
                 item_type: SelItemType::File,
@@ -1924,7 +1924,18 @@ fn preview_selected_file(objects: &MainWindowObjectsPtr) {
                 let project = objects.project.borrow();
                 let file_list = project.groups()[group_idx].get_file_list_by_type(file_type);
                 let project_file = &file_list.list()[files[0]];
-                (project_file.file_name().clone(), false, file_type == ProjectFileType::Light)
+
+                let mode = match file_type {
+                    ProjectFileType::Light =>
+                        PreviewFileMode::LightFile,
+                    ProjectFileType::Dark |
+                    ProjectFileType::Bias =>
+                        PreviewFileMode::BWCalibr,
+                    ProjectFileType::Flat =>
+                    PreviewFileMode::FlatFile,
+                };
+
+                (project_file.file_name().clone(), mode)
             },
 
             SelectedItem {
@@ -1933,7 +1944,7 @@ fn preview_selected_file(objects: &MainWindowObjectsPtr) {
             } => {
                 let project = objects.project.borrow();
                 match project.get_result_file_name() {
-                    Ok(file_name) => (file_name, true, true),
+                    Ok(file_name) => (file_name, PreviewFileMode::ResultFile),
                     Err(_) => return,
                 }
             },
@@ -1946,7 +1957,7 @@ fn preview_selected_file(objects: &MainWindowObjectsPtr) {
         return;
     }
 
-    preview_image_file(objects, &file_name, is_result_file, show_common_star);
+    preview_image_file(objects, &file_name, mode);
 }
 
 fn preview_image_after_change_view_opts(
@@ -1976,11 +1987,18 @@ fn preview_image_after_change_view_opts(
     );
 }
 
+#[derive(PartialEq)]
+enum PreviewFileMode {
+    ResultFile,
+    LightFile,
+    BWCalibr,
+    FlatFile,
+}
+
 fn preview_image_file(
-    objects:          &MainWindowObjectsPtr,
-    file_name:        &Path,
-    is_result_file:   bool,
-    show_common_star: bool,
+    objects:   &MainWindowObjectsPtr,
+    file_name: &Path,
+    mode:      PreviewFileMode,
 ) {
     enum UiMessage {
         Image{
@@ -2072,21 +2090,30 @@ fn preview_image_file(
     preview_ctrls_box.set_sensitive(false);
 
     let file_name = file_name.to_path_buf();
-    let bin = match objects.project.borrow().config().image_size {
-        ImageSize::Bin2x2 => if is_result_file {1} else {2},
-        ImageSize::Original => 1,
+    let project = objects.project.borrow();
+    let bin = match project.config().image_size {
+        ImageSize::Bin2x2 =>
+            if mode == PreviewFileMode::ResultFile {1} else {2},
+        ImageSize::Original =>
+            1,
     };
 
-    let raw_params = objects.project.borrow().config().raw_params.clone();
+    let raw_params = project.config().raw_params.clone();
 
     objects.preview_tp.spawn(clone!(@strong cancel_flag => move || {
         if cancel_flag.load(Ordering::Relaxed) { return; }
         let calibr_data = CalibrationData::new_empty();
 
-        let flags = if show_common_star {
-            LoadLightFlags::STARS_STAT | LoadLightFlags::STARS | LoadLightFlags::NO_ERR_IF_NO_STARS
-        } else {
-            LoadLightFlags::empty()
+        let flags = match mode {
+            PreviewFileMode::ResultFile |
+            PreviewFileMode::LightFile =>
+                LoadLightFlags::STARS_STAT |
+                LoadLightFlags::STARS |
+                LoadLightFlags::NO_ERR_IF_NO_STARS,
+            PreviewFileMode::BWCalibr =>
+                LoadLightFlags::DO_NOT_DEMOSAIC,
+            PreviewFileMode::FlatFile =>
+                LoadLightFlags::empty(),
         };
 
         let light_file = LightFile::load_and_calc_params(
@@ -2859,7 +2886,7 @@ fn action_stack(objects: &MainWindowObjectsPtr) {
             project.stack_light_files(progress, is_canceled, cpu_load)
         },
         move |objects, result| {
-            preview_image_file(objects, &result.file_name, true, true);
+            preview_image_file(objects, &result.file_name, PreviewFileMode::ResultFile);
             show_message(
                 objects,
                 &gettext("Finished"),

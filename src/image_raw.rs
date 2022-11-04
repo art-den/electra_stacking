@@ -1,6 +1,5 @@
 use std::{path::*, io::*, fs::*, collections::{HashSet, HashMap}, hash::Hash};
 use itertools::{izip, Itertools};
-use rayon::prelude::*;
 use serde::{Serialize, Deserialize};
 use byteorder::*;
 use crate::{image::*, fs_utils, log_utils::*, calc::*, compression::*, image_formats::*};
@@ -59,6 +58,10 @@ impl CfaPattern {
     #[inline(always)]
     fn get_color_type(&self, x: Crd, y: Crd) -> CfaColor {
         self.arr[(y & 1) as usize][(x & 1) as usize]
+    }
+
+    fn get_row(&self, y: Crd) -> &[CfaColor; 2] {
+        &self.arr[(y & 1) as usize]
     }
 }
 
@@ -161,9 +164,7 @@ impl RawImageInfo {
     }
 
     pub fn apply_wb(&mut self, image: &mut Image) {
-        if image.is_greyscale() {
-            return;
-        }
+        assert!(!image.is_greyscale());
 
         let apply = |img: &mut ImageLayerF32, k: f32| {
             for v in img.iter_mut() {
@@ -575,84 +576,107 @@ impl RawImage {
         }
     }
 
-    fn demosaic_bayer_linear(&self, p: &CfaPattern, mt: bool) -> anyhow::Result<Image> {
+    fn demosaic_bayer_linear(&self, p: &CfaPattern, _mt: bool) -> anyhow::Result<Image> {
         if self.data.is_empty() {
             anyhow::bail!("Raw image is empty");
         }
 
+        let width = self.data.width();
+        let height = self.data.height();
+
         let mut result = Image::new_color(self.info.width, self.info.height);
 
-        const PATH_VERT:  &[(Crd, Crd)] = &[(0, -1), (0, 1)];
-        const PATH_HORIZ: &[(Crd, Crd)] = &[(-1, 0), (1, 0)];
-        const PATH_DIAG:  &[(Crd, Crd)] = &[(-1, -1), (1, -1), (-1, 1), (1, 1)];
-        const PATH_CROSS: &[(Crd, Crd)] = &[(0, -1), (-1, 0), (1, 0), (0, 1)];
+        for y in 1..height-1 {
+            let top_iter = self.data.iter_row(y-1);
+            let iter = self.data.iter_row(y);
+            let cfa_iter = self.iter_cfa(y);
+            let bottom_iter = self.data.iter_row(y+1);
+            let dst_r_iter = result.r.iter_row_mut(y).skip(1);
+            let dst_g_iter = result.g.iter_row_mut(y).skip(1);
+            let dst_b_iter = result.b.iter_row_mut(y).skip(1);
 
-        let demosaic_row = |y, d_row: &mut[f32], ct: CfaColor| {
-            let s_row = self.data.row(y);
-            for (x, (d, s)) in d_row.iter_mut().zip(s_row).enumerate() {
-                let x = x as Crd;
-                let raw_ct = p.get_color_type(x, y);
+            for ((v11, v12, v13),
+                 (v21, v22, v23),
+                 (v31, v32, v33),
+                 (c21, c22),
+                 r, g, b) in
+            izip!(
+                top_iter.tuple_windows(),
+                iter.tuple_windows(),
+                bottom_iter.tuple_windows(),
+                cfa_iter.tuple_windows(),
+                dst_r_iter, dst_g_iter, dst_b_iter
+            ) {
+                match *c22 {
+                    CfaColor::R => {
+                        *r = *v22;
+                        *g = (*v12 + *v21 + *v23 + *v32) * 0.25;
+                        *b = (*v11 + *v13 + *v31 + *v33) * 0.25;
+                    },
+                    CfaColor::G => {
+                        *g = *v22;
+                        if *c21 == CfaColor::B {
+                            *b = (v21 + v23) * 0.5;
+                            *r = (v12 + v32) * 0.5;
+                        } else {
+                            *r = (v21 + v23) * 0.5;
+                            *b = (v12 + v32) * 0.5;
+                        }
+                    },
+                    CfaColor::B => {
+                        *b = *v22;
+                        *g = (*v12 + *v21 + *v23 + *v32) * 0.25;
+                        *r = (*v11 + *v13 + *v31 + *v33) * 0.25;
+                    },
+                    CfaColor::Mono =>
+                        unreachable!(),
+                }
 
-                *d = if raw_ct == ct {
-                    *s
-                } else {
-                    let path = match (raw_ct, ct) {
-                        (_, CfaColor::G) =>
-                            PATH_CROSS,
-                        (CfaColor::R, CfaColor::B) =>
-                            PATH_DIAG,
-                        (CfaColor::B, CfaColor::R) =>
-                            PATH_DIAG,
-                        (CfaColor::G, CfaColor::R) if p.get_color_type(x+1, y) == CfaColor::R =>
-                            PATH_HORIZ,
-                        (CfaColor::G, CfaColor::R) =>
-                            PATH_VERT,
-                        (CfaColor::G, CfaColor::B) if p.get_color_type(x+1, y) == CfaColor::B =>
-                            PATH_HORIZ,
-                        (CfaColor::G, CfaColor::B) =>
-                            PATH_VERT,
-                        (_, _) =>
-                            panic!("Internal error"),
-                    };
-
-                    let mut sum = 0_f32;
-                    let mut cnt = 0_u16;
-                    for crd in path { if let Some(v) = self.data.get(x+crd.0, y+crd.1) {
-                        debug_assert!(p.get_color_type(x+crd.0, y+crd.1) == ct);
-                        sum += v;
-                        cnt += 1;
-                    }}
-                    if cnt != 0 { sum / cnt as f32 } else { 0.0 }
-                };
             }
+        }
+
+        let mut demosaic_pt_slow = |x, y, cfa_type| {
+            let layer = match cfa_type {
+                CfaColor::R => &mut result.r,
+                CfaColor::G => &mut result.g,
+                CfaColor::B => &mut result.b,
+                CfaColor::Mono => unreachable!(),
+            };
+
+            let mut sum = 0_f32;
+            let mut cnt = 0u16;
+            for dy in -1..=1 {
+                let sy = y + dy;
+                for dx in -1..=1 {
+                    let sx = x + dx;
+                    if p.get_color_type(sx, sy) == cfa_type {
+                        if let Some(v) = self.data.get(sx, sy) {
+                            cnt += 1;
+                            sum += v;
+                        }
+                    }
+                }
+            }
+
+            layer.set(x, y, sum / cnt as f32);
         };
 
-        if !mt {
-            for y in 0..self.data.height() {
-                demosaic_row(y, result.r.row_mut(y), CfaColor::R);
-                demosaic_row(y, result.g.row_mut(y), CfaColor::G);
-                demosaic_row(y, result.b.row_mut(y), CfaColor::B);
-            }
-        } else {
-            let width = self.data.width() as usize;
+        for x in 1..width-1 {
+            demosaic_pt_slow(x, 0, CfaColor::R);
+            demosaic_pt_slow(x, 0, CfaColor::G);
+            demosaic_pt_slow(x, 0, CfaColor::B);
+            demosaic_pt_slow(x, height-1, CfaColor::R);
+            demosaic_pt_slow(x, height-1, CfaColor::G);
+            demosaic_pt_slow(x, height-1, CfaColor::B);
+        }
 
-            result.r.as_slice_mut().par_chunks_mut(width)
-                .enumerate()
-                .for_each(|(y, d)| {
-                    demosaic_row(y as Crd, d, CfaColor::R);
-                });
-
-            result.g.as_slice_mut().par_chunks_mut(width)
-                .enumerate()
-                .for_each(|(y, d)| {
-                    demosaic_row(y as Crd, d, CfaColor::G);
-                });
-
-            result.b.as_slice_mut().par_chunks_mut(width)
-                .enumerate()
-                .for_each(|(y, d)| {
-                    demosaic_row(y as Crd, d, CfaColor::B);
-                });
+        for y in 1..height-1 {
+            demosaic_pt_slow(0, y, CfaColor::R);
+            demosaic_pt_slow(0, y, CfaColor::G);
+            demosaic_pt_slow(0, y, CfaColor::B);
+            demosaic_pt_slow(width-1, y, CfaColor::R);
+            demosaic_pt_slow(width-1, y, CfaColor::G);
+            demosaic_pt_slow(width-1, y, CfaColor::B);
         }
 
         Ok(result)
@@ -934,12 +958,12 @@ impl RawImage {
             values.clear();
             match it {
                 IterType::Cols =>
-                    for (crd, v) in self.iter_col_raw(main_crd, cc) {
+                    for (crd, v) in self.iter_col_color(main_crd, cc) {
                         values.push(v);
                         coords.push(crd);
                     }
                 IterType::Rows =>
-                    for (crd, v) in self.iter_row_raw(main_crd, cc) {
+                    for (crd, v) in self.iter_row_color(main_crd, cc) {
                         values.push(v);
                         coords.push(crd);
                     }
@@ -970,12 +994,12 @@ impl RawImage {
             values.clear();
             match it {
                 IterType::Cols =>
-                    for (crd, v) in self.iter_col_raw(main_crd, cc) {
+                    for (crd, v) in self.iter_col_color(main_crd, cc) {
                         values.push(v);
                         coords.push(crd);
                     }
                 IterType::Rows =>
-                    for (crd, v) in self.iter_row_raw(main_crd, cc) {
+                    for (crd, v) in self.iter_row_color(main_crd, cc) {
                         values.push(v);
                         coords.push(crd);
                     }
@@ -1131,22 +1155,31 @@ impl RawImage {
         result
     }
 
-    pub fn iter_row_raw(&self, y: Crd, cc: CfaColor) -> RowIterator {
+    pub fn iter_row_color(&self, y: Crd, cc: CfaColor) -> RowColorIterator {
         let pos = (y*self.data.width()) as usize;
         let data = self.data.as_slice();
-        RowIterator {
+        RowColorIterator {
             iter: data[pos..pos + self.data.width() as usize].iter(),
             x: 0, y, cc,
             cfa: self.info.cfa,
         }
     }
 
-    pub fn iter_col_raw(&self, x: Crd, cc: CfaColor) -> ColIterator {
+    pub fn iter_col_color(&self, x: Crd, cc: CfaColor) -> ColColorIterator {
         let data = self.data.as_slice();
-        ColIterator {
+        ColColorIterator {
             iter: data[x as usize..].iter().step_by(self.data.width() as usize),
             x, y: 0, cc,
             cfa: self.info.cfa,
+        }
+    }
+
+    pub fn iter_cfa(&self, y: Crd) -> std::iter::Cycle<std::slice::Iter<CfaColor>> {
+        match self.info.cfa {
+            Cfa::Pattern(ref pattern) =>
+                pattern.get_row(y).iter().cycle(),
+            Cfa::Mono =>
+                panic!("Not for monochrome data!"),
         }
     }
 
@@ -1269,7 +1302,7 @@ impl CalibrationData {
     }
 }
 
-pub struct RowIterator<'a> {
+pub struct RowColorIterator<'a> {
     iter: std::slice::Iter<'a, f32>,
     x: Crd,
     y: Crd,
@@ -1277,7 +1310,7 @@ pub struct RowIterator<'a> {
     cfa: Cfa,
 }
 
-impl<'a> Iterator for RowIterator<'a> {
+impl<'a> Iterator for RowColorIterator<'a> {
     type Item = (Crd, f32);
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -1296,7 +1329,7 @@ impl<'a> Iterator for RowIterator<'a> {
     }
 }
 
-pub struct ColIterator<'a> {
+pub struct ColColorIterator<'a> {
     iter: std::iter::StepBy<std::slice::Iter<'a, f32>>,
     x: Crd,
     y: Crd,
@@ -1304,7 +1337,7 @@ pub struct ColIterator<'a> {
     cfa: Cfa,
 }
 
-impl<'a> Iterator for ColIterator<'a> {
+impl<'a> Iterator for ColColorIterator<'a> {
     type Item = (Crd, f32);
 
     fn next(&mut self) -> Option<Self::Item> {

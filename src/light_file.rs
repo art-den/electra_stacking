@@ -11,6 +11,8 @@ bitflags! { pub struct LoadLightFlags: u32 {
     const NOISE              = 4;
     const BACKGROUND         = 8;
     const NO_ERR_IF_NO_STARS = 16;
+    const DO_NOT_DEMOSAIC    = 32;
+    const RAW_HISTOGRAM      = 64;
 }}
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -40,7 +42,7 @@ impl Default for RawOpenParams {
     fn default() -> Self {
         Self {
             apply_wb: true,
-            apply_color: true,
+            apply_color: false,
             force_cfa: None,
         }
     }
@@ -65,6 +67,7 @@ impl LightFile {
 
         let stars_flag = flags.contains(LoadLightFlags::STARS);
         let stars_stat_flag = flags.contains(LoadLightFlags::STARS_STAT);
+        let do_not_demosaic_flag = flags.contains(LoadLightFlags::DO_NOT_DEMOSAIC);
 
         let force_load_as_raw = !cal_data.is_empty();
 
@@ -96,12 +99,18 @@ impl LightFile {
                 raw.calibrate(cal_data)?;
 
                 let log = TimeLogger::start();
-                let mut result = raw.demosaic(
-                    demosaic,
-                    open_mode == OpenMode::Preview
-                )?;
+                let mut result = if !do_not_demosaic_flag {
+                    raw.demosaic(
+                        demosaic,
+                        open_mode == OpenMode::Preview
+                    )?
+                } else {
+                    let mut grayscale = Image::new_grey(raw.info.width, raw.info.height);
+                    grayscale.l = raw.data.clone();
+                    grayscale
+                };
 
-                if raw_params.apply_wb {
+                if raw_params.apply_wb && !result.is_greyscale() {
                     raw.info.apply_wb(&mut result);
                 }
 

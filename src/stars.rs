@@ -72,7 +72,12 @@ pub fn find_stars_on_image(
             filtered.push(0.333333 * (i1 + i2 + i3));
         }
         filtered.push(values[values.len()-1]);
-        iir_filter(&mut heavy_filter, values, &mut heavy_filtered);
+        for value in &mut filtered {
+            if value.is_infinite() {
+                *value = max_img_value;
+            }
+        }
+        iir_filter(&mut heavy_filter, &filtered, &mut heavy_filtered);
         for (i, (&prev, &cur, &next)) in filtered.iter().tuple_windows().enumerate() {
             let index = i + 1;
             if prev < cur && cur > next && cur > heavy_filtered[index]+border {
@@ -97,7 +102,7 @@ pub fn find_stars_on_image(
 
     let mut star_calc = StarCalulator::new();
 
-    for &(mut x, mut y, posibble_max_value) in possible_stars.iter() {
+    for &(mut x, mut y, possible_max_value) in possible_stars.iter() {
         if all_stars_points.contains(&(x, y)) { continue };
 
         // goto maximum
@@ -128,16 +133,19 @@ pub fn find_stars_on_image(
 
         use MAX_STAR_DIAMETER as MSD;
         star_bg_values.clear();
-        for (_, _, v) in img.iter_rect_crd(x-MSD/2, y-MSD/2, x+MSD/2, y+MSD/2) {
+        for (_, _, mut v) in img.iter_rect_crd(x-MSD/2, y-MSD/2, x+MSD/2, y+MSD/2) {
+            if v.is_infinite() {
+                v = max_img_value;
+            }
             star_bg_values.push(v);
         }
         let star_bg_index = star_bg_values.len() / 4;
         let star_bg = *star_bg_values.select_nth_unstable_by(star_bg_index, cmp_f32).1;
 
-        if (posibble_max_value - star_bg) < border { continue };
+        if (possible_max_value - star_bg) < border { continue };
 
         // Find all points of star. Border is as 1/2 of brightness of star center
-        let border_value = (posibble_max_value + star_bg) / 2.0;
+        let border_value = (possible_max_value + star_bg) / 2.0;
         let mut star_points = HashSet::new();
 
         flood_filler.fill(
@@ -166,7 +174,8 @@ pub fn find_stars_on_image(
             &img,
             star_bg,
             &star_points,
-            true
+            true,
+            max_img_value
         )?;
 
         if radius_dev > 2.0 { continue; }
@@ -205,7 +214,6 @@ pub fn find_stars_on_image(
             points,
         });
     }
-
 
     // remove strange stars by radius
     stars.retain(|s| {
@@ -291,10 +299,11 @@ impl StarCalulator {
     #[inline(never)]
     fn calc_center_brightness_radius_and_deviation(
         &mut self,
-        img:         &ImageLayerF32,
-        star_bg:     f32,
-        star_points: &HashSet<(Crd, Crd)>,
+        img:                       &ImageLayerF32,
+        star_bg:                   f32,
+        star_points:               &HashSet<(Crd, Crd)>,
         use_image_for_center_calc: bool,
+        default_value:             f32,
     ) -> anyhow::Result<(f64, f64, f64, f64, f64)> {
         const BORD: f64 = 0.5;
 
@@ -303,11 +312,15 @@ impl StarCalulator {
         let (x_sum, y_sum, br) = star_points.iter().fold(
             (0_f64, 0_f64, 0_f64),
             |(x_sum, y_sum, br), &(x, y)| {
-                let v = if use_image_for_center_calc {
-                    (img.get(x, y).unwrap_or(0.0) - star_bg) as f64
+                let mut v = if use_image_for_center_calc {
+                    img.get(x, y).unwrap_or(0.0) - star_bg
                 } else {
                     1.0
                 };
+                if v.is_infinite() {
+                    v = default_value;
+                }
+                let v = v as f64;
                 (x_sum + v * x as f64, y_sum + v * y as f64, br + v)
             }
         );
@@ -821,7 +834,7 @@ pub fn calc_stars_stat(stars: &Stars, image: &ImageLayerF32, fast: bool) -> anyh
         .collect();
     let mut star_calc = StarCalulator::new();
     let (_, _, _, _, deviation) =
-        star_calc.calc_center_brightness_radius_and_deviation(image, 0.0, &points, false)?;
+        star_calc.calc_center_brightness_radius_and_deviation(image, 0.0, &points, false, 1.0)?;
     let over_0_5_cnt = common_stars_img
         .as_slice()
         .iter()

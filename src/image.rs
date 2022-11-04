@@ -89,8 +89,7 @@ where T: Copy + Clone + ImgLayerDefValue<Type = T> {
             return None;
         }
         let index = (y * self.width + x) as usize;
-        if index >= self.data.len() { return None; }
-        Some(self.data[index])
+        self.data.get(index).copied()
     }
 
     #[inline(always)]
