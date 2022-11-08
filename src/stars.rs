@@ -828,21 +828,42 @@ pub fn calc_stars_stat(stars: &Stars, image: &ImageLayerF32, fast: bool) -> anyh
     let profiler = TimeLogger::start();
     let common_stars_img = create_common_star_image(stars, image, mag, fast)?;
     profiler.log("create_common_star_image");
-    let points = common_stars_img.iter_crd()
-        .filter(|(_, _, v)| *v > 0.5)
-        .map(|(x, y, _)| (x, y))
-        .collect();
-    let mut star_calc = StarCalulator::new();
-    let (_, _, _, _, deviation) =
-        star_calc.calc_center_brightness_radius_and_deviation(image, 0.0, &points, false, 1.0)?;
     let over_0_5_cnt = common_stars_img
         .as_slice()
         .iter()
         .filter(|&v| *v > 0.5)
         .count();
+    let ovality = calc_ovality(&common_stars_img);
     Ok(StarsStat {
         fwhm:       over_0_5_cnt as f32 / (mag * mag) as f32,
-        aver_r_dev: deviation as f32,
+        aver_r_dev: ovality,
         common_stars_img
     })
+}
+
+fn calc_ovality(star_image: &ImageLayerF32) -> f32 {
+    const ANGLE_CNT: usize = 36;
+    const K: Crd = 4;
+    let center_x = (star_image.width() / 2) as f64;
+    let center_y = (star_image.height() / 2) as f64;
+    let size = (Crd::max(star_image.width(), star_image.height()) * K) as i32;
+    let mut diamemters = Vec::new();
+    for i in 0..ANGLE_CNT {
+        let angle = 2.0 * PI * i as f64 / ANGLE_CNT as f64;
+        let cos_angle = f64::cos(angle);
+        let sin_angle = f64::sin(angle);
+        let mut above_count = 0_usize;
+        for j in -size/2..size/2 {
+            let k = j as f64 / K as f64;
+            let x = k * cos_angle + center_x;
+            let y = k * sin_angle + center_y;
+            if let Some(v) = star_image.get_f64_crd(x, y) {
+                if v > 0.5 { above_count += 1; }
+            }
+        }
+        diamemters.push(above_count);
+    }
+    let max_diameter = diamemters.iter().copied().max().unwrap_or(0) as f32;
+    let min_diameter = diamemters.iter().copied().min().unwrap_or(0) as f32;
+    max_diameter / min_diameter - 1.0
 }
