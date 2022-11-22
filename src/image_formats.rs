@@ -600,8 +600,65 @@ fn load_src_file_info_from_fits_hdu(
     }
 }
 
+
+
+#[cfg(target_os = "windows")]
+mod win_fits_open {
+    use std::{sync::Mutex, path::PathBuf};
+
+    pub static OPEN_FITS_MUTEX: Mutex<()> = Mutex::new(());
+
+    pub struct CurDirRestore {
+        cur_dir: PathBuf,
+    }
+
+    impl CurDirRestore {
+        pub fn new() -> anyhow::Result<Self> {
+            Ok(Self {
+                cur_dir: std::env::current_dir()?,
+            })
+        }
+    }
+
+    impl Drop for CurDirRestore {
+        fn drop(&mut self) {
+            _ = std::env::set_current_dir(&self.cur_dir);
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn fits_file_open_helper<F>(file_name: &Path, fun: F) -> anyhow::Result<FitsFile>
+where F: Fn(&Path) -> anyhow::Result<FitsFile> {
+    use win_fits_open::*;
+    let result = match (file_name.parent(), file_name.file_name()) {
+        (Some(file_dir), Some(rel_name)) => {
+            let change_dir_locker = OPEN_FITS_MUTEX.lock();
+            let cur_dir_restore = CurDirRestore::new()?;
+            std::env::set_current_dir(file_dir)?;
+            let rel_name = rel_name.to_str().unwrap_or("");
+            let fits = fun(&Path::new(rel_name))?;
+            drop(cur_dir_restore);
+            drop(change_dir_locker);
+            fits
+        },
+        _ =>
+            fun(file_name)?,
+    };
+    Ok(result)
+}
+
+#[cfg(not(target_os = "windows"))]
+fn fits_file_open_helper<F>(file_name: &Path, fun: F) -> anyhow::Result<FitsFile>
+where F: Fn(&Path) -> anyhow::Result<FitsFile> {
+    fun(file_name)
+}
+
 pub fn load_src_file_info_fits(file_name: &Path) -> anyhow::Result<ImageInfo> {
-    let mut fptr = FitsFile::open(file_name)?;
+    let mut fptr = fits_file_open_helper(
+        file_name,
+        |file_name| Ok(FitsFile::open(file_name)?)
+    )?;
     let (image_hdu, width, height, ..) = find_image_hdu(&mut fptr)?;
     Ok(load_src_file_info_from_fits_hdu(
         &mut fptr,
@@ -616,7 +673,11 @@ pub fn load_image_from_fits_file(
     file_name:    &Path,
     force_as_raw: bool
 ) -> anyhow::Result<ImageData> {
-    let mut fptr = FitsFile::open(file_name)?;
+    let mut fptr = fits_file_open_helper(
+        file_name,
+        |file_name| Ok(FitsFile::open(file_name)?)
+    )?;
+
     let (image_hdu, width, height, is_color_image, data_type) = find_image_hdu(&mut fptr)?;
     let info = load_src_file_info_from_fits_hdu(&mut fptr, &image_hdu, file_name, width, height);
     let camera_params = find_camera_params(info.camera.as_deref());
@@ -721,9 +782,14 @@ pub fn save_image_to_fits_file(
         dimensions: &dimensions,
     };
 
-    let mut fptr = FitsFile::create(file_name)
-        .with_custom_primary(&image_description)
-        .open()?;
+    let mut fptr = fits_file_open_helper(
+        file_name,
+        |file_name| {
+            Ok(FitsFile::create(file_name)
+                .with_custom_primary(&image_description)
+                .open()?)
+        }
+    )?;
 
     let hdu = fptr.primary_hdu().unwrap();
 
