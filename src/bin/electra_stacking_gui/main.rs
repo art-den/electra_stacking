@@ -2109,7 +2109,7 @@ fn preview_image_file(
             1,
     };
 
-    let raw_params = project.config().raw_params.clone();
+    let mut raw_params = project.config().raw_params.clone();
 
     objects.preview_tp.spawn(clone!(@strong cancel_flag => move || {
         if cancel_flag.load(Ordering::Relaxed) { return; }
@@ -2126,6 +2126,10 @@ fn preview_image_file(
             PreviewFileMode::FlatFile =>
                 LoadLightFlags::empty(),
         };
+
+        if mode == PreviewFileMode::ResultFile {
+            raw_params.force_cfa = None;
+        }
 
         let light_file = LightFile::load_and_calc_params(
             &file_name,
