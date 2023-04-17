@@ -569,20 +569,19 @@ fn load_src_file_info_from_fits_hdu(
     width:     usize,
     height:    usize
 ) -> ImageInfo {
-    let dt_str = hdu.read_key::<String>(fptr, "DATE-LOC").ok();
     let exp_time = hdu.read_key(fptr, "EXPTIME").ok();
     let gain = hdu.read_key::<f32>(fptr, "GAIN").ok();
     let bayer = hdu.read_key::<String>(fptr, "BAYERPAT").ok();
-    let camera =
-        hdu.read_key(fptr, "INSTRUME").ok()
-           .or_else(|| hdu.read_key(fptr, "CAMERA").ok());
+    let camera =hdu.read_key::<String>(fptr, "INSTRUME")
+        .or_else(|_| hdu.read_key::<String>(fptr, "CAMERA")).ok();
     let focal_len = hdu.read_key(fptr, "FOCALLEN").ok();
     let focal_ratio = hdu.read_key(fptr, "FOCRATIO").ok();
     let lens = hdu.read_key(fptr, "TELESCOP").ok();
 
-    let file_time = dt_str
+    let file_time = hdu.read_key::<String>(fptr, "DATE-LOC")
+        .or_else(|_| hdu.read_key::<String>(fptr, "DATE-OBS")).ok()
         .and_then(|v| try_to_decode_date_time_str(&v))
-        .or_else(|| { get_file_time(file_name).ok() });
+        .or_else(|| get_file_time(file_name).ok() );
 
     ImageInfo {
         file_name: file_name.to_path_buf(),
@@ -704,7 +703,7 @@ pub fn load_image_from_fits_file(
             max_values: [max as f32, max as f32, max as f32, max as f32],
             black_values: [black, black, black, black],
             wb: camera_params.map(|(wb, _, _)| wb).unwrap_or([1.0, 1.0, 1.0, 1.0]),
-            xyz_to_cam: camera_params.and_then(|(_, _, ccm)| ccm.map(|v| v.clone())),
+            cam_to_rgb: camera_params.and_then(|(_, _, ccm)| ccm.map(|v| v.clone())),
             cfa: Cfa::from_cfa_type(ct),
             camera: info.camera.clone(),
             exposure: info.exp.map(|v| v as f32),

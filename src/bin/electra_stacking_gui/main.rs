@@ -73,12 +73,23 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn panic_handler(panic_info: &std::panic::PanicInfo) {
+    let payload_str =
+        if let Some(msg) = panic_info.payload().downcast_ref::<&'static str>() {
+            Some(*msg)
+        } else if let Some(msg) = panic_info.payload().downcast_ref::<String>() {
+            Some(msg.as_str())
+        } else {
+            None
+        };
+
     log::error!("(╯°□°）╯︵ ┻━┻ PANIC OCCURRED");
-    if let Some(s) = panic_info.payload().downcast_ref::<&str>() {
-        log::error!("{}", s);
+
+    if let Some(payload) = payload_str {
+        log::error!("Panic paiload: {}", payload);
     }
+
     if let Some(loc) = panic_info.location() {
-        log::error!("AT LOCATION: {}", loc.to_string());
+        log::error!("Panic location: {}", loc);
     }
 }
 
@@ -2043,7 +2054,7 @@ fn preview_image_file(
                     );
 
                     // Show common star image
-                    if let Some(mut star_stat) = image.stars_stat {
+                    if let Ok(mut star_stat) = image.stars_stat {
                         for v in star_stat.common_stars_img.as_slice_mut() {
                             *v = (*v - 0.5) * 10.0 + 0.5; // + contrast
                         }

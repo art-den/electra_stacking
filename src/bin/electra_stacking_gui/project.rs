@@ -923,30 +923,35 @@ impl ProjectGroup {
 
                     let file_result = match load_light_file_res {
                         Ok(light_file) => {
-                            let stars_stat = light_file.stars_stat.unwrap();
-                            if save_star_img {
-                                let common_star_img_fn = file_name.with_extension("common_star.tif");
-                                let save_res = save_grayscale_image_to_tiff_file(
-                                    &stars_stat.common_stars_img,
-                                    &ImageInfo::default(),
-                                    &common_star_img_fn
-                                );
-                                if let Err(err) = save_res {
-                                    *cur_result.lock().unwrap() = Err(anyhow::anyhow!(
-                                        r#"Error "{}" during saving common star image to file "{}""#,
-                                        err.to_string(),
-                                        common_star_img_fn.to_str().unwrap_or("")
-                                    ));
-                                    return;
-                                }
+                            match light_file.stars_stat {
+                                Ok(stars_stat) => {
+                                    if save_star_img {
+                                        let common_star_img_fn = file_name.with_extension("common_star.tif");
+                                        let save_res = save_grayscale_image_to_tiff_file(
+                                            &stars_stat.common_stars_img,
+                                            &ImageInfo::default(),
+                                            &common_star_img_fn
+                                        );
+                                        if let Err(err) = save_res {
+                                            *cur_result.lock().unwrap() = Err(anyhow::anyhow!(
+                                                r#"Error "{}" during saving common star image to file "{}""#,
+                                                err.to_string(),
+                                                common_star_img_fn.to_str().unwrap_or("")
+                                            ));
+                                            return;
+                                        }
+                                    }
+                                    Ok(RegInfo {
+                                        noise:       light_file.noise,
+                                        background:  light_file.background,
+                                        fwhm:        stars_stat.fwhm,
+                                        stars:       light_file.stars.len(),
+                                        stars_r_dev: stars_stat.aver_r_dev,
+                                    })
+                                },
+                                Err(err) =>
+                                    Err(err),
                             }
-                            Ok(RegInfo {
-                                noise:       light_file.noise,
-                                background:  light_file.background,
-                                fwhm:        stars_stat.fwhm,
-                                stars:       light_file.stars.len(),
-                                stars_r_dev: stars_stat.aver_r_dev,
-                            })
                         },
 
                         Err(err) =>

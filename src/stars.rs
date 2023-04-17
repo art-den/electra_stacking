@@ -834,6 +834,9 @@ pub fn calc_stars_stat(stars: &Stars, image: &ImageLayerF32, fast: bool) -> anyh
         .filter(|&v| *v > 0.5)
         .count();
     let ovality = calc_ovality(&common_stars_img);
+    if ovality > 10.0 {
+        anyhow::bail!("Bad stars quality");
+    }
     Ok(StarsStat {
         fwhm:       over_0_5_cnt as f32 / (mag * mag) as f32,
         aver_r_dev: ovality,
@@ -865,5 +868,6 @@ fn calc_ovality(star_image: &ImageLayerF32) -> f32 {
     }
     let max_diameter = diamemters.iter().copied().max().unwrap_or(0) as f32;
     let min_diameter = diamemters.iter().copied().min().unwrap_or(0) as f32;
-    max_diameter / min_diameter - 1.0
+    let result = max_diameter / min_diameter - 1.0;
+    result.min(999.0).max(0.0)
 }

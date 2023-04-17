@@ -125,7 +125,7 @@ pub struct RawImageInfo {
     pub max_values: [f32; 4],
     pub black_values: [f32; 4],
     pub wb: [f32; 4],
-    pub xyz_to_cam: Option<[f32; 9]>,
+    pub cam_to_rgb: Option<[f32; 9]>,
     pub cfa: Cfa,
     pub camera: Option<String>,
     pub exposure: Option<f32>,
@@ -202,40 +202,14 @@ impl RawImageInfo {
             return;
         }
 
-        if let Some(xyz_to_cam) = &self.xyz_to_cam {
-            use nalgebra::*;
-
-            let xyz_2_cam = matrix![
-                xyz_to_cam[0], xyz_to_cam[1], xyz_to_cam[2];
-                xyz_to_cam[3], xyz_to_cam[4], xyz_to_cam[5];
-                xyz_to_cam[6], xyz_to_cam[7], xyz_to_cam[8];
-            ];
-
-            let srgb_2_xyz = matrix![
-                0.4124564, 0.3575761, 0.1804375;
-                0.2126729, 0.7151522, 0.0721750;
-                0.0193339, 0.1191920, 0.9503041;
-            ];
-
-            let mut srgb_to_cam = xyz_2_cam * srgb_2_xyz;
-
-            for row in 0..3 {
-                let sum: f32 = srgb_to_cam.row(row).iter().sum();
-                if sum != 0.0 { for v in srgb_to_cam.row_mut(row).iter_mut() {
-                    *v /= sum;
-                }}
-            }
-
-            let cam_to_rgb = srgb_to_cam.try_inverse().unwrap();
-            let cam_to_rgb_values = cam_to_rgb.as_slice();
-
+        if let Some(cam_to_rgb) = &self.cam_to_rgb {
             for (r, g, b) in izip!(image.r.iter_mut(), image.g.iter_mut(), image.b.iter_mut()) {
                 let r0 = *r;
                 let g0 = *g;
                 let b0 = *b;
-                *r = r0*cam_to_rgb_values[0] + g0*cam_to_rgb_values[3] + b0*cam_to_rgb_values[6];
-                *g = r0*cam_to_rgb_values[1] + g0*cam_to_rgb_values[4] + b0*cam_to_rgb_values[7];
-                *b = r0*cam_to_rgb_values[2] + g0*cam_to_rgb_values[5] + b0*cam_to_rgb_values[8];
+                *r = r0*cam_to_rgb[0] + g0*cam_to_rgb[3] + b0*cam_to_rgb[6];
+                *g = r0*cam_to_rgb[1] + g0*cam_to_rgb[4] + b0*cam_to_rgb[7];
+                *b = r0*cam_to_rgb[2] + g0*cam_to_rgb[5] + b0*cam_to_rgb[8];
             }
             return;
         }
@@ -313,12 +287,38 @@ impl RawImage {
             info.camera = raw_exif.get_str(rawloader::Tag::Model).map(|v| v.to_string());
         }
 
-        let xyz_to_cam = if !raw.xyz_to_cam[0][0].is_nan() {
-            let mut matrix = [0_f32; 9];
-            for i in 0..9 {
-                matrix[i] = raw.xyz_to_cam[i / 3][i % 3];
+        let cam_to_rgb = if !raw.xyz_to_cam[0][0].is_nan() {
+            use nalgebra::*;
+
+            let xyz_2_cam = matrix![
+                raw.xyz_to_cam[0][0], raw.xyz_to_cam[0][1], raw.xyz_to_cam[0][2];
+                raw.xyz_to_cam[1][0], raw.xyz_to_cam[1][1], raw.xyz_to_cam[1][2];
+                raw.xyz_to_cam[2][0], raw.xyz_to_cam[2][1], raw.xyz_to_cam[2][2];
+            ];
+
+            let srgb_2_xyz = matrix![
+                0.4124564, 0.3575761, 0.1804375;
+                0.2126729, 0.7151522, 0.0721750;
+                0.0193339, 0.1191920, 0.9503041;
+            ];
+
+            let mut srgb_to_cam = xyz_2_cam * srgb_2_xyz;
+
+            for row in 0..3 {
+                let sum: f32 = srgb_to_cam.row(row).sum();
+                if sum != 0.0 { for v in srgb_to_cam.row_mut(row).iter_mut() {
+                    *v /= sum;
+                }}
             }
-            Some(matrix)
+
+            let srgb_to_cam = srgb_to_cam.normalize();
+            let cam_to_rgb = srgb_to_cam.try_inverse().unwrap();
+
+            Some([
+                cam_to_rgb[0], cam_to_rgb[1], cam_to_rgb[2],
+                cam_to_rgb[3], cam_to_rgb[4], cam_to_rgb[5],
+                cam_to_rgb[6], cam_to_rgb[7], cam_to_rgb[8],
+            ])
         } else {
             None
         };
@@ -328,7 +328,7 @@ impl RawImage {
             max_values:   [0.0; 4],
             black_values: [0.0; 4],
             wb:           [0.0; 4],
-            xyz_to_cam,
+            cam_to_rgb,
             cfa:          Cfa::from_str(&raw. cropped_cfa().name),
             camera:       info.camera.clone(),
             exposure:     info.exp.map(|v| v as f32),
@@ -1284,7 +1284,9 @@ impl CalibrationData {
         compare("Height", &info.height, &cal_info.height)?;
         let raw_cam = info.camera.as_ref().map(String::as_str).unwrap_or("");
         let cal_cam = cal_info.camera.as_ref().map(String::as_str).unwrap_or("");
-        compare("Camera model", &raw_cam, &cal_cam)?;
+        if cal_cam != "" {
+            compare("Camera model", &raw_cam, &cal_cam)?;
+        }
 
         compare("Color pattern", &info.cfa, &cal_info.cfa)?;
         if master_dark {

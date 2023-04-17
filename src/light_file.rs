@@ -25,7 +25,7 @@ pub struct LightFile {
     pub image:      Image,
     pub info:       ImageInfo,
     pub stars:      Stars,
-    pub stars_stat: Option<StarsStat>,
+    pub stars_stat: anyhow::Result<StarsStat>,
     pub noise:      f32,
     pub background: f32,
 }
@@ -69,7 +69,7 @@ impl LightFile {
         let stars_stat_flag = flags.contains(LoadLightFlags::STARS_STAT);
         let do_not_demosaic_flag = flags.contains(LoadLightFlags::DO_NOT_DEMOSAIC);
 
-        let force_load_as_raw = !cal_data.is_empty();
+        let force_load_as_raw = !cal_data.is_empty() || raw_params.force_cfa.is_some();
 
         let image_data = load_image_from_file(file_name, force_load_as_raw)?;
 
@@ -184,11 +184,7 @@ impl LightFile {
             Stars::new()
         };
 
-        let stars_stat = if stars_stat_flag {
-            calc_stars_stat(&stars, &img_layer_to_calc, open_mode == OpenMode::Preview).ok()
-        } else {
-            None
-        };
+        let stars_stat = calc_stars_stat(&stars, &img_layer_to_calc, open_mode == OpenMode::Preview);
 
         drop(img_layer_to_calc);
 

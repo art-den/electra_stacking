@@ -43,10 +43,11 @@ pub fn create_master_dark_or_bias_file(
 }
 
 fn postprocess_single_flat_image_color(
-    raw_image:   &mut RawImage,
-    cc:          CfaColor,
-    white_level: f32) -> bool
-{
+    raw_image:    &mut RawImage,
+    cc:           CfaColor,
+    white_level:  f32,
+    check_values: bool
+) -> bool {
     let center_x = raw_image.info.width / 2;
     let center_y = raw_image.info.height / 2;
     let center_size = (raw_image.info.width + raw_image.info.height) / 40;
@@ -71,7 +72,7 @@ fn postprocess_single_flat_image_color(
 
     log::info!("{:?} -> {:.2}% at center", cc, center_level_percent);
 
-    if center_level_percent > 90.0 {
+    if check_values && center_level_percent > 90.0 {
         log::info!("Dropped due to overexposure");
         return false;
     }
@@ -95,7 +96,11 @@ fn postprocess_single_flat_image_color(
     true
 }
 
-fn postprocess_single_flat_image(raw_image: &mut RawImage, bias_image: Option<&RawImage>) -> bool {
+fn postprocess_single_flat_image(
+    raw_image:    &mut RawImage,
+    bias_image:   Option<&RawImage>,
+    check_values: bool,
+) -> bool {
     if let Some(bias_image) = bias_image {
         raw_image.data -= &bias_image.data;
     }
@@ -104,24 +109,28 @@ fn postprocess_single_flat_image(raw_image: &mut RawImage, bias_image: Option<&R
         raw_image,
         CfaColor::Mono,
         raw_image.info.max_values[0],
+        check_values,
     );
 
     let r_ok = postprocess_single_flat_image_color(
         raw_image,
         CfaColor::R,
-        raw_image.info.max_values[0]
+        raw_image.info.max_values[0],
+        check_values,
     );
 
     let g_ok = postprocess_single_flat_image_color(
         raw_image,
         CfaColor::G,
-        raw_image.info.max_values[1]
+        raw_image.info.max_values[1],
+        check_values,
     );
 
     let b_ok = postprocess_single_flat_image_color(
         raw_image,
         CfaColor::B,
-        raw_image.info.max_values[2]
+        raw_image.info.max_values[2],
+        check_values,
     );
 
     raw_image.info.max_values.fill(1.0);
@@ -147,11 +156,19 @@ pub fn create_master_flat_file(
             None,
     };
 
+    let check_file_data = files_list.len() != 1;
+
     create_master_calibr_file(
         files_list,
         calc_opts,
         result_file,
-        move |img| postprocess_single_flat_image(img, bias_image.as_ref()),
+        move |img| {
+            postprocess_single_flat_image(
+                img,
+                bias_image.as_ref(),
+                check_file_data
+            )
+        },
         progress,
         thread_pool,
         cancel_flag,
