@@ -22,11 +22,11 @@ Page instfiles
 UninstPage uninstConfirm
 UninstPage instfiles
 
-Function .onInit          
-    ${IfNot} ${RunningX64}           
-        MessageBox MB_OK "Sorry this application runs only on x64 machines"          
-        Abort          
-    ${EndIf}  
+Function .onInit
+    ${IfNot} ${RunningX64}
+        MessageBox MB_OK "Sorry this application runs only on x64 machines"
+        Abort
+    ${EndIf}
 FunctionEnd
 
 Section "${PROG_NAME_USR} (required)"
@@ -44,7 +44,7 @@ SectionEnd
 Section "Start Menu Shortcuts"
     CreateDirectory "$SMPROGRAMS\${PROG_NAME_REG}"
     CreateShortcut "$SMPROGRAMS\${PROG_NAME_REG}\Uninstall.lnk" "$INSTDIR\uninstall.exe"
-    CreateShortcut "$SMPROGRAMS\${PROG_NAME_REG}\${PROG_NAME_USR}.lnk" "$INSTDIR\electra_stacking_gui.exe"
+    CreateShortcut "$SMPROGRAMS\${PROG_NAME_REG}\${PROG_NAME_USR}.lnk" "$INSTDIR\electra_stacking.exe"
 SectionEnd
 
 Section "Uninstall"

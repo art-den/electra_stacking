@@ -1,10 +1,10 @@
 use std::{path::*, io::*, fs::*, collections::*, rc::*, cell::*};
 use std::sync::Mutex;
-use electra_stacking::log_utils::TimeLogger;
 use serde::*;
 use gettextrs::*;
 use chrono::prelude::*;
-use electra_stacking::{
+use crate::{
+    log_utils::TimeLogger,
     calc::*,
     progress::*,
     stacking_utils::*,
@@ -12,9 +12,9 @@ use electra_stacking::{
     image_raw::*,
     image_norm::*,
     image_formats::*,
-    fs_utils::*
+    fs_utils::*,
+    config::*
 };
-use crate::config::*;
 
 const MASTER_DARK_FN: &str = "master-dark.es_raw";
 const MASTER_FLAT_FN: &str = "master-flat.es_raw";
