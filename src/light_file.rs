@@ -1,4 +1,4 @@
-use std::{path::*};
+use std::path::*;
 use serde::*;
 use bitflags::bitflags;
 use itertools::Itertools;
@@ -156,8 +156,6 @@ impl LightFile {
             0.0
         };
 
-        drop(img_layer_to_calc);
-
         if bin == 2 {
             let bin_log = TimeLogger::start();
             image = image.decrease_2x();
@@ -185,8 +183,6 @@ impl LightFile {
         };
 
         let stars_stat = calc_stars_stat(&stars, &img_layer_to_calc, open_mode == OpenMode::Preview);
-
-        drop(img_layer_to_calc);
 
         if bin == 2 {
             for (x, y) in &mut overexposures {

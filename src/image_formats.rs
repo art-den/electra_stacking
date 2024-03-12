@@ -33,24 +33,24 @@ fn try_to_decode_date_time_str(dt_str: &str) -> Option<DateTime<Local>> {
     }
 
     let fmt_strings = [
-        "%Y:%m:%d %H:%M:%S",
-        "%Y-%m-%d %H:%M:%S",
-        "%Y:%m:%dT%H:%M:%S",
-        "%Y-%m-%dT%H:%M:%S",
         "%Y:%m:%d %H:%M:%S%.3f",
         "%Y:%m:%dT%H:%M:%S%.3f",
         "%Y-%m-%d %H:%M:%S%.3f",
         "%Y-%m-%dT%H:%M:%S%.3f",
+        "%Y:%m:%d %H:%M:%S",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y:%m:%dT%H:%M:%S",
+        "%Y-%m-%dT%H:%M:%S",
     ];
 
-    for fmt_string in fmt_strings {
-        let result = Local.datetime_from_str(dt_str, fmt_string).ok();
-        if result.is_some() {
-            return result;
-        }
-    }
-
-    None
+    fmt_strings.into_iter()
+        .filter_map(|fmt|
+            NaiveDateTime::parse_from_str(dt_str, fmt).ok()
+        )
+        .map(|dt|
+            Local.from_utc_datetime(&dt)
+        )
+        .next()
 }
 
 pub fn load_image_from_file(
@@ -322,7 +322,13 @@ pub fn load_src_file_info_tiff(file_name: &Path) -> anyhow::Result<ImageInfo> {
     // 0x9003 = DateTimeOriginal
     let time_str = decoder.get_tag_ascii_string(tags::Tag::Unknown(0x9003));
     if let Ok(time_str) = time_str {
-        file_time = Local.datetime_from_str(&time_str, "%Y:%m:%d %H:%M:%S").ok();
+        file_time =
+            NaiveDateTime::parse_from_str(&time_str, "%Y:%m:%d %H:%M:%S")
+                .ok()
+                .map(|dt| Local.from_local_datetime(&dt))
+                .map(|res| res.single())
+                .flatten();
+
     }
 
     if file_time.is_none() {

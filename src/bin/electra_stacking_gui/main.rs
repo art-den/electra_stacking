@@ -2,22 +2,24 @@
 
 #![allow(clippy::too_many_arguments)]
 #![allow(clippy::new_without_default)]
+#![allow(dead_code)]
 
 mod config;
 mod project;
 mod str_utils;
+mod gtk_utils;
 
 use std::{rc::Rc, path::*, thread, collections::*, cell::*};
 use std::sync::{*, atomic::{AtomicBool, Ordering}};
 use gtk::{
     prelude::*,
-    builders::*,
     gio,
     gdk_pixbuf,
-    glib::{MainContext, PRIORITY_DEFAULT, clone},
+    glib::clone,
     glib,
 };
 use gettextrs::*;
+use gtk_utils::*;
 use itertools::*;
 use electra_stacking::{
     image_formats::*,
@@ -134,7 +136,7 @@ fn build_ui(application: &gtk::Application) {
 
     // Shared objects for main window
 
-    let objects = Rc::new(MainWindowObjects {
+    let objects = Rc::new(MainWindow {
         project: RefCell::new(project),
         config: RefCell::new(config),
         builder,
@@ -185,16 +187,16 @@ fn build_ui(application: &gtk::Application) {
 
         if idx == ColIdx::FileName {
             let cell_img = gtk::CellRendererPixbuf::new();
-            col.pack_start(&cell_check, false);
-            col.pack_start(&cell_img, false);
-            col.pack_start(&cell_text, true);
-            col.add_attribute(&cell_text, "markup", idx as i32);
-            col.add_attribute(&cell_img, "pixbuf", ColIdx::Icon as i32);
-            col.add_attribute(&cell_check, "active", ColIdx::Checkbox as i32);
-            col.add_attribute(&cell_check, "visible", ColIdx::CheckboxVis as i32);
+            TreeViewColumnExt::pack_start(&col, &cell_check, false);
+            TreeViewColumnExt::pack_start(&col, &cell_img, false);
+            TreeViewColumnExt::pack_start(&col, &cell_text, true);
+            TreeViewColumnExt::add_attribute(&col, &cell_text, "markup", idx as i32);
+            TreeViewColumnExt::add_attribute(&col, &cell_img, "pixbuf", ColIdx::Icon as i32);
+            TreeViewColumnExt::add_attribute(&col, &cell_check, "active", ColIdx::Checkbox as i32);
+            TreeViewColumnExt::add_attribute(&col, &cell_check, "visible", ColIdx::CheckboxVis as i32);
         } else {
-            col.pack_start(&cell_text, true);
-            col.add_attribute(&cell_text, "markup", idx as i32);
+            TreeViewColumnExt::pack_start(&col, &cell_text, true);
+            TreeViewColumnExt::add_attribute(&col, &cell_text, "markup", idx as i32);
         }
 
         project_tree.append_column(&col);
@@ -203,7 +205,7 @@ fn build_ui(application: &gtk::Application) {
     // Drag-n-drop for files
 
     let targets = vec![
-        gtk::TargetEntry::new( "text/uri-list", gtk::TargetFlags::OTHER_APP, 0),
+        gtk::TargetEntry::new("text/uri-list", gtk::TargetFlags::OTHER_APP, 0),
     ];
 
     window.drag_dest_set(gtk::DestDefaults::DROP, &targets, gtk::gdk::DragAction::COPY);
@@ -217,7 +219,7 @@ fn build_ui(application: &gtk::Application) {
 
     let res = objects.config.borrow_mut().load();
     if let Err(error) = res {
-        show_error_message(&error.to_string(), &objects);
+        show_error_message(&objects.window, &gettext("Error"), &error.to_string());
     }
     apply_config(&objects);
 
@@ -235,37 +237,37 @@ fn build_ui(application: &gtk::Application) {
 
     // Actions + events
 
-    conn_action(&objects, "new_project",            action_new_project);
-    conn_action(&objects, "open_project",           action_open_project);
-    conn_action(&objects, "save_project_as",        action_save_project_as);
-    conn_action(&objects, "save_project",           action_save_project);
-    conn_action(&objects, "exit",                   action_exit);
-    conn_action(&objects, "add_light_files",        action_add_light_files);
-    conn_action(&objects, "add_dark_files",         action_add_dark_files);
-    conn_action(&objects, "add_flat_files",         action_add_flat_files);
-    conn_action(&objects, "add_bias_files",         action_add_bias_files);
-    conn_action(&objects, "new_group",              action_new_group);
-    conn_action(&objects, "delete_item",            action_delete_item);
-    conn_action(&objects, "use_as_ref_image",       action_use_as_reference_image);
-    conn_action(&objects, "item_properties",        action_item_properties);
-    conn_action(&objects, "register_light_files",   action_register);
-    conn_action(&objects, "stack_light_files",      action_stack);
-    conn_action(&objects, "project_options",        action_project_options);
-    conn_action(&objects, "light_theme",            action_light_theme);
-    conn_action(&objects, "dark_theme",             action_dark_theme);
-    conn_action(&objects, "cleanup_light_files",    action_cleanup_light_files);
-    conn_action(&objects, "change_file_to_light",   action_change_file_to_light);
-    conn_action(&objects, "change_file_to_dark",    action_change_file_to_dark);
-    conn_action(&objects, "change_file_to_flat",    action_change_file_to_flat);
-    conn_action(&objects, "change_file_to_bias",    action_change_file_to_bias);
-    conn_action(&objects, "move_file_to_group",     action_move_file_to_group);
-    conn_action(&objects, "check_all_files",        action_check_all_files);
-    conn_action(&objects, "uncheck_all_files",      action_uncheck_all_files);
-    conn_action(&objects, "check_selected_files",   action_check_selected_files);
-    conn_action(&objects, "uncheck_selected_files", action_uncheck_selected_files);
-    conn_action(&objects, "about",                  action_about);
-    conn_action(&objects, "project_columns",        action_project_columns);
-    conn_action(&objects, "assign_ref_light_image", action_assign_ref_light_image);
+    connect_action(&window, &objects, "new_project",            action_new_project);
+    connect_action(&window, &objects, "open_project",           action_open_project);
+    connect_action(&window, &objects, "save_project_as",        action_save_project_as);
+    connect_action(&window, &objects, "save_project",           action_save_project);
+    connect_action(&window, &objects, "exit",                   action_exit);
+    connect_action(&window, &objects, "add_light_files",        action_add_light_files);
+    connect_action(&window, &objects, "add_dark_files",         action_add_dark_files);
+    connect_action(&window, &objects, "add_flat_files",         action_add_flat_files);
+    connect_action(&window, &objects, "add_bias_files",         action_add_bias_files);
+    connect_action(&window, &objects, "new_group",              action_new_group);
+    connect_action(&window, &objects, "delete_item",            action_delete_item);
+    connect_action(&window, &objects, "use_as_ref_image",       action_use_as_reference_image);
+    connect_action(&window, &objects, "item_properties",        action_item_properties);
+    connect_action(&window, &objects, "register_light_files",   action_register);
+    connect_action(&window, &objects, "stack_light_files",      action_stack);
+    connect_action(&window, &objects, "project_options",        action_project_options);
+    connect_action(&window, &objects, "light_theme",            action_light_theme);
+    connect_action(&window, &objects, "dark_theme",             action_dark_theme);
+    connect_action(&window, &objects, "cleanup_light_files",    action_cleanup_light_files);
+    connect_action(&window, &objects, "change_file_to_light",   action_change_file_to_light);
+    connect_action(&window, &objects, "change_file_to_dark",    action_change_file_to_dark);
+    connect_action(&window, &objects, "change_file_to_flat",    action_change_file_to_flat);
+    connect_action(&window, &objects, "change_file_to_bias",    action_change_file_to_bias);
+    connect_action(&window, &objects, "move_file_to_group",     action_move_file_to_group);
+    connect_action(&window, &objects, "check_all_files",        action_check_all_files);
+    connect_action(&window, &objects, "uncheck_all_files",      action_uncheck_all_files);
+    connect_action(&window, &objects, "check_selected_files",   action_check_selected_files);
+    connect_action(&window, &objects, "uncheck_selected_files", action_uncheck_selected_files);
+    connect_action(&window, &objects, "about",                  action_about);
+    connect_action(&window, &objects, "project_columns",        action_project_columns);
+    connect_action(&window, &objects, "assign_ref_light_image", action_assign_ref_light_image);
 
     enable_actions(&objects);
 
@@ -280,10 +282,10 @@ fn build_ui(application: &gtk::Application) {
             prj_tree_menu.set_attach_widget(Some(project_tree));
             prj_tree_menu.popup_easy(evt.button(), evt.time());
             if project_tree.selection().count_selected_rows() > 1 {
-                return glib::signal::Inhibit(true);
+                return glib::Propagation::Stop;
             }
         }
-        glib::signal::Inhibit(false)
+        glib::Propagation::Proceed
     });
 
     objects.prj_tree.selection().connect_changed(clone!{ @weak objects => move |_| {
@@ -351,12 +353,16 @@ fn build_ui(application: &gtk::Application) {
     preview_img_gamma.connect_change_value(clone!(@strong objects => move |_, _, value| {
         objects.config.borrow_mut().preview_gamma = value as f32;
         preview_image_after_change_view_opts(&objects, false);
-        Inhibit(false)
+        glib::Propagation::Proceed
     }));
 
     objects.window.connect_delete_event(clone!(@strong objects => move |_, _| {
         if objects.trying_to_close.get() {
-            return gtk::Inhibit(objects.tasks_count.get() != 0);
+            return if objects.tasks_count.get() != 0 {
+                glib::Propagation::Stop
+            } else {
+                glib::Propagation::Proceed
+            };
         }
 
         let can_close = ask_user_to_save_project(&objects);
@@ -364,10 +370,14 @@ fn build_ui(application: &gtk::Application) {
         if can_close && objects.tasks_count.get() != 0 {
             objects.trying_to_close.set(true);
             objects.global_cancel_flag.store(true, Ordering::Relaxed);
-            return gtk::Inhibit(true);
+            return glib::Propagation::Stop;
         }
 
-        gtk::Inhibit(!can_close)
+        return if can_close {
+            glib::Propagation::Proceed
+        } else {
+            glib::Propagation::Stop
+        };
     }));
 
     objects.window.connect_hide(clone!(@strong objects => move |_| {
@@ -397,14 +407,14 @@ fn build_ui(application: &gtk::Application) {
                 (hadjustment.value(), vadjustment.value())
             ));
         }
-        Inhibit(false)
+        glib::Propagation::Proceed
     }));
 
     preview_event_box.connect_button_release_event(clone!(@strong objects => move |_, evt| {
         if evt.button() == gtk::gdk::ffi::GDK_BUTTON_PRIMARY as u32 {
             *objects.preview_scroll_pos.borrow_mut() = None;
         }
-        Inhibit(false)
+        glib::Propagation::Proceed
     }));
 
     preview_event_box.connect_motion_notify_event(clone!(@strong objects => move |_, evt| {
@@ -418,7 +428,7 @@ fn build_ui(application: &gtk::Application) {
             let vadjustment = preview_img_scr.vadjustment();
             vadjustment.set_value(start_scroll_pos.1 - SCROLL_SPEED*move_y);
         }
-        Inhibit(false)
+        glib::Propagation::Proceed
     }));
 
     // Show main window
@@ -427,41 +437,34 @@ fn build_ui(application: &gtk::Application) {
     window.show_all();
 }
 
-fn set_dialog_default_button<T: gtk::glib::IsA<gtk::Dialog>>(dialog: &T) {
-    use gtk::ResponseType::*;
-    for resp in [Ok, Yes, Accept, Apply] {
-        if let Some(btn) = dialog.widget_for_response(resp) {
-            btn.set_can_default(true);
-            btn.grab_default();
-            break;
-        }
-    }
+struct MainWindow {
+    project: RefCell<Project>,
+    config: RefCell<Config>,
+    builder: gtk::Builder,
+    window: gtk::ApplicationWindow,
+    prj_tree: gtk::TreeView,
+    preview_image: gtk::Image,
+    last_preview_file: RefCell<PathBuf>,
+    preview_tp: rayon::ThreadPool,
+    prev_preview_cancel_flags: RefCell<Option<Arc<AtomicBool>>>,
+    prev_preview_img: RefCell<image::Image>,
+    prev_preview_params: RefCell<image::ToRgbBytesParams>,
+    preview_scroll_pos: RefCell<Option<((f64, f64), (f64, f64))>>,
+
+    icon_folder: Option<gdk_pixbuf::Pixbuf>,
+    icon_image: Option<gdk_pixbuf::Pixbuf>,
+    icon_photo: Option<gdk_pixbuf::Pixbuf>,
+    icon_ref_image: Option<gdk_pixbuf::Pixbuf>,
+
+    global_cancel_flag: Arc<AtomicBool>,
+    move_to_group_last_uuid: RefCell<String>,
+
+    prj_tree_is_building: Cell<bool>,
+    tasks_count: Cell<u32>,
+    trying_to_close: Cell<bool>,
 }
 
-fn conn_action<F: Fn(&MainWindowObjectsPtr) + 'static>(
-    objects:  &MainWindowObjectsPtr,
-    act_name: &str,
-    fun:      F
-) {
-    let action = gio::SimpleAction::new(act_name, None);
-    action.connect_activate(clone!(@strong objects => move |_, _| {
-        fun(&objects);
-    }));
-    objects.window.add_action(&action);
-}
-
-fn enable_action(window: &gtk::ApplicationWindow, action_name: &str, enabled: bool) {
-    if let Some(action) = window.lookup_action(action_name) {
-        let sa = action
-            .downcast::<gio::SimpleAction>()
-            .expect("Is not gio::SimpleAction");
-        sa.set_enabled(enabled);
-    } else {
-        panic!("Action {} not found", action_name);
-    }
-}
-
-fn ask_user_to_save_project(objects: &MainWindowObjectsPtr) -> bool {
+fn ask_user_to_save_project(objects: &Rc<MainWindow>) -> bool {
     if !objects.project.borrow().changed() { return true; }
 
     let dialog = gtk::MessageDialog::builder()
@@ -505,35 +508,6 @@ fn ask_user_to_save_project(objects: &MainWindowObjectsPtr) -> bool {
         },
     }
 }
-
-struct MainWindowObjects {
-    project: RefCell<Project>,
-    config: RefCell<Config>,
-    builder: gtk::Builder,
-    window: gtk::ApplicationWindow,
-    prj_tree: gtk::TreeView,
-    preview_image: gtk::Image,
-    last_preview_file: RefCell<PathBuf>,
-    preview_tp: rayon::ThreadPool,
-    prev_preview_cancel_flags: RefCell<Option<Arc<AtomicBool>>>,
-    prev_preview_img: RefCell<image::Image>,
-    prev_preview_params: RefCell<image::ToRgbBytesParams>,
-    preview_scroll_pos: RefCell<Option<((f64, f64), (f64, f64))>>,
-
-    icon_folder: Option<gdk_pixbuf::Pixbuf>,
-    icon_image: Option<gdk_pixbuf::Pixbuf>,
-    icon_photo: Option<gdk_pixbuf::Pixbuf>,
-    icon_ref_image: Option<gdk_pixbuf::Pixbuf>,
-
-    global_cancel_flag: Arc<AtomicBool>,
-    move_to_group_last_uuid: RefCell<String>,
-
-    prj_tree_is_building: Cell<bool>,
-    tasks_count: Cell<u32>,
-    trying_to_close: Cell<bool>,
-}
-
-type MainWindowObjectsPtr = Rc::<MainWindowObjects>;
 
 #[derive(PartialEq, Clone, Copy, Debug)]
 enum ColIdx {
@@ -604,7 +578,7 @@ fn get_prj_tree_store_columns() -> Vec::<(&'static str, &'static str, ColIdx, Co
     ]
 }
 
-fn update_project_tree(objects: &MainWindowObjectsPtr) {
+fn update_project_tree(objects: &Rc<MainWindow>) {
     if objects.prj_tree_is_building.get() {
         return;
     }
@@ -930,7 +904,7 @@ fn update_project_tree(objects: &MainWindowObjectsPtr) {
     objects.prj_tree_is_building.set(false);
 }
 
-fn update_project_name_and_time_in_gui(objects: &MainWindowObjectsPtr) {
+fn update_project_name_and_time_in_gui(objects: &Rc<MainWindow>) {
     let app_descr_text = {
         let transl_descr = gettext("APP_DESCRIPTION");
         if transl_descr == "APP_DESCRIPTION" {
@@ -947,7 +921,7 @@ fn update_project_name_and_time_in_gui(objects: &MainWindowObjectsPtr) {
     ));
 }
 
-fn enable_actions(objects: &MainWindowObjectsPtr) {
+fn enable_actions(objects: &Rc<MainWindow>) {
     let mi_change_file_type = objects.builder.object::<gtk::MenuItem>("mi_change_file_type").unwrap();
     let mi_cpu_load_min     = objects.builder.object::<gtk::RadioMenuItem>("mi_cpu_load_min").unwrap();
     let mi_cpu_load_half    = objects.builder.object::<gtk::RadioMenuItem>("mi_cpu_load_half").unwrap();
@@ -1022,57 +996,25 @@ fn create_file_filter_for_project() -> gtk::FileFilter {
     ff
 }
 
-fn show_message(
-    objects:  &MainWindowObjects,
-    title:    &str,
-    text:     &str,
-    msg_type: gtk::MessageType,
-) {
-    let dialog = gtk::MessageDialog::builder()
-        .transient_for(&objects.window)
-        .title(title)
-        .text(text)
-        .modal(true)
-        .message_type(msg_type)
-        .buttons(gtk::ButtonsType::Close)
-        .build();
-
-    dialog.show();
-
-    dialog.connect_response(move |dlg, _| {
-        dlg.close();
-    });
-}
-
-fn show_error_message(text: &str, objects: &MainWindowObjects) {
-    log::error!("Show error message: {}", text);
-    show_message(
-        objects,
-        &gettext("Error"),
-        text,
-        gtk::MessageType::Error,
-    );
-}
-
 fn confirm_dialog<F: Fn() + 'static>(
-    objects: &MainWindowObjectsPtr,
+    window:  &impl IsA<gtk::Window>,
     text:    String,
     yes_fun: F
 ) -> gtk::MessageDialog {
     let dialog = gtk::MessageDialog::builder()
         .modal(true)
-        .transient_for(&objects.window)
+        .transient_for(window)
         .message_type(gtk::MessageType::Question)
         .buttons(gtk::ButtonsType::OkCancel)
         .title(&gettext("Confirmation"))
         .text(&text)
         .build();
-    dialog.connect_response(clone!(@strong objects => move |dialog, response| {
+    dialog.connect_response(move |dialog, response| {
         dialog.close();
         if response == gtk::ResponseType::Ok {
             yes_fun();
         }
-    }));
+    });
     dialog
 }
 
@@ -1108,13 +1050,13 @@ fn get_project_title(project: &Project, markup: bool) -> String {
 }
 
 fn exec_and_show_progress<R, ExecFun, OkFun> (
-    objects:  &MainWindowObjectsPtr,
+    objects:  &Rc<MainWindow>,
     exec_fun: ExecFun,
     ok_fun:   OkFun
 ) where
     R:       Sized + Send + 'static,
     ExecFun: Fn(&ProgressTs, &IsCancelledFun) -> anyhow::Result<R> + Send + 'static,
-    OkFun:   Fn(&MainWindowObjectsPtr, R) + 'static
+    OkFun:   Fn(&Rc<MainWindow>, R) + 'static
 {
     enum UiMessage<R: Sized> {
         ProgressStage{ text: String },
@@ -1122,8 +1064,6 @@ fn exec_and_show_progress<R, ExecFun, OkFun> (
         Finished(R),
         Error(String)
     }
-
-    let (sender, receiver) = MainContext::channel(PRIORITY_DEFAULT);
 
     objects.tasks_count.set(objects.tasks_count.get() + 1);
     let cancel_flag = Arc::new(AtomicBool::new(false));
@@ -1148,17 +1088,19 @@ fn exec_and_show_progress<R, ExecFun, OkFun> (
     };
 
     /* Worker */
+
+    let (sender, receiver) = async_channel::unbounded();
     thread::spawn(move || {
         let sndr1 = sender.clone();
         let sndr2 = sender.clone();
         let progress = ProgressCallBack::new_ts(
             move |text: &str| {
-                sndr1.send(UiMessage::ProgressStage {
+                sndr1.send_blocking(UiMessage::ProgressStage {
                     text: text.to_string(),
                 }).unwrap();
             },
             move |percent, text: &str| {
-                sndr2.send(UiMessage::ProgressPercent {
+                sndr2.send_blocking(UiMessage::ProgressPercent {
                     text: text.to_string(),
                     percent
                 }).unwrap();
@@ -1166,28 +1108,26 @@ fn exec_and_show_progress<R, ExecFun, OkFun> (
         );
         let result = exec_fun(&progress, &(Arc::new(is_cancelled_fun) as _));
         match result {
-            Ok(result) => sender.send(UiMessage::Finished(result)).unwrap(),
-            Err(error) => sender.send(UiMessage::Error(error.to_string())).unwrap(),
+            Ok(result) => sender.send_blocking(UiMessage::Finished(result)).unwrap(),
+            Err(error) => sender.send_blocking(UiMessage::Error(error.to_string())).unwrap(),
         }
     });
 
     /* Ui events */
+
     enable_actions(objects);
-    receiver.attach(
-        None,
-        clone!(@strong objects => move |message| {
+    glib::spawn_future_local(clone!(@strong objects => async move {
+        while let Ok(message) = receiver.recv().await {
             match message {
                 UiMessage::ProgressStage{ text } => {
                     progress_text.set_label(&text);
                     progress_bar.set_fraction(0.0);
                     progress_bar.set_text(None);
-                    Continue(true)
                 },
                 UiMessage::ProgressPercent { text, percent } => {
                     let text = format!("{} {}%", text, percent);
                     progress_bar.set_fraction(percent as f64 / 100.0);
                     progress_bar.set_text(Some(&text));
-                    Continue(true)
                 },
                 UiMessage::Finished(reg_info) => {
                     objects.tasks_count.set(objects.tasks_count.get() - 1);
@@ -1198,7 +1138,7 @@ fn exec_and_show_progress<R, ExecFun, OkFun> (
                         ok_fun(&objects, reg_info);
                     }
                     progress_container.remove(&progress_box);
-                    Continue(false)
+                    break;
                 },
                 UiMessage::Error(error) => {
                     objects.tasks_count.set(objects.tasks_count.get() - 1);
@@ -1206,18 +1146,19 @@ fn exec_and_show_progress<R, ExecFun, OkFun> (
                         objects.window.close();
                     } else {
                         enable_actions(&objects);
-                        show_error_message(&error, &objects);
+                        show_error_message(&objects.window, &gettext("Error"), &error);
                     }
                     progress_container.remove(&progress_box);
-                    Continue(false)
+                    break;
                 },
             }
-        }),
-    );
+
+        }
+    }));
 }
 
 fn handler_project_tree_checked_changed(
-    objects:     &MainWindowObjectsPtr,
+    objects:     &Rc<MainWindow>,
     sorted_path: gtk::TreePath
 ) {
     let sorted_model = objects.prj_tree
@@ -1265,7 +1206,7 @@ fn handler_project_tree_checked_changed(
 }
 
 // widgets -> config
-fn assign_config(objects: &MainWindowObjectsPtr) {
+fn assign_config(objects: &Rc<MainWindow>) {
     let prj_img_paned  = objects.builder.object::<gtk::Paned>("prj_img_paned").unwrap();
     let mi_dark_theme  = objects.builder.object::<gtk::RadioMenuItem>("dark_theme_mi").unwrap();
     let mi_light_theme = objects.builder.object::<gtk::RadioMenuItem>("light_theme_mi").unwrap();
@@ -1301,7 +1242,7 @@ fn assign_config(objects: &MainWindowObjectsPtr) {
 }
 
 // config -> widgets
-fn apply_config(objects: &MainWindowObjectsPtr) {
+fn apply_config(objects: &Rc<MainWindow>) {
     let preview_img_gamma = objects.builder.object::<gtk::Scale>("preview_img_gamma").unwrap();
     let prj_img_paned     = objects.builder.object::<gtk::Paned>("prj_img_paned").unwrap();
     let preview_img_scale = objects.builder.object::<gtk::ComboBoxText>("preview_img_scale").unwrap();
@@ -1436,7 +1377,7 @@ fn get_selection_for_path(path: &gtk::TreePath) -> SelectedItem {
     result
 }
 
-fn get_current_selection(objects: &MainWindowObjectsPtr) -> SelectedItem {
+fn get_current_selection(objects: &Rc<MainWindow>) -> SelectedItem {
     let model = match objects.prj_tree.model() {
         Some(model) =>
             model.downcast::<gtk::TreeModelSort>().unwrap(),
@@ -1485,7 +1426,7 @@ fn get_current_selection(objects: &MainWindowObjectsPtr) -> SelectedItem {
     SelectedItem::new_empty()
 }
 
-fn action_new_project(objects: &MainWindowObjectsPtr) {
+fn action_new_project(objects: &Rc<MainWindow>) {
     let can_create_new_project = ask_user_to_save_project(objects);
     if !can_create_new_project { return; }
     let mut new_project = Project::default();
@@ -1495,7 +1436,7 @@ fn action_new_project(objects: &MainWindowObjectsPtr) {
     log::info!("New project created");
 }
 
-fn action_open_project(objects: &MainWindowObjectsPtr) {
+fn action_open_project(objects: &Rc<MainWindow>) {
     let can_opened = ask_user_to_save_project(objects);
     if !can_opened { return; }
 
@@ -1510,17 +1451,11 @@ fn action_open_project(objects: &MainWindowObjectsPtr) {
 
     fc.set_current_folder(objects.config.borrow().last_path.clone());
 
-    if cfg!(target_os = "windows") {
-        fc.add_buttons(&[
-            (&gettext("_Open"), gtk::ResponseType::Accept),
-            (&gettext("_Cancel"), gtk::ResponseType::Cancel),
-        ]);
-    } else {
-        fc.add_buttons(&[
-            (&gettext("_Cancel"), gtk::ResponseType::Cancel),
-            (&gettext("_Open"), gtk::ResponseType::Accept),
-        ]);
-    }
+    add_ok_and_cancel_buttons(
+        fc.upcast_ref(),
+        &gettext("_Open"), gtk::ResponseType::Accept,
+        &gettext("_Cancel"), gtk::ResponseType::Cancel
+    );
 
     fc.connect_response(clone!(@strong objects => move |file_chooser, response| {
         if response == gtk::ResponseType::Accept {
@@ -1539,10 +1474,10 @@ fn action_open_project(objects: &MainWindowObjectsPtr) {
     fc.show();
 }
 
-fn open_project(objects: &MainWindowObjectsPtr, path: &Path) {
+fn open_project(objects: &Rc<MainWindow>, path: &Path) {
     let res = objects.project.borrow_mut().load(path);
     if let Err(err) = res {
-        show_error_message(&err.to_string(), objects);
+        show_error_message(&objects.window, &gettext("Error"), &err.to_string());
         log::error!("'{}' during opening project", err.to_string());
     } else {
         update_project_tree(objects);
@@ -1551,7 +1486,7 @@ fn open_project(objects: &MainWindowObjectsPtr, path: &Path) {
     }
 }
 
-fn action_save_project(objects: &MainWindowObjectsPtr) {
+fn action_save_project(objects: &Rc<MainWindow>) {
     let file_name = objects.project.borrow().file_name().clone();
     if let Some(file_name) = file_name {
         save_project(objects, &file_name);
@@ -1560,7 +1495,7 @@ fn action_save_project(objects: &MainWindowObjectsPtr) {
     }
 }
 
-fn action_save_project_as(objects: &MainWindowObjectsPtr) {
+fn action_save_project_as(objects: &Rc<MainWindow>) {
     let ff = create_file_filter_for_project();
     let fc = gtk::FileChooserDialog::builder()
         .action(gtk::FileChooserAction::Save)
@@ -1570,17 +1505,12 @@ fn action_save_project_as(objects: &MainWindowObjectsPtr) {
         .transient_for(&objects.window)
         .build();
 
-    if cfg!(target_os = "windows") {
-        fc.add_buttons(&[
-            (&gettext("_Save"), gtk::ResponseType::Accept),
-            (&gettext("_Cancel"), gtk::ResponseType::Cancel),
-        ]);
-    } else {
-        fc.add_buttons(&[
-            (&gettext("_Cancel"), gtk::ResponseType::Cancel),
-            (&gettext("_Save"), gtk::ResponseType::Accept),
-        ]);
-    }
+    add_ok_and_cancel_buttons(
+        fc.upcast_ref(),
+        &gettext("_Save"), gtk::ResponseType::Accept,
+        &gettext("_Cancel"), gtk::ResponseType::Cancel
+    );
+
 
     if let Some(file_name) = objects.project.borrow().file_name() {
         let _ = fc.set_file(&gio::File::for_path(file_name));
@@ -1619,10 +1549,10 @@ fn action_save_project_as(objects: &MainWindowObjectsPtr) {
     }
 }
 
-fn save_project(objects: &MainWindowObjectsPtr, file_name: &Path) -> bool {
+fn save_project(objects: &Rc<MainWindow>, file_name: &Path) -> bool {
     let res = objects.project.borrow_mut().save(file_name);
     if let Err(err) = res {
-        show_error_message(&err.to_string(), objects);
+        show_error_message(&objects.window, &gettext("Error"), &err.to_string());
         log::error!("'{}' during saving project", err.to_string());
         false
     } else {
@@ -1633,12 +1563,12 @@ fn save_project(objects: &MainWindowObjectsPtr, file_name: &Path) -> bool {
     }
 }
 
-fn action_exit(objects: &MainWindowObjectsPtr) {
+fn action_exit(objects: &Rc<MainWindow>) {
     log::info!("Exit called");
     objects.window.close();
 }
 
-fn action_add_light_files(objects: &MainWindowObjectsPtr) {
+fn action_add_light_files(objects: &Rc<MainWindow>) {
     select_and_add_files_into_project(
         objects,
         ProjectFileType::Light,
@@ -1647,7 +1577,7 @@ fn action_add_light_files(objects: &MainWindowObjectsPtr) {
     );
 }
 
-fn action_add_dark_files(objects: &MainWindowObjectsPtr) {
+fn action_add_dark_files(objects: &Rc<MainWindow>) {
     select_and_add_files_into_project(
         objects,
         ProjectFileType::Dark,
@@ -1656,7 +1586,7 @@ fn action_add_dark_files(objects: &MainWindowObjectsPtr) {
     );
 }
 
-fn action_add_flat_files(objects: &MainWindowObjectsPtr) {
+fn action_add_flat_files(objects: &Rc<MainWindow>) {
     select_and_add_files_into_project(
         objects,
         ProjectFileType::Flat,
@@ -1665,7 +1595,7 @@ fn action_add_flat_files(objects: &MainWindowObjectsPtr) {
     );
 }
 
-fn action_add_bias_files(objects: &MainWindowObjectsPtr) {
+fn action_add_bias_files(objects: &Rc<MainWindow>) {
     select_and_add_files_into_project(
         objects,
         ProjectFileType::Bias,
@@ -1675,7 +1605,7 @@ fn action_add_bias_files(objects: &MainWindowObjectsPtr) {
 }
 
 fn select_and_add_files_into_project(
-    objects:          &MainWindowObjectsPtr,
+    objects:          &Rc<MainWindow>,
     file_type:        ProjectFileType,
     files_dialog_cap: String,
     select_group_cap: String,
@@ -1719,7 +1649,7 @@ fn select_and_add_files_into_project(
 
     fn create_src_file_select_dialog(
         title:       String,
-        objects:     &MainWindowObjectsPtr,
+        objects:     &Rc<MainWindow>,
         light_files: bool
     ) -> gtk::FileChooserDialog {
         let ff = gtk::FileFilter::new();
@@ -1737,7 +1667,7 @@ fn select_and_add_files_into_project(
         if light_files {
             add_exts(TIF_EXTS);
         }
-        let fc = FileChooserDialogBuilder::new()
+        let fc = gtk::FileChooserDialog::builder()
             .action(gtk::FileChooserAction::Open)
             .title(&title)
             .filter(&ff)
@@ -1748,23 +1678,17 @@ fn select_and_add_files_into_project(
 
         fc.set_current_folder(objects.config.borrow().last_path.clone());
 
-        if cfg!(target_os = "windows") {
-            fc.add_buttons(&[
-                (&gettext("_Open"), gtk::ResponseType::Accept),
-                (&gettext("_Cancel"), gtk::ResponseType::Cancel),
-            ]);
-        } else {
-            fc.add_buttons(&[
-                (&gettext("_Cancel"), gtk::ResponseType::Cancel),
-                (&gettext("_Open"), gtk::ResponseType::Accept),
-            ]);
-        }
+        add_ok_and_cancel_buttons(
+            fc.upcast_ref(),
+            &gettext("_Open"), gtk::ResponseType::Accept,
+            &gettext("_Cancel"), gtk::ResponseType::Cancel
+        );
 
         fc
     }
 }
 
-fn handler_files_dropped(objects: &MainWindowObjectsPtr, sd: &gtk::SelectionData) {
+fn handler_files_dropped(objects: &Rc<MainWindow>, sd: &gtk::SelectionData) {
     fn add_dir_to_list(file_name: PathBuf, files_list: &mut Vec<PathBuf>) {
         let paths = std::fs::read_dir(file_name);
         if let Ok(paths) = paths {
@@ -1782,7 +1706,7 @@ fn handler_files_dropped(objects: &MainWindowObjectsPtr, sd: &gtk::SelectionData
         }
     }
 
-    fn ask_user_to_select_types_and_add_files(objects: &MainWindowObjectsPtr, files: Vec<PathBuf>) {
+    fn ask_user_to_select_types_and_add_files(objects: &Rc<MainWindow>, files: Vec<PathBuf>) {
         if files.is_empty() { return; }
         let builder = gtk::Builder::from_string(include_str!("ui/dnd_files_type_dialog.ui"));
         let dialog = builder.object::<gtk::Dialog>("dnd_files_type_dialog").unwrap();
@@ -1856,7 +1780,7 @@ fn handler_files_dropped(objects: &MainWindowObjectsPtr, sd: &gtk::SelectionData
 
 fn add_files_into_project(
     file_names:       &Vec<PathBuf>,
-    objects:          &MainWindowObjectsPtr,
+    objects:          &Rc<MainWindow>,
     group_iter_index: usize,
     file_type:        ProjectFileType
 ) {
@@ -1889,7 +1813,7 @@ fn add_files_into_project(
 }
 
 
-fn action_register(objects: &MainWindowObjectsPtr) {
+fn action_register(objects: &Rc<MainWindow>) {
     if objects.project.borrow().total_light_files_count() == 0 {
         return;
     }
@@ -1910,19 +1834,19 @@ fn action_register(objects: &MainWindowObjectsPtr) {
     );
 }
 
-fn action_light_theme(_: &MainWindowObjectsPtr) {
+fn action_light_theme(_: &Rc<MainWindow>) {
     let settings = gtk::Settings::default().unwrap();
     settings.set_property("gtk-application-prefer-dark-theme", false);
     log::info!("Light theme selected");
 }
 
-fn action_dark_theme(_: &MainWindowObjectsPtr) {
+fn action_dark_theme(_: &Rc<MainWindow>) {
     let settings = gtk::Settings::default().unwrap();
     settings.set_property("gtk-application-prefer-dark-theme", true);
     log::info!("Dark theme selected");
 }
 
-fn preview_selected_file(objects: &MainWindowObjectsPtr) {
+fn preview_selected_file(objects: &Rc<MainWindow>) {
     let (file_name, mode) = {
         match get_current_selection(objects) {
             SelectedItem {
@@ -1972,7 +1896,7 @@ fn preview_selected_file(objects: &MainWindowObjectsPtr) {
 }
 
 fn preview_image_after_change_view_opts(
-    objects: &MainWindowObjectsPtr,
+    objects: &Rc<MainWindow>,
     recalc_params: bool
 ) {
     let image = objects.prev_preview_img.borrow();
@@ -2007,7 +1931,7 @@ enum PreviewFileMode {
 }
 
 fn preview_image_file(
-    objects:   &MainWindowObjectsPtr,
+    objects:   &Rc<MainWindow>,
     file_name: &Path,
     mode:      PreviewFileMode,
 ) {
@@ -2024,16 +1948,15 @@ fn preview_image_file(
         flag.store(true, Ordering::Relaxed);
     }
 
-    let (sender, receiver) = MainContext::channel(PRIORITY_DEFAULT);
-
     let preview_file_name = objects.builder.object::<gtk::Label>("preview_file_name").unwrap();
     let star_img          = objects.builder.object::<gtk::Image>("img_star").unwrap();
     let star_scr          = objects.builder.object::<gtk::ScrolledWindow>("scr_star").unwrap();
-    let preview_ctrls_box   = objects.builder.object::<gtk::Widget>("preview_ctrls_box").unwrap();
+    let preview_ctrls_box = objects.builder.object::<gtk::Widget>("preview_ctrls_box").unwrap();
 
-    receiver.attach(
-        None,
-        clone!(@strong objects, @strong preview_file_name, @strong preview_ctrls_box => move |message: UiMessage| {
+    let (sender, receiver) = async_channel::unbounded();
+
+    glib::spawn_future_local(clone!(@strong objects, @strong preview_file_name, @strong preview_ctrls_box => async move {
+        while let Ok(message) = receiver.recv().await {
             match message {
                 UiMessage::Image { image, file_name } => {
                     let config = objects.config.borrow();
@@ -2091,9 +2014,9 @@ fn preview_image_file(
                     objects.last_preview_file.borrow_mut().clear();
                 },
             }
-            Continue(false)
-        }),
-    );
+            break; // while
+        }
+    }));
 
     let cancel_flag = Arc::new(AtomicBool::new(false));
     *objects.prev_preview_cancel_flags.borrow_mut() = Some(cancel_flag.clone());
@@ -2142,17 +2065,17 @@ fn preview_image_file(
 
         match light_file {
             Ok(light_file) => {
-                sender.send(UiMessage::Image { image: light_file, file_name}).unwrap();
+                sender.send_blocking(UiMessage::Image { image: light_file, file_name}).unwrap();
             },
             Err(error) => {
-                sender.send(UiMessage::Error(error.to_string())).unwrap();
+                sender.send_blocking(UiMessage::Error(error.to_string())).unwrap();
             }
         }
     }));
 }
 
 fn show_preview_image(
-    objects:    &MainWindowObjectsPtr,
+    objects:    &Rc<MainWindow>,
     img_bytes:  Vec<u8>,
     img_width:  i32,
     img_height: i32,
@@ -2170,6 +2093,7 @@ fn show_preview_image(
     );
 
     if scale == ImgScale::FitWindow {
+        // TODO: get gtk::ScrolledWindows directly!
         let parent = objects.preview_image
             .parent().unwrap() // gtk::EventBox
             .parent().unwrap(); // gtk::ScrolledWindows
@@ -2192,7 +2116,7 @@ fn show_preview_image(
     objects.preview_image.set_pixbuf(Some(&pixbuf));
 }
 
-fn action_new_group(objects: &MainWindowObjectsPtr) {
+fn action_new_group(objects: &Rc<MainWindow>) {
     let def_group_options = GroupOptions::default();
     let dialog = group_options_dialog(
         objects,
@@ -2209,7 +2133,7 @@ fn action_new_group(objects: &MainWindowObjectsPtr) {
     dialog.show();
 }
 
-fn action_delete_item(objects: &MainWindowObjectsPtr) {
+fn action_delete_item(objects: &Rc<MainWindow>) {
     let selection = get_current_selection(objects);
     let project = objects.project.borrow();
     match selection {
@@ -2220,7 +2144,7 @@ fn action_delete_item(objects: &MainWindowObjectsPtr) {
         } => {
             let group = &project.groups()[group_idx];
             let dialog = confirm_dialog(
-                objects,
+                &objects.window,
                 transl_and_replace(
                     "Remove group '{group}' from project?",
                     &[("{group}", group.name(group_idx))]
@@ -2257,7 +2181,7 @@ fn action_delete_item(objects: &MainWindowObjectsPtr) {
                 )
             };
             let dialog = confirm_dialog(
-                objects,
+                &objects.window,
                 dialog_text,
                 clone!(@strong objects => move || {
                     objects.prj_tree.selection().unselect_all();
@@ -2275,7 +2199,7 @@ fn action_delete_item(objects: &MainWindowObjectsPtr) {
     }
 }
 
-fn action_item_properties(objects: &MainWindowObjectsPtr) {
+fn action_item_properties(objects: &Rc<MainWindow>) {
     let selection = get_current_selection(objects);
 
     match selection {
@@ -2310,7 +2234,7 @@ fn action_item_properties(objects: &MainWindowObjectsPtr) {
 }
 
 fn group_options_dialog<F: Fn(GroupOptions) + 'static>(
-    objects:       &MainWindowObjectsPtr,
+    objects:       &Rc<MainWindow>,
     title:         String,
     group_options: GroupOptions,
     fun:           F
@@ -2365,7 +2289,7 @@ fn group_options_dialog<F: Fn(GroupOptions) + 'static>(
     dialog
 }
 
-fn get_active_group_index(objects: &MainWindowObjectsPtr, title: &str) -> Option<usize> {
+fn get_active_group_index(objects: &Rc<MainWindow>, title: &str) -> Option<usize> {
     match objects.project.borrow().groups().len() {
         0 => return None,
         1 => return Some(0),
@@ -2412,7 +2336,7 @@ fn get_active_group_index(objects: &MainWindowObjectsPtr, title: &str) -> Option
     groups_list.active().map(|v| v as usize)
 }
 
-fn action_project_options(objects: &MainWindowObjectsPtr) {
+fn action_project_options(objects: &Rc<MainWindow>) {
     configure_project_options(
         objects,
         objects.project.borrow().config().clone(),
@@ -2429,7 +2353,7 @@ fn action_project_options(objects: &MainWindowObjectsPtr) {
 }
 
 fn configure_project_options<F: Fn(ProjectConfig) + 'static>(
-    objects:        &MainWindowObjectsPtr,
+    objects:        &Rc<MainWindow>,
     project_config: ProjectConfig,
     set_fun:        F,
 ) {
@@ -2596,22 +2520,22 @@ fn configure_project_options<F: Fn(ProjectConfig) + 'static>(
     dialog.show();
 }
 
-fn check_all_light_files_are_registered(objects: &MainWindowObjectsPtr) -> bool {
+fn check_all_light_files_are_registered(objects: &Rc<MainWindow>) -> bool {
     let project = objects.project.borrow();
     if !project.is_any_used_light_file() {
         return false;
     }
     if !project.is_all_light_files_are_registered() {
         show_error_message(
-            &gettext("You have execute register light files first!"),
-            objects
+            &objects.window, &gettext("Error"),
+            &gettext("You have execute register light files first!")
         );
         return false;
     }
     true
 }
 
-fn action_cleanup_light_files(objects: &MainWindowObjectsPtr) {
+fn action_cleanup_light_files(objects: &Rc<MainWindow>) {
     if !check_all_light_files_are_registered(objects) {
         return;
     }
@@ -2772,14 +2696,14 @@ fn action_cleanup_light_files(objects: &MainWindowObjectsPtr) {
                     ]);
 
                     show_message(
-                        &objects,
+                        &objects.window,
                         &gettext("Cleanup light files result"),
                         &message,
                         gtk::MessageType::Info,
                     );
                 },
                 Err(error) =>
-                    show_error_message(&error.to_string(), &objects),
+                    show_error_message(&objects.window, &gettext("Error"), &error.to_string()),
             }
             update_project_tree(&objects);
             update_project_name_and_time_in_gui(&objects);
@@ -2794,7 +2718,7 @@ fn action_cleanup_light_files(objects: &MainWindowObjectsPtr) {
 }
 
 fn ask_user_to_assign_ref_light_image_auto(
-    objects:              &MainWindowObjectsPtr,
+    objects:              &Rc<MainWindow>,
     start_stacking_after: bool
 ){
     let builder = gtk::Builder::from_string(include_str!("ui/assign_ref_light_frame.ui"));
@@ -2854,15 +2778,15 @@ fn ask_user_to_assign_ref_light_image_auto(
     dialog.show();
 }
 
-fn action_assign_ref_light_image(objects: &MainWindowObjectsPtr) {
+fn action_assign_ref_light_image(objects: &Rc<MainWindow>) {
     if !check_all_light_files_are_registered(objects) {
         return;
     }
 
     if !objects.project.borrow().is_possible_assign_ref_light_frame_automatically() {
         show_error_message(
-            &gettext("It is not possible to assign reference light image automatically"),
-            objects
+            &objects.window, &gettext("Error"),
+            &gettext("It is not possible to assign reference light image automatically")
         );
         return;
     }
@@ -2870,7 +2794,7 @@ fn action_assign_ref_light_image(objects: &MainWindowObjectsPtr) {
     ask_user_to_assign_ref_light_image_auto(objects, false);
 }
 
-fn action_stack(objects: &MainWindowObjectsPtr) {
+fn action_stack(objects: &Rc<MainWindow>) {
     let project = objects.project.borrow();
     if !project.is_any_used_light_file() {
         return;
@@ -2884,8 +2808,8 @@ fn action_stack(objects: &MainWindowObjectsPtr) {
         CanExecStackLightsRes::Ok => (),
         CanExecStackLightsRes::NoRefFile => {
             show_error_message(
-                &gettext("Reference image is not defined"),
-                objects
+                &objects.window, &gettext("Error"),
+                &gettext("Reference image is not defined")
             );
             return;
         },
@@ -2903,7 +2827,7 @@ fn action_stack(objects: &MainWindowObjectsPtr) {
         move |objects, result| {
             preview_image_file(objects, &result.file_name, PreviewFileMode::ResultFile);
             show_message(
-                objects,
+                &objects.window,
                 &gettext("Finished"),
                 &transl_and_replace(
                     "Result file saved to {fn}",
@@ -2915,7 +2839,7 @@ fn action_stack(objects: &MainWindowObjectsPtr) {
     );
 }
 
-fn action_use_as_reference_image(objects: &MainWindowObjectsPtr) {
+fn action_use_as_reference_image(objects: &Rc<MainWindow>) {
     if let SelectedItem {
         item_type: SelItemType::File,
         file_type: Some(ProjectFileType::Light),
@@ -2937,24 +2861,24 @@ fn action_use_as_reference_image(objects: &MainWindowObjectsPtr) {
     }
 }
 
-fn action_change_file_to_light(objects: &MainWindowObjectsPtr) {
+fn action_change_file_to_light(objects: &Rc<MainWindow>) {
     change_selected_files_type(objects, ProjectFileType::Light);
 }
 
-fn action_change_file_to_dark(objects: &MainWindowObjectsPtr) {
+fn action_change_file_to_dark(objects: &Rc<MainWindow>) {
     change_selected_files_type(objects, ProjectFileType::Dark);
 }
 
-fn action_change_file_to_flat(objects: &MainWindowObjectsPtr) {
+fn action_change_file_to_flat(objects: &Rc<MainWindow>) {
     change_selected_files_type(objects, ProjectFileType::Flat);
 }
 
-fn action_change_file_to_bias(objects: &MainWindowObjectsPtr) {
+fn action_change_file_to_bias(objects: &Rc<MainWindow>) {
     change_selected_files_type(objects, ProjectFileType::Bias);
 }
 
 fn change_selected_files_type(
-    objects:  &MainWindowObjectsPtr,
+    objects:  &Rc<MainWindow>,
     new_type: ProjectFileType
 ) {
     let selection = get_current_selection(objects);
@@ -3009,7 +2933,7 @@ fn change_selected_files_type(
     dialog.show();
 }
 
-fn action_move_file_to_group(objects: &MainWindowObjectsPtr) {
+fn action_move_file_to_group(objects: &Rc<MainWindow>) {
     let selection = get_current_selection(objects);
     if selection.item_type != SelItemType::File {
         return;
@@ -3104,15 +3028,15 @@ fn action_move_file_to_group(objects: &MainWindowObjectsPtr) {
     dialog.show();
 }
 
-fn action_check_all_files(objects: &MainWindowObjectsPtr) {
+fn action_check_all_files(objects: &Rc<MainWindow>) {
     check_all_files(objects, true);
 }
 
-fn action_uncheck_all_files(objects: &MainWindowObjectsPtr) {
+fn action_uncheck_all_files(objects: &Rc<MainWindow>) {
     check_all_files(objects, false);
 }
 
-fn check_all_files(objects: &MainWindowObjectsPtr, value: bool) {
+fn check_all_files(objects: &Rc<MainWindow>, value: bool) {
     let s = get_current_selection(objects);
     let (group_idx, file_type) = match (s.group_idx, s.file_type) {
         (Some(group_idx), Some(file_type)) => (group_idx, file_type),
@@ -3127,15 +3051,15 @@ fn check_all_files(objects: &MainWindowObjectsPtr, value: bool) {
     update_project_name_and_time_in_gui(objects);
 }
 
-fn action_check_selected_files(objects: &MainWindowObjectsPtr) {
+fn action_check_selected_files(objects: &Rc<MainWindow>) {
     check_selected_files(objects, true);
 }
 
-fn action_uncheck_selected_files(objects: &MainWindowObjectsPtr) {
+fn action_uncheck_selected_files(objects: &Rc<MainWindow>) {
     check_selected_files(objects, false);
 }
 
-fn check_selected_files(objects: &MainWindowObjectsPtr, value: bool) {
+fn check_selected_files(objects: &Rc<MainWindow>, value: bool) {
     let s = get_current_selection(objects);
     let (group_idx, file_type, files) = match (s.group_idx, s.file_type, s.files) {
         (Some(group_idx), Some(file_type), files) if !files.is_empty() =>
@@ -3152,7 +3076,7 @@ fn check_selected_files(objects: &MainWindowObjectsPtr, value: bool) {
     update_project_name_and_time_in_gui(objects);
 }
 
-fn action_about(objects: &MainWindowObjectsPtr) {
+fn action_about(objects: &Rc<MainWindow>) {
     let builder = gtk::Builder::from_string(include_str!("ui/about_dialog.ui"));
     let dialog = builder.object::<gtk::Dialog>("dialog").unwrap();
     let image = builder.object::<gtk::Image>("image").unwrap();
@@ -3178,7 +3102,7 @@ fn action_about(objects: &MainWindowObjectsPtr) {
     btn_close.connect_clicked(move |_| dialog.close());
 }
 
-fn action_project_columns(objects: &MainWindowObjectsPtr) {
+fn action_project_columns(objects: &Rc<MainWindow>) {
     let builder = gtk::Builder::from_string(include_str!("ui/columns_selector.ui"));
     let dialog = builder.object::<gtk::Dialog>("columns_delector").unwrap();
     let list = builder.object::<gtk::TreeView>("lv_list").unwrap();
@@ -3202,10 +3126,10 @@ fn action_project_columns(objects: &MainWindowObjectsPtr) {
         .sensitive(true)
         .build();
     let cell_text = gtk::CellRendererText::new();
-    col.pack_start(&cell_check, false);
-    col.pack_start(&cell_text, true);
-    col.add_attribute(&cell_text, "text", COLUMN_NAME);
-    col.add_attribute(&cell_check, "active", COLUMN_CHECK);
+    TreeViewColumnExt::pack_start(&col, &cell_check, false);
+    TreeViewColumnExt::pack_start(&col, &cell_text, true);
+    TreeViewColumnExt::add_attribute(&col, &cell_text, "text", COLUMN_NAME);
+    TreeViewColumnExt::add_attribute(&col, &cell_check, "active", COLUMN_CHECK);
     list.append_column(&col);
     let tree_columns = get_prj_tree_store_columns();
     for i in 0..objects.prj_tree.n_columns() {

@@ -14,5 +14,5 @@ pub fn transl_and_replace(text: &str, items: &[(&str, String)]) -> String {
 }
 
 pub fn path_to_string(path: &Path) -> String {
-    path.to_str().unwrap_or("").to_string()
+    path.to_str().unwrap_or_default().to_string()
 }
