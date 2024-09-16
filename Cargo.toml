@@ -1,6 +1,6 @@
 [package]
 name = "electra_stacking"
-version = "0.1.113"
+version = "0.1.114"
 edition = "2021"
 description = "Astronimical images stacking"
 repository = "https://github.com/art-den/electra_stacking"
@@ -8,9 +8,8 @@ license = "MIT"
 build = "build.rs"
 
 [dependencies]
-itertools = "0.10"
+itertools = "0.12"
 num = "0.4"
-structopt = "0.3"
 rawloader = { git = "https://github.com/art-den/rawloader" }
 anyhow = "1.0"
 tiff = "0.7"
@@ -36,6 +35,7 @@ nalgebra = "0.31"
 fitsio = "0.20"
 path-absolutize = "3.0"
 pathdiff = "0.2"
+rand = "0.8" # for compressor tests
 
 [target.'cfg(windows)'.build-dependencies]
 embed-resource = "1.7"
@@ -59,5 +59,7 @@ strip = false
 opt-level = 3
 lto = true
 codegen-units = 1
-strip = true
 panic = "abort"
+
+[profile.test]
+opt-level = 0

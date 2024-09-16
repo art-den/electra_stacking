@@ -223,7 +223,7 @@ pub struct MasterFileInfo {
 }
 
 impl MasterFileInfo {
-    pub fn read_fro(file_name: &Path) -> anyhow::Result<MasterFileInfo> {
+    pub fn read_from(file_name: &Path) -> anyhow::Result<MasterFileInfo> {
         let mut file = std::io::BufReader::new(std::fs::File::open(file_name)?);
         let sig_len = leb128::read::unsigned(&mut file)? as usize;
         if sig_len > 42 { anyhow::bail!("Wrong signature lentgh"); }
@@ -411,11 +411,13 @@ impl RawImage {
         let clip_value = Self::find_clip_value(self.data.as_slice());
         for i in 0..4 {
             let white_value = self.info.max_values[i];
-            max_values[i] = if clip_value < white_value && white_value < 1.2 * clip_value {
-                clip_value
-            } else {
-                white_value
-            };
+            max_values[i] =
+                if clip_value < white_value
+                && white_value < 1.2 * clip_value {
+                    clip_value
+                } else {
+                    white_value
+                };
         }
 
         let mut overexposures = Vec::new();
@@ -587,9 +589,9 @@ impl RawImage {
         let mut result = Image::new_color(self.info.width, self.info.height);
 
         for y in 1..height-1 {
+            let cfa_iter = self.iter_cfa(y);
             let top_iter = self.data.iter_row(y-1);
             let iter = self.data.iter_row(y);
-            let cfa_iter = self.iter_cfa(y);
             let bottom_iter = self.data.iter_row(y+1);
             let dst_r_iter = result.r.iter_row_mut(y).skip(1);
             let dst_g_iter = result.g.iter_row_mut(y).skip(1);

@@ -23,12 +23,12 @@ use std::f64::consts::PI;
 /* Stacking bias, darks and flat files */
 
 pub fn create_master_dark_or_bias_file(
-    files_list:        &[PathBuf],
-    calc_opts:         &CalcOpts,
-    result_file:       &Path,
-    progress:          &ProgressTs,
-    thread_pool:       &rayon::ThreadPool,
-    cancel_flag:       &IsCancelledFun,
+    files_list:  &[PathBuf],
+    calc_opts:   &CalcOpts,
+    result_file: &Path,
+    progress:    &ProgressTs,
+    thread_pool: &rayon::ThreadPool,
+    cancel_flag: &IsCancelledFun,
 ) -> anyhow::Result<bool> {
     create_master_calibr_file(
         files_list,
@@ -140,14 +140,14 @@ fn postprocess_single_flat_image(
 }
 
 pub fn create_master_flat_file(
-    files_list:          &[PathBuf],
-    calc_opts:           &CalcOpts,
-    master_bias_file:    &Option<PathBuf>,
-    result_file:         &Path,
-    progress:            &ProgressTs,
-    thread_pool:         &rayon::ThreadPool,
-    cancel_flag:         &IsCancelledFun,
-    force_even_if_exist: bool,
+    files_list:       &[PathBuf],
+    calc_opts:        &CalcOpts,
+    master_bias_file: &Option<PathBuf>,
+    result_file:      &Path,
+    progress:         &ProgressTs,
+    thread_pool:      &rayon::ThreadPool,
+    cancel_flag:      &IsCancelledFun,
+    force_if_exist: bool,
 ) -> anyhow::Result<bool> {
     let bias_image = match master_bias_file {
         Some(master_bias_file) =>
@@ -172,19 +172,19 @@ pub fn create_master_flat_file(
         progress,
         thread_pool,
         cancel_flag,
-        force_even_if_exist
+        force_if_exist
     )
 }
 
 fn create_master_calibr_file<PF>(
-    files_list:          &[PathBuf],
-    calc_opts:           &CalcOpts,
-    result_file:         &Path,
-    postprocess_fun:     PF,
-    progress:            &ProgressTs,
-    thread_pool:         &rayon::ThreadPool,
-    cancel_flag:         &IsCancelledFun,
-    force_even_if_exist: bool) -> anyhow::Result<bool>
+    files_list:      &[PathBuf],
+    calc_opts:       &CalcOpts,
+    result_file:     &Path,
+    postprocess_fun: PF,
+    progress:        &ProgressTs,
+    thread_pool:     &rayon::ThreadPool,
+    cancel_flag:     &IsCancelledFun,
+    force_if_exist:  bool) -> anyhow::Result<bool>
 where
     PF: Fn (&mut RawImage) -> bool + Send + Sync + 'static
 {
@@ -195,8 +195,8 @@ where
         calc_opts: calc_opts.clone(),
     };
 
-    if !force_even_if_exist && result_file.exists() {
-        let from_disk_info = MasterFileInfo::read_fro(result_file);
+    if !force_if_exist && result_file.exists() {
+        let from_disk_info = MasterFileInfo::read_from(result_file);
         if let Ok(from_disk_info) = from_disk_info {
             if from_disk_info == this_info { return Ok(false); }
         }
@@ -348,7 +348,14 @@ struct SaveTempFileData {
 
 fn save_temp_file(mut args: SaveTempFileData) -> anyhow::Result<()> {
     let save_log = TimeLogger::start();
-    save_image_into_internal_format(&args.image, &args.file_name)?;
+
+    let compr_coeff = save_image_into_internal_format(&args.image, &args.file_name)?;
+
+    log::info!(
+        "compression coeff. for {} is {:.2}",
+        args.file_name.file_name().unwrap_or_default().to_str().unwrap_or_default(),
+        compr_coeff
+    );
 
     if let SaveAlignedImageMode::Fits|SaveAlignedImageMode::Tif = args.save_aligned {
         let ext = match args.save_aligned {

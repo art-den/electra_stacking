@@ -71,7 +71,9 @@ impl LightFile {
 
         let force_load_as_raw = !cal_data.is_empty() || raw_params.force_cfa.is_some();
 
+        let tmr = TimeLogger::start();
         let image_data = load_image_from_file(file_name, force_load_as_raw)?;
+        tmr.log("loading image from file");
 
         let (mut image, mut overexposures) = match image_data.image {
             RawOrImage::Image(image) =>
@@ -98,12 +100,15 @@ impl LightFile {
 
                 raw.calibrate(cal_data)?;
 
-                let log = TimeLogger::start();
+
                 let mut result = if !do_not_demosaic_flag {
-                    raw.demosaic(
+                    let tmr = TimeLogger::start();
+                    let res = raw.demosaic(
                         demosaic,
                         open_mode == OpenMode::Preview
-                    )?
+                    )?;
+                    tmr.log(&format!("demosaicing {:?}", demosaic));
+                    res
                 } else {
                     let mut grayscale = Image::new_grey(raw.info.width, raw.info.height);
                     grayscale.l = raw.data.clone();
@@ -111,16 +116,20 @@ impl LightFile {
                 };
 
                 if raw_params.apply_wb && !result.is_greyscale() {
+                    let tmr = TimeLogger::start();
                     raw.info.apply_wb(&mut result);
+                    tmr.log("apply_wb");
                 }
 
                 if raw_params.apply_color && raw_params.apply_wb {
+                    let tmr = TimeLogger::start();
                     raw.info.convert_color_space_to_srgb(&mut result);
+                    tmr.log("convert_color_space_to_srgb");
                 }
 
+                let tmr = TimeLogger::start();
                 raw.info.normalize_image(&mut result);
-
-                log.log(&format!("demosaicing {:?}", demosaic));
+                tmr.log("normalize_image");
 
                 let mut overexposures = raw.get_overexposures();
 

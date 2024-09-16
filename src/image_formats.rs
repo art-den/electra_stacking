@@ -837,18 +837,18 @@ pub fn save_image_to_fits_file(
 
 /*****************************************************************************/
 
-// Internal compressed format
-
+/// Internal compressed format.
+/// Returns compression coefficient
 pub fn save_image_into_internal_format(
     image:     &Image,
     file_name: &Path
-) -> anyhow::Result<()> {
+) -> anyhow::Result<f64> {
     assert!(!image.is_empty());
 
     let mut file = BufWriter::with_capacity(1024 * 256, File::create(file_name)?);
     let mut writer = BitWriter::endian(&mut file, BigEndian);
 
-    if image.is_rgb() {
+    let bytes_putted_in_stream = if image.is_rgb() {
         let mut r_writer = ValuesCompressor::new();
         let mut g_writer = ValuesCompressor::new();
         let mut b_writer = ValuesCompressor::new();
@@ -862,18 +862,26 @@ pub fn save_image_into_internal_format(
         r_writer.flush(&mut writer)?;
         g_writer.flush(&mut writer)?;
         b_writer.flush(&mut writer)?;
-
-        writer.write(32, 0)?;
-        writer.flush()?;
+        image.width() * image.height() * std::mem::size_of::<f32>() as Crd * 3
     } else {
         let mut l_writer = ValuesCompressor::new();
         for l in image.l.iter() {
             l_writer.write_f32(*l, &mut writer)?;
         }
         l_writer.flush(&mut writer)?;
-    }
+        image.width() * image.height() * std::mem::size_of::<f32>() as Crd
+    };
+    writer.write(32, 0)?;
+    writer.flush()?;
 
-    Ok(())
+    let bytes_saved = file.seek(SeekFrom::End(0))?;
+    let compression_coeff = if bytes_saved != 0 {
+        bytes_putted_in_stream as f64 / bytes_saved as f64
+    } else {
+        0.0
+    };
+
+    Ok(compression_coeff)
 }
 
 pub struct InternalFormatReader {

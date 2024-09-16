@@ -1,4 +1,6 @@
 use std::{collections::HashMap, path::*};
+use itertools::*;
+
 use crate::{image::*, image_raw::*, calc::*, light_file::*, stars::*, log_utils::*};
 
 pub struct NormResult {
@@ -31,11 +33,11 @@ pub fn normalize_range_and_bg(
         &ref_data.image.stars
     );
 
-    for (m, v) in mask.iter_mut().zip(grey_image.iter()) {
+    for (m, v) in izip!(mask.iter_mut(), grey_image.iter()) {
         if v.is_infinite() || *v == NO_VALUE_F32 { *m = true; }
     }
 
-    for (m, v) in mask.iter_mut().zip(ref_data.grey.iter()) {
+    for (m, v) in izip!(mask.iter_mut(), ref_data.grey.iter()) {
         if v.is_infinite() || *v == NO_VALUE_F32 { *m = true; }
     }
 
@@ -74,10 +76,10 @@ fn calc_range(ref_img: &ImageLayerF32, image: &ImageLayerF32, mask: &ImageMask) 
     in RectAreaIterator::new(ref_img.width(), ref_img.width()/SIZE, ref_img.height(), ref_img.height()/SIZE) {
         ref_values.clear();
         img_values.clear();
-        for ((.., v), (.., m)) in ref_img.iter_area_crd(&area).zip(mask.iter_area_crd(&area)) {
+        for ((.., v), (.., m)) in izip!(ref_img.iter_area_crd(&area), mask.iter_area_crd(&area)) {
             if !m && !v.is_infinite() { ref_values.push(v as f64); }
         }
-        for ((.., v), (.., m)) in image.iter_area_crd(&area).zip(mask.iter_area_crd(&area)) {
+        for ((.., v), (.., m)) in izip!(image.iter_area_crd(&area), mask.iter_area_crd(&area)) {
             if !m && !v.is_infinite() { img_values.push(v as f64); }
         }
         if ref_values.len() < (SIZE*SIZE/2) as usize { continue; }
@@ -101,21 +103,28 @@ fn calc_range(ref_img: &ImageLayerF32, image: &ImageLayerF32, mask: &ImageMask) 
 
     // skip 1/8 of ranges with low RangeArea::range
     // and 1/8 of ranges with high RangeArea::range
-    let border1 = ranges.len()/8;
-    let border2 = 7*ranges.len()/8;
-
-    ranges.select_nth_unstable_by(border1, |r1, r2| cmp_f64(&r1.range, &r2.range));
-    ranges[border1..].select_nth_unstable_by(border2-border1, |r1, r2| cmp_f64(&r1.range, &r2.range));
-
-    let ref_values: Vec<_> = ranges[border1..border2].iter().map(|r| CalcValue::new(r.ref_value)).collect();
-    let img_values: Vec<_> = ranges[border1..border2].iter().map(|r| CalcValue::new(r.img_value)).collect();
-
+    let border_pos1 = ranges.len()/8;
+    let border_pos2 = 7*ranges.len()/8;
+    ranges.select_nth_unstable_by(
+        border_pos1,
+        |r1, r2| cmp_f64(&r1.range, &r2.range)
+    );
+    ranges[border_pos1..].select_nth_unstable_by(
+        border_pos2-border_pos1,
+        |r1, r2| cmp_f64(&r1.range, &r2.range)
+    );
+    let ref_values: Vec<_> = ranges[border_pos1..border_pos2]
+        .iter()
+        .map(|r| CalcValue::new(r.ref_value))
+        .collect();
+    let img_values: Vec<_> = ranges[border_pos1..border_pos2]
+        .iter()
+        .map(|r| CalcValue::new(r.img_value))
+        .collect();
     let (ref_mean, ref_dev) = mean_and_std_dev(&ref_values).unwrap_or((1.0, 1.0));
     let (img_mean, img_dev) = mean_and_std_dev(&img_values).unwrap_or((1.0, 1.0));
-
     log::info!("ref_mean = {}, ref_dev = {}", ref_mean, ref_dev);
     log::info!("img_mean = {}, img_dev = {}", img_mean, img_dev);
-
     if img_dev != 0.0 {
         ref_dev / img_dev
     } else {
@@ -162,7 +171,7 @@ pub fn calc_image_layer_bg(image: &ImageLayerF32, mask: &ImageMask) -> anyhow::R
             }
         } else {
             for ((x, y, v), (.., m))
-            in image.iter_area_crd(&area).zip(mask.iter_area_crd(&area)) {
+            in izip!(image.iter_area_crd(&area), mask.iter_area_crd(&area)) {
                 if m || v.is_infinite() { continue; }
                 values.push(v as f64);
                 x_sum += x as i64;

@@ -18,10 +18,11 @@ use crate::{
     light_file::*,
     calc::*,
     image,
-    progress::*
+    progress::*,
+    config::*,
+    project::*,
+    str_utils::*,
 };
-
-use crate::{config::*, project::*, str_utils::*};
 
 pub fn build_ui(application: &gtk::Application) {
     let mut project = Project::default();

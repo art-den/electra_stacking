@@ -60,6 +60,7 @@ pub fn find_stars_on_image(
 
     // Find possible stars centers
 
+    let tmr = TimeLogger::start();
     let mut filtered: Vec<f32> = Vec::new();
     let mut possible_stars = Vec::new();
     let mut heavy_filter = IirFilter::new_gauss(42.0);
@@ -90,6 +91,7 @@ pub fn find_stars_on_image(
             }
         }
     });
+    tmr.log("find possible stars");
 
     // Sort possible star centers by brightness. Larger is first
 
@@ -101,6 +103,8 @@ pub fn find_stars_on_image(
     let mut flood_filler = FloodFiller::new();
 
     let mut star_calc = StarCalulator::new();
+
+    let tmr = TimeLogger::start();
 
     for &(mut x, mut y, possible_max_value) in possible_stars.iter() {
         if all_stars_points.contains(&(x, y)) { continue };
@@ -133,11 +137,24 @@ pub fn find_stars_on_image(
 
         use MAX_STAR_DIAMETER as MSD;
         star_bg_values.clear();
-        for (_, _, mut v) in img.iter_rect_crd(x-MSD/2, y-MSD/2, x+MSD/2, y+MSD/2) {
-            if v.is_infinite() {
-                v = max_img_value;
+        let mut add_star_bg_value = |x, y| {
+            let v = img.get(x, y);
+            if let Some(mut v) = v {
+                if v.is_infinite() {
+                    v = max_img_value;
+                }
+                star_bg_values.push(v);
             }
-            star_bg_values.push(v);
+        };
+        for r in 1..MAX_STAR_DIAMETER/2 {
+            add_star_bg_value(x,     y - r);
+            add_star_bg_value(x + r, y - r);
+            add_star_bg_value(x + r, y    );
+            add_star_bg_value(x + r, y + r);
+            add_star_bg_value(x,     y + r);
+            add_star_bg_value(x - r, y + r);
+            add_star_bg_value(x - r, y    );
+            add_star_bg_value(x - r, y - r);
         }
         let star_bg_index = star_bg_values.len() / 4;
         let star_bg = *star_bg_values.select_nth_unstable_by(star_bg_index, cmp_f32).1;
@@ -166,7 +183,8 @@ pub fn find_stars_on_image(
 
         // test that found object is star
 
-        if star_points.is_empty() || star_points.len() as i64 > MSD*MSD {
+        if star_points.is_empty()
+        || star_points.len() as i64 > MSD*MSD {
             continue;
         }
 
@@ -178,7 +196,9 @@ pub fn find_stars_on_image(
             max_img_value
         )?;
 
-        if radius_dev > 2.0 { continue; }
+        if radius_dev > 2.0 {
+            continue;
+        }
 
         // add star into result list
 
@@ -214,6 +234,9 @@ pub fn find_stars_on_image(
             points,
         });
     }
+
+    tmr.log("getting star points");
+    log::info!("all_stars_points.len = {}", all_stars_points.len());
 
     // remove strange stars by radius
     stars.retain(|s| {
