@@ -8,7 +8,7 @@ use crate::{
     calc::*,
     progress::*,
     image_raw::*,
-    image_formats::*,
+    image_io::*,
     fs_utils::*,
     stars::*,
     image_norm::*,
@@ -151,7 +151,7 @@ pub fn create_master_flat_file(
 ) -> anyhow::Result<bool> {
     let bias_image = match master_bias_file {
         Some(master_bias_file) =>
-            Some(RawImage::new_from_master_format_file(master_bias_file)?),
+            Some(load_master_format_file(master_bias_file)?),
         None =>
             None,
     };
@@ -230,7 +230,7 @@ where
                 if !is_ok { return; }
                 let temp_fn = file_path.with_extension("temp_raw");
                 let locker = disk_access_mutex.lock();
-                let save_res = raw.save_to_calibr_format_file(&temp_fn);
+                let save_res = save_calibr_format_file(&raw, &temp_fn);
                 drop(locker);
                 if let Err(save_res) = save_res {
                     *cur_result.lock().unwrap() = Err(save_res);
@@ -309,7 +309,8 @@ where
 
     progress.lock().unwrap().percent(100, 100, "Done");
 
-    image.save_to_master_format_file(
+    save_master_format_file(
+        &image,
         result_file,
         &this_info
     )?;

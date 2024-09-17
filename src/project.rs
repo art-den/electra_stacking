@@ -11,7 +11,7 @@ use crate::{
     light_file::*,
     image_raw::*,
     image_norm::*,
-    image_formats::*,
+    image_io::*,
     fs_utils::*,
     config::*
 };

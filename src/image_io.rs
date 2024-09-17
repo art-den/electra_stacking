@@ -1,8 +1,9 @@
 use std::{path::*, io::*, fs::*};
+use byteorder::{ReadBytesExt, WriteBytesExt};
 use serde::*;
 use tiff::{*, decoder::*, encoder::*};
 use itertools::*;
-use bitstream_io::{BigEndian, BitWriter, BitWrite, BitReader};
+use bitstream_io::{BitWriter, BitWrite, BitReader};
 use chrono::prelude::*;
 use fitsio::{*, images::*, hdu::*};
 use regex::Regex;
@@ -846,7 +847,7 @@ pub fn save_image_into_internal_format(
     assert!(!image.is_empty());
 
     let mut file = BufWriter::with_capacity(1024 * 256, File::create(file_name)?);
-    let mut writer = BitWriter::endian(&mut file, BigEndian);
+    let mut writer = BitWriter::endian(&mut file, bitstream_io::BigEndian);
 
     let bytes_putted_in_stream = if image.is_rgb() {
         let mut r_writer = ValuesCompressor::new();
@@ -884,8 +885,52 @@ pub fn save_image_into_internal_format(
     Ok(compression_coeff)
 }
 
+pub fn save_calibr_format_file(raw: &RawImage, file_name: &Path) -> anyhow::Result<()> {
+    let mut file = BufWriter::new(File::create(file_name)?);
+    raw.info.write_to(&mut file)?;
+    let mut writer = BitWriter::endian(&mut file, bitstream_io::BigEndian);
+    let mut compr = ValuesCompressor::new();
+    for v in raw.data.iter() {
+        compr.write_f32(*v, &mut writer)?;
+    }
+    compr.flush(&mut writer)?;
+    writer.write(32, 0)?;
+    writer.flush()?;
+    Ok(())
+}
+
+pub fn save_master_format_file(
+    raw: &RawImage,
+    file_name: &Path,
+    master_info: &MasterFileInfo
+) -> anyhow::Result<()> {
+    let mut file = BufWriter::new(File::create(file_name)?);
+    master_info.write_to(&mut file)?;
+    raw.info.write_to(&mut file)?;
+    for v in raw.data.iter() { file.write_f32::<byteorder::BigEndian>(*v)?; }
+    Ok(())
+}
+
+pub fn load_master_format_file(file_name: &Path) -> anyhow::Result<RawImage> {
+    let mut file = std::io::BufReader::new(std::fs::File::open(file_name)?);
+
+    // skip master file header
+    let sig_len = leb128::read::unsigned(&mut file)?;
+    file.seek_relative(sig_len as i64)?;
+    let header_len = leb128::read::unsigned(&mut file)?;
+    file.seek_relative(header_len as i64)?;
+
+    let info = RawImageInfo::read_from(&mut file)?;
+    let mut image = ImageLayerF32::new(info.width, info.height);
+    for v in image.iter_mut() { *v = file.read_f32::<byteorder::BigEndian>()?; }
+    Ok(RawImage{
+        info,
+        data: image
+    })
+}
+
 pub struct InternalFormatReader {
-    reader: BitReader<BufReader<File>, BigEndian>,
+    reader: BitReader<BufReader<File>, bitstream_io::BigEndian>,
     r: ValuesDecompressor,
     g: ValuesDecompressor,
     b: ValuesDecompressor,
@@ -895,7 +940,7 @@ pub struct InternalFormatReader {
 impl InternalFormatReader {
     pub fn new(file_name: &Path) -> anyhow::Result<InternalFormatReader> {
         let file = BufReader::with_capacity(1024*256, File::open(file_name)?);
-        let reader = BitReader::endian(file, BigEndian);
+        let reader = BitReader::endian(file, bitstream_io::BigEndian);
         Ok(InternalFormatReader {
             reader,
             r: ValuesDecompressor::new(),
@@ -915,5 +960,88 @@ impl InternalFormatReader {
 
     pub fn get_l(&mut self) -> anyhow::Result<f32> {
         Ok(self.l.read_f32(&mut self.reader)?)
+    }
+}
+
+#[derive(Serialize, Deserialize, PartialEq)]
+pub struct MasterFileInfo {
+    pub files:     Vec<PathBuf>,
+    pub calc_opts: CalcOpts,
+}
+
+impl MasterFileInfo {
+    const MASTER_FILE_SIG: &[u8] = b"master-file-5";
+
+    pub fn read_from(file_name: &Path) -> anyhow::Result<MasterFileInfo> {
+        let mut file = std::io::BufReader::new(std::fs::File::open(file_name)?);
+        let sig_len = leb128::read::unsigned(&mut file)? as usize;
+        if sig_len > 42 { anyhow::bail!("Wrong signature lentgh"); }
+        let mut sig = Vec::<u8>::new();
+        sig.resize(sig_len, 0);
+        file.read_exact(&mut sig)?;
+        if sig != Self::MASTER_FILE_SIG { anyhow::bail!("Wrong file format"); }
+        let header_len = leb128::read::unsigned(&mut file)? as usize;
+        let mut buf = Vec::<u8>::new();
+        buf.resize(header_len, 0);
+        file.read_exact(&mut buf)?;
+        let header_str = std::str::from_utf8(buf.as_slice())?;
+        Ok(serde_json::from_str(header_str)?)
+    }
+
+    pub fn write_to<W: Write>(&self, dst: &mut W) -> anyhow::Result<()> {
+        leb128::write::unsigned(dst, Self::MASTER_FILE_SIG.len() as u64)?;
+        dst.write_all(Self::MASTER_FILE_SIG)?;
+        let header = serde_json::to_string(&self).unwrap();
+        leb128::write::unsigned(dst, header.len() as u64)?;
+        dst.write_all(header.as_bytes())?;
+        Ok(())
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub struct RawImageInfo {
+    pub width: Crd,
+    pub height: Crd,
+    pub max_values: [f32; 4],
+    pub black_values: [f32; 4],
+    pub wb: [f32; 4],
+    pub cam_to_rgb: Option<[f32; 9]>,
+    pub cfa: Cfa,
+    pub camera: Option<String>,
+    pub exposure: Option<f32>,
+    pub iso: Option<u32>,
+}
+
+impl RawImageInfo {
+    const CALIBR_FILE_SIG: &[u8] = b"calibr-file-5";
+
+    pub fn read_from<R: Read>(src: &mut R) -> anyhow::Result<RawImageInfo> {
+        let sig_len = leb128::read::unsigned(src)? as usize;
+        if sig_len > 42 { anyhow::bail!("Wrong signature lentgh"); }
+        let mut sig = Vec::<u8>::new();
+        sig.resize(sig_len, 0);
+        src.read_exact(&mut sig)?;
+        if sig != Self::CALIBR_FILE_SIG { anyhow::bail!("Wrong file format"); }
+        let header_len = leb128::read::unsigned(src)? as usize;
+        let mut buf = Vec::<u8>::new();
+        buf.resize(header_len, 0);
+        src.read_exact(&mut buf)?;
+        let header_str = std::str::from_utf8(buf.as_slice())?;
+        Ok(serde_json::from_str(header_str)?)
+    }
+
+    pub fn write_to<W: Write>(&self, dst: &mut W) -> anyhow::Result<()> {
+        leb128::write::unsigned(dst, Self::CALIBR_FILE_SIG.len() as u64)?;
+        dst.write_all(Self::CALIBR_FILE_SIG)?;
+        let header = serde_json::to_string(&self).unwrap();
+        leb128::write::unsigned(dst, header.len() as u64)?;
+        dst.write_all(header.as_bytes())?;
+        Ok(())
+    }
+
+    pub fn check_is_compatible(&self, other: &RawImageInfo) -> bool {
+        self.width == other.width &&
+        self.height == other.height &&
+        self.cfa == other.cfa
     }
 }

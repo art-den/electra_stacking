@@ -1264,6 +1264,58 @@ impl Image {
             self.l.to_rgb_bytes(params.l_min, params.range, gamma)
         }
     }
+
+    pub fn apply_wb(&mut self, wb: &[f32; 4]) {
+        assert!(!self.is_greyscale());
+
+        let apply = |img: &mut ImageLayerF32, k: f32| {
+            for v in img.iter_mut() {
+                *v *= k;
+            }
+        };
+
+        apply(&mut self.r, wb[0]);
+        apply(&mut self.g, wb[1]);
+        apply(&mut self.b, wb[2]);
+    }
+
+    pub fn normalize(&mut self, max_values: &[f32; 4]) {
+        let process = |img: &mut ImageLayerF32, max: f32| {
+            if max == 0.0 {
+                return;
+            }
+            let k = 1.0 / max;
+            for v in img.iter_mut() {
+                *v *= k;
+            }
+        };
+
+        if self.is_greyscale() {
+            process(&mut self.l, max_values[0]);
+        } else {
+            process(&mut self.r, max_values[0]);
+            process(&mut self.g, max_values[1]);
+            process(&mut self.b, max_values[2]);
+        }
+    }
+
+    pub fn convert_color_space_to_srgb(&mut self, cam_to_rgb: &Option<[f32; 9]>) {
+        if self.is_greyscale() {
+            return;
+        }
+
+        if let Some(cam_to_rgb) = cam_to_rgb {
+            for (r, g, b) in izip!(self.r.iter_mut(), self.g.iter_mut(), self.b.iter_mut()) {
+                let r0 = *r;
+                let g0 = *g;
+                let b0 = *b;
+                *r = r0*cam_to_rgb[0] + g0*cam_to_rgb[3] + b0*cam_to_rgb[6];
+                *g = r0*cam_to_rgb[1] + g0*cam_to_rgb[4] + b0*cam_to_rgb[7];
+                *b = r0*cam_to_rgb[2] + g0*cam_to_rgb[5] + b0*cam_to_rgb[8];
+            }
+            return;
+        }
+    }
 }
 
 /*****************************************************************************/

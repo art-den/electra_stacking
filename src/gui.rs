@@ -12,7 +12,7 @@ use gettextrs::*;
 use itertools::*;
 use crate::{
     gtk_utils::*,
-    image_formats::*,
+    image_io::*,
     image_raw::*,
     stacking_utils::*,
     light_file::*,

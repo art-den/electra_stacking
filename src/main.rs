@@ -10,7 +10,7 @@ mod image;
 mod image_norm;
 mod image_raw;
 mod cameras_database;
-mod image_formats;
+mod image_io;
 mod light_file;
 mod fs_utils;
 mod log_utils;

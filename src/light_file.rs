@@ -2,7 +2,7 @@ use std::path::*;
 use serde::*;
 use bitflags::bitflags;
 use itertools::Itertools;
-use crate::{image::*, image_formats::*, image_raw::*, stars::*, log_utils::*, calc::*};
+use crate::{image::*, image_io::*, image_raw::*, stars::*, log_utils::*, calc::*};
 
 
 bitflags! { pub struct LoadLightFlags: u32 {
@@ -117,18 +117,18 @@ impl LightFile {
 
                 if raw_params.apply_wb && !result.is_greyscale() {
                     let tmr = TimeLogger::start();
-                    raw.info.apply_wb(&mut result);
+                    result.apply_wb(&raw.info.wb);
                     tmr.log("apply_wb");
                 }
 
                 if raw_params.apply_color && raw_params.apply_wb {
                     let tmr = TimeLogger::start();
-                    raw.info.convert_color_space_to_srgb(&mut result);
+                    result.convert_color_space_to_srgb(&raw.info.cam_to_rgb);
                     tmr.log("convert_color_space_to_srgb");
                 }
 
                 let tmr = TimeLogger::start();
-                raw.info.normalize_image(&mut result);
+                result.normalize(&raw.info.max_values);
                 tmr.log("normalize_image");
 
                 let mut overexposures = raw.get_overexposures();
