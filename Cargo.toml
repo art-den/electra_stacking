@@ -25,7 +25,7 @@ flexi_logger = "0"
 rayon = "1.5"
 bitstream-io = "1.5"
 async-channel = "2.0"
-gtk = "0.18.1"
+gtk = "0.18.2"
 uuid = { version = "1", features = [ "v4" ] }
 dirs = "4.0"
 chrono = { version = "0.4", features = [ "serde" ] }
@@ -36,6 +36,7 @@ fitsio = "0.20"
 path-absolutize = "3.0"
 pathdiff = "0.2"
 rand = "0.8" # for compressor tests
+macros = { path = "./macros" }
 
 [target.'cfg(windows)'.build-dependencies]
 embed-resource = "1.7"

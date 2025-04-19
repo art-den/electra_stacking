@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Generated with glade 3.40.0 -->
+<!-- Generated with glade 3.38.2 -->
 <interface>
   <requires lib="gtk+" version="3.24"/>
   <object class="GtkAdjustment" id="gamma_adjustment">
@@ -224,7 +224,7 @@
       <pattern>*.es_proj</pattern>
     </patterns>
   </object>
-  <object class="GtkApplicationWindow" id="main_window">
+  <object class="GtkApplicationWindow" id="window">
     <property name="can-focus">False</property>
     <property name="default-width">800</property>
     <property name="default-height">600</property>
@@ -475,7 +475,7 @@
                             <property name="visible">True</property>
                             <property name="can-focus">False</property>
                             <child>
-                              <object class="GtkRadioMenuItem" id="dark_theme_mi">
+                              <object class="GtkRadioMenuItem" id="mi_dark_theme">
                                 <property name="visible">True</property>
                                 <property name="can-focus">False</property>
                                 <property name="action-name">win.dark_theme</property>
@@ -485,13 +485,13 @@
                               </object>
                             </child>
                             <child>
-                              <object class="GtkRadioMenuItem" id="light_theme_mi">
+                              <object class="GtkRadioMenuItem" id="mi_light_theme">
                                 <property name="visible">True</property>
                                 <property name="can-focus">False</property>
                                 <property name="label" translatable="yes">Light theme</property>
                                 <property name="use-underline">True</property>
                                 <property name="draw-as-radio">True</property>
-                                <property name="group">dark_theme_mi</property>
+                                <property name="group">mi_dark_theme</property>
                               </object>
                             </child>
                           </object>
@@ -655,7 +655,7 @@
                         <property name="orientation">vertical</property>
                         <property name="spacing">5</property>
                         <child>
-                          <object class="GtkLabel" id="preview_file_name">
+                          <object class="GtkLabel" id="preview_fname">
                             <property name="visible">True</property>
                             <property name="can-focus">False</property>
                             <property name="halign">start</property>
@@ -859,7 +859,7 @@
                   </packing>
                 </child>
                 <child>
-                  <object class="GtkScrolledWindow" id="preview_image_scrolled">
+                  <object class="GtkScrolledWindow" id="scr_preview_image">
                     <property name="visible">True</property>
                     <property name="can-focus">True</property>
                     <property name="kinetic-scrolling">False</property>
@@ -902,7 +902,7 @@
           </packing>
         </child>
         <child>
-          <object class="GtkBox" id="progress_container">
+          <object class="GtkBox" id="progress_box">
             <property name="visible">True</property>
             <property name="can-focus">False</property>
             <property name="orientation">vertical</property>

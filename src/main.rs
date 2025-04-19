@@ -89,4 +89,8 @@ fn panic_handler(panic_info: &std::panic::PanicHookInfo) {
     if let Some(loc) = panic_info.location() {
         log::error!("Panic location: {}", loc);
     }
+
+    eprintln!("{}", payload_str.unwrap_or_default());
+    eprintln!("{}", panic_info.location().map(|loc| loc.to_string()).unwrap_or_default());
+
 }
