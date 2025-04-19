@@ -70,7 +70,7 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn panic_handler(panic_info: &std::panic::PanicInfo) {
+fn panic_handler(panic_info: &std::panic::PanicHookInfo) {
     let payload_str =
         if let Some(msg) = panic_info.payload().downcast_ref::<&'static str>() {
             Some(*msg)

@@ -1,4 +1,3 @@
-
 use std::{rc::Rc, path::*, thread, collections::*, cell::*};
 use std::sync::{*, atomic::{AtomicBool, Ordering}};
 use gtk::{

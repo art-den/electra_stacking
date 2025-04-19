@@ -1,4 +1,4 @@
-use std::collections::{VecDeque,HashSet};
+use std::collections::{HashSet, VecDeque};
 use itertools::izip;
 use rayon::prelude::*;
 use crate::calc::*;
@@ -547,10 +547,18 @@ impl ImageLayer<f32> {
         }
     }
 
-    pub fn set_novalue_as_zero(&mut self) {
+    pub fn set_novalue_as_median(&mut self) {
+        if self.data.is_empty() {
+            return;
+        }
+        let mut data_copy = Vec::new();
+        data_copy.extend_from_slice(&self.data);
+        data_copy.retain(|v| *v != NO_VALUE_F32);
+        let len2 = data_copy.len() / 2;
+        let median = *data_copy.select_nth_unstable_by(len2, cmp_f32).1;
         for v in &mut self.data {
             if *v == NO_VALUE_F32 {
-                *v = 0.0;
+                *v = median;
             }
         }
     }
@@ -1062,11 +1070,11 @@ impl Image {
         self.b.fill_inf_areas();
     }
 
-    pub fn set_novalue_as_zero(&mut self) {
-        self.l.set_novalue_as_zero();
-        self.r.set_novalue_as_zero();
-        self.g.set_novalue_as_zero();
-        self.b.set_novalue_as_zero();
+    pub fn set_novalue_as_median(&mut self) {
+        self.l.set_novalue_as_median();
+        self.r.set_novalue_as_median();
+        self.g.set_novalue_as_median();
+        self.b.set_novalue_as_median();
     }
 
     pub fn fill_inf_areas_with_one(&mut self) {
