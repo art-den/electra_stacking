@@ -1,11 +1,7 @@
 use std::rc::Rc;
 
 use gettextrs::gettext;
-use gtk::{
-    prelude::*,
-    glib::clone,
-    glib,
-};
+use gtk::{prelude::*, glib::clone, glib};
 
 use macros::FromBuilder;
 
@@ -13,7 +9,7 @@ use crate::{gtk_utils::set_dialog_default_button, ui_main::get_prj_tree_store_co
 
 
 pub struct PrjColumnsDialog {
-    widgets: Widgets,
+    widgets:      Widgets,
     project_tree: gtk::TreeView,
 }
 

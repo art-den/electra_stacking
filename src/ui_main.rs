@@ -10,6 +10,7 @@ use gtk::{
 use gettextrs::*;
 use itertools::*;
 use macros::FromBuilder;
+use crate::ui_about_dialog::show_about_dialog;
 use crate::ui_prj_columns::PrjColumnsDialog;
 use crate::{
     gtk_utils::*,
@@ -3014,29 +3015,7 @@ impl MainWindow {
     }
 
     fn action_about(self: &Rc<Self>) {
-        let builder = gtk::Builder::from_string(include_str!("ui/about_dialog.ui"));
-        let dialog = builder.object::<gtk::Dialog>("dialog").unwrap();
-        let image = builder.object::<gtk::Image>("image").unwrap();
-        let btn_close = builder.object::<gtk::Button>("btn_close").unwrap();
-        let l_version = builder.object::<gtk::Label>("l_version").unwrap();
-        let l_app_descr = builder.object::<gtk::Label>("l_app_descr").unwrap();
-        let logo_image = gdk_pixbuf::Pixbuf::from_read(include_bytes!(
-            r"ui/electra_128x128.png"
-        ).as_slice()).unwrap();
-        if l_app_descr.label() == "APP_DESCRIPTION" {
-            l_app_descr.set_label(env!("CARGO_PKG_DESCRIPTION"))
-        }
-        image.set_pixbuf(Some(&logo_image));
-        l_version.set_label(&format!("v{}", env!("CARGO_PKG_VERSION")));
-        if gettext("cur_lang") == "ru" {
-            let lb_lb_discussion = builder.object::<gtk::LinkButton>("lb_discussion").unwrap();
-            lb_lb_discussion.set_label("Обсудить на форуме astronomy.ru");
-            lb_lb_discussion.set_uri("https://astronomy.ru/forum/index.php/topic,201076.0.html");
-        }
-        dialog.set_transient_for(Some(&self.widgets.window));
-        set_dialog_default_button(&dialog);
-        dialog.show();
-        btn_close.connect_clicked(move |_| dialog.close());
+        show_about_dialog(Some(&self.widgets.window));
     }
 
     fn action_project_columns(self: &Rc<Self>) {
