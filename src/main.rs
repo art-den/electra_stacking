@@ -24,7 +24,7 @@ mod gtk_utils;
 mod config;
 mod project;
 mod str_utils;
-mod gui;
+mod ui_main;
 
 use gtk::prelude::*;
 use gettextrs::*;
@@ -62,7 +62,7 @@ fn main() -> anyhow::Result<()> {
         Some("com.github.art-den.electra-stacking"),
         Default::default(),
     );
-    application.connect_activate(crate::gui::build_ui);
+    application.connect_activate(crate::ui_main::build_ui);
 
     // run
     application.run();
