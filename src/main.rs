@@ -25,6 +25,7 @@ mod config;
 mod project;
 mod str_utils;
 mod ui_main;
+mod ui_prj_columns;
 
 use gtk::prelude::*;
 use gettextrs::*;

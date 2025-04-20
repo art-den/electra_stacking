@@ -10,6 +10,7 @@ use gtk::{
 use gettextrs::*;
 use itertools::*;
 use macros::FromBuilder;
+use crate::ui_prj_columns::PrjColumnsDialog;
 use crate::{
     gtk_utils::*,
     image_io::*,
@@ -207,7 +208,7 @@ struct MainWindow {
 }
 
 #[derive(PartialEq, Clone, Copy, Debug)]
-enum ColIdx {
+pub enum ColIdx {
     None = -1,
     FileName = 0,
     FilePath,
@@ -275,7 +276,7 @@ enum PreviewFileMode {
     FlatFile,
 }
 
-fn get_prj_tree_store_columns() -> Vec::<(&'static str, &'static str, ColIdx, ColIdx, glib::Type)> {
+pub fn get_prj_tree_store_columns() -> Vec::<(&'static str, &'static str, ColIdx, ColIdx, glib::Type)> {
     vec![
       // Column name in tree | ID       | Model column       | Sort model column | Model column type
         ("Project/File name", "filename", ColIdx::FileName,    ColIdx::FileSort,   String::static_type()),
@@ -3039,57 +3040,11 @@ impl MainWindow {
     }
 
     fn action_project_columns(self: &Rc<Self>) {
-        let builder = gtk::Builder::from_string(include_str!("ui/columns_selector.ui"));
-        let dialog = builder.object::<gtk::Dialog>("columns_delector").unwrap();
-        let list = builder.object::<gtk::TreeView>("lv_list").unwrap();
-        let btn_close = builder.object::<gtk::Button>("btn_close").unwrap();
-        const COLUMN_CHECK: i32 = 0;
-        const COLUMN_NAME: i32 = 1;
-        const COLUMN_ID: i32 = 2;
-        let model = gtk::ListStore::new(&[
-            bool::static_type(),
-            String::static_type(),
-            String::static_type(),
-        ]);
-        let col = gtk::TreeViewColumn::builder()
-            .title("Name")
-            .resizable(true)
-            .clickable(true)
-            .build();
-        let cell_check = gtk::CellRendererToggle::builder()
-            .activatable(true)
-            .mode(gtk::CellRendererMode::Activatable)
-            .sensitive(true)
-            .build();
-        let cell_text = gtk::CellRendererText::new();
-        TreeViewColumnExt::pack_start(&col, &cell_check, false);
-        TreeViewColumnExt::pack_start(&col, &cell_text, true);
-        TreeViewColumnExt::add_attribute(&col, &cell_text, "text", COLUMN_NAME);
-        TreeViewColumnExt::add_attribute(&col, &cell_check, "active", COLUMN_CHECK);
-        list.append_column(&col);
-        let tree_columns = get_prj_tree_store_columns();
-        for i in 0..self.widgets.project_tree.n_columns() {
-            let tree_col = self.widgets.project_tree.column(i as i32).unwrap();
-            let name = tree_columns[i as usize].0;
-            let id = tree_columns[i as usize].1;
-            model.insert_with_values(None, &[
-                (COLUMN_CHECK as u32, &tree_col.is_visible()),
-                (COLUMN_NAME as u32, &gettext(name)),
-                (COLUMN_ID as u32, &id),
-            ]);
-        }
-        list.set_model(Some(&model));
-        cell_check.connect_toggled(clone!(@weak self as self_, @weak model => move |_, path| {
-            let values = path.indices();
-            let tree_col = self_.widgets.project_tree.column(values[0]).unwrap();
-            tree_col.set_visible(!tree_col.is_visible());
-            let iter = model.iter(&path).unwrap();
-            model.set(&iter, &[(COLUMN_CHECK as u32, &tree_col.is_visible())])
-        }));
-        dialog.set_transient_for(Some(&self.widgets.window));
-        set_dialog_default_button(&dialog);
-        dialog.show();
-        btn_close.connect_clicked(move |_| dialog.close());
+        let dialog = PrjColumnsDialog::new(
+            Some(&self.widgets.window),
+            &self.widgets.project_tree
+        );
+        dialog.exec();
     }
 
 }
