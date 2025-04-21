@@ -25,8 +25,9 @@ mod config;
 mod project;
 mod str_utils;
 mod ui_main;
-mod ui_prj_columns;
+mod ui_prj_columns_dialog;
 mod ui_about_dialog;
+mod ui_move_file_to_group_dialog;
 
 use gtk::prelude::*;
 use gettextrs::*;

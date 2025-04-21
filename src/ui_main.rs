@@ -11,7 +11,8 @@ use gettextrs::*;
 use itertools::*;
 use macros::FromBuilder;
 use crate::ui_about_dialog::show_about_dialog;
-use crate::ui_prj_columns::PrjColumnsDialog;
+use crate::ui_move_file_to_group_dialog::MoveFileToGroupDialog;
+use crate::ui_prj_columns_dialog::PrjColumnsDialog;
 use crate::{
     gtk_utils::*,
     image_io::*,
@@ -57,7 +58,7 @@ pub fn build_ui(application: &gtk::Application) {
     let main_window = Rc::new(MainWindow {
         widgets,
         icons,
-        project: RefCell::new(project),
+        project: Rc::new(RefCell::new(project)),
         config: RefCell::new(config),
         prj_tree_is_building: Cell::new(false),
         last_preview_file: RefCell::new(PathBuf::new()),
@@ -193,7 +194,7 @@ struct Icons {
 struct MainWindow {
     widgets: Widgets,
     icons: Icons,
-    project: RefCell<Project>,
+    project: Rc<RefCell<Project>>,
     config: RefCell<Config>,
     last_preview_file: RefCell<PathBuf>,
     preview_tp: rayon::ThreadPool,
@@ -242,7 +243,7 @@ pub enum ColIdx {
 }
 
 #[derive(PartialEq, Clone)]
-enum SelItemType {
+pub enum SelItemType {
     None,
     Project,
     Group,
@@ -251,11 +252,11 @@ enum SelItemType {
 }
 
 #[derive(Clone)]
-struct SelectedItem {
-    item_type: SelItemType,
-    group_idx: Option<usize>,
-    file_type: Option<ProjectFileType>,
-    files: Vec<usize>,
+pub struct SelectedItem {
+    pub item_type: SelItemType,
+    pub group_idx: Option<usize>,
+    pub file_type: Option<ProjectFileType>,
+    pub files: Vec<usize>,
 }
 
 impl SelectedItem {
@@ -2876,94 +2877,23 @@ impl MainWindow {
         if selection.item_type != SelItemType::File {
             return;
         }
+        let dialog = MoveFileToGroupDialog::new(
+            Some(&self.widgets.window),
+            &self.project
+        );
+        let self_ = Rc::clone(&self);
 
-        let builder = gtk::Builder::from_string(include_str!("ui/move_files_to_group_dialog.ui"));
-        let dialog = builder.object::<gtk::Dialog>("dialog").unwrap();
-        let rbtn_existing_group = builder.object::<gtk::RadioButton>("rbtn_existing_group").unwrap();
-        let rbtn_new_group = builder.object::<gtk::RadioButton>("rbtn_new_group").unwrap();
-        let cbx_existing_groups = builder.object::<gtk::ComboBoxText>("cbx_existing_groups").unwrap();
-        let e_new_group = builder.object::<gtk::Entry>("e_new_group").unwrap();
+        let ok_fun = move || {
+            self_.update_project_tree();
+            self_.update_project_name_and_time_in_gui();
+        };
 
-        dialog.set_transient_for(Some(&self.widgets.window));
-        if cfg!(target_os = "windows") {
-            dialog.add_buttons(&[
-                (&gettext("_Ok"), gtk::ResponseType::Ok),
-                (&gettext("_Cancel"), gtk::ResponseType::Cancel),
-            ]);
-        } else {
-            dialog.add_buttons(&[
-                (&gettext("_Cancel"), gtk::ResponseType::Cancel),
-                (&gettext("_Ok"), gtk::ResponseType::Ok),
-            ]);
-        }
-
-        let project = self.project.borrow();
-        for (idx, group) in project.groups().iter().enumerate() {
-            if Some(idx) != selection.group_idx {
-                cbx_existing_groups.append(Some(group.uuid()), &group.name(idx));
-            }
-        }
-        let move_to_group_last_uuid = self.move_to_group_last_uuid.borrow();
-        if !move_to_group_last_uuid.is_empty() {
-            cbx_existing_groups.set_active_id(Some(&*move_to_group_last_uuid));
-        }
-
-        if project.groups().len() <= 1 {
-            rbtn_existing_group.set_sensitive(false);
-            rbtn_new_group.set_active(true);
-        } else {
-            rbtn_existing_group.set_active(true);
-        }
-
-        drop(project);
-
-        cbx_existing_groups.set_sensitive(rbtn_existing_group.is_active());
-        e_new_group.set_sensitive(rbtn_new_group.is_active());
-
-        rbtn_existing_group.connect_clicked(clone!(@strong cbx_existing_groups => move |rb| {
-            cbx_existing_groups.set_sensitive(rb.is_active());
-        }));
-
-        rbtn_new_group.connect_clicked(clone!(@strong e_new_group => move |rb| {
-            e_new_group.set_sensitive(rb.is_active());
-        }));
-
-        dialog.connect_response(clone!(@strong self as self_ => move |dlg, resp| {
-            if resp == gtk::ResponseType::Ok {
-                let mut project = self_.project.borrow_mut();
-                let group_id = if rbtn_new_group.is_active() {
-                    let mut group_options = GroupOptions::default();
-                    let new_group_name = e_new_group.text().to_string().trim().to_string();
-                    if !new_group_name.is_empty() {
-                        group_options.name = Some(new_group_name);
-                    }
-                    project.add_new_group(group_options);
-                    project.groups().last().unwrap().uuid().to_string()
-                } else {
-                    match cbx_existing_groups.active_id() {
-                        Some(s) => s.to_string(),
-                        _ => return,
-                    }
-                };
-
-                let from_group = project.group_by_index_mut(selection.group_idx.unwrap());
-                let from_folder = from_group.file_list_by_type_mut(selection.file_type.unwrap());
-                let files_to_move = from_folder.remove_files_by_idx(selection.files.clone());
-
-                let to_group = project.find_group_by_uuid_mut(&group_id).unwrap();
-                let to_folder = to_group.file_list_by_type_mut(selection.file_type.unwrap());
-
-                to_folder.add_files(files_to_move);
-                drop(project);
-
-                self_.update_project_tree();
-                self_.update_project_name_and_time_in_gui();
-            }
-            dlg.close();
-        }));
-
-        set_dialog_default_button(&dialog);
-        dialog.show();
+        let move_to_group_last_uuid = self.move_to_group_last_uuid.borrow().clone();
+        dialog.exec(
+            selection,
+            &move_to_group_last_uuid,
+            ok_fun
+        );
     }
 
     fn action_check_all_files(self: &Rc<Self>) {
