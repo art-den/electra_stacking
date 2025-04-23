@@ -13,13 +13,13 @@ use macros::FromBuilder;
 use crate::ui_about_dialog::show_about_dialog;
 use crate::ui_move_file_to_group_dialog::MoveFileToGroupDialog;
 use crate::ui_prj_columns_dialog::PrjColumnsDialog;
+use crate::ui_project_options_dialog::ProjectOptionsDialog;
 use crate::{
     gtk_utils::*,
     image_io::*,
     image_raw::*,
     stacking_utils::*,
     light_file::*,
-    calc::*,
     image,
     progress::*,
     config::*,
@@ -2278,186 +2278,17 @@ impl MainWindow {
     }
 
     fn action_project_options(self: &Rc<Self>) {
-        self.configure_project_options(
-            self.project.borrow().config().clone(),
-            clone!(@strong self as self_ => move |new_config| {
-                log::info!("New project options:\n{:#?}", new_config);
-                self_.project.borrow_mut().set_new_config(new_config);
-                self_.update_project_tree();
-                self_.update_project_name_and_time_in_gui();
-
-                *self_.last_preview_file.borrow_mut() = PathBuf::new();
-                self_.preview_selected_file();
-            })
+        let dialog = ProjectOptionsDialog::new(
+            Some(&self.widgets.window),
+            &self.project
         );
-    }
-
-    fn configure_project_options(
-        self:           &Rc<Self>,
-        project_config: ProjectConfig,
-        set_fun:        impl Fn(ProjectConfig) + 'static,
-    ) {
-        let builder = gtk::Builder::from_string(include_str!("ui/project_options_dialog.ui"));
-        let dialog = builder.object::<gtk::Dialog>("project_options_dialog").unwrap();
-        let project_name = builder.object::<gtk::Entry>("project_name").unwrap();
-        let img_size = builder.object::<gtk::ComboBoxText>("img_size").unwrap();
-        let res_img_type = builder.object::<gtk::ComboBoxText>("res_img_type").unwrap();
-        let align_rgb = builder.object::<gtk::CheckButton>("chb_align_rgb").unwrap();
-        let align_rgb_each = builder.object::<gtk::CheckButton>("chb_align_rgb_each").unwrap();
-        let lights_stack_mode = builder.object::<gtk::ComboBoxText>("lights_stack_mode").unwrap();
-        let lights_stack_kappa = builder.object::<gtk::Entry>("lights_stack_kappa").unwrap();
-        let lights_stack_steps = builder.object::<gtk::Entry>("lights_stack_steps").unwrap();
-        let darks_stack_mode = builder.object::<gtk::ComboBoxText>("darks_stack_mode").unwrap();
-        let darks_stack_kappa = builder.object::<gtk::Entry>("darks_stack_kappa").unwrap();
-        let darks_stack_steps = builder.object::<gtk::Entry>("darks_stack_steps").unwrap();
-        let flats_stack_mode = builder.object::<gtk::ComboBoxText>("flats_stack_mode").unwrap();
-        let flats_stack_kappa = builder.object::<gtk::Entry>("flats_stack_kappa").unwrap();
-        let flats_stack_steps = builder.object::<gtk::Entry>("flats_stack_steps").unwrap();
-        let bias_stack_mode = builder.object::<gtk::ComboBoxText>("bias_stack_mode").unwrap();
-        let bias_stack_kappa = builder.object::<gtk::Entry>("bias_stack_kappa").unwrap();
-        let bias_stack_steps = builder.object::<gtk::Entry>("bias_stack_steps").unwrap();
-
-        let cb_cfa_array = builder.object::<gtk::ComboBoxText>("cb_cfa_array").unwrap();
-        let chb_apply_wb = builder.object::<gtk::CheckButton>("chb_apply_wb").unwrap();
-        let chb_apply_color = builder.object::<gtk::CheckButton>("chb_apply_color").unwrap();
-
-        let chb_save_calibrated_img = builder.object::<gtk::CheckButton>("chb_save_calibrated_img").unwrap();
-        let chb_save_common_star_img = builder.object::<gtk::CheckButton>("chb_save_common_star_img").unwrap();
-
-        project_name.set_text(project_config.name.as_ref().unwrap_or(&String::new()).as_str());
-
-        img_size.set_active(Some(match project_config.image_size {
-            ImageSize::Original => 0,
-            ImageSize::Bin2x2 => 1,
-        }));
-
-        res_img_type.set_active(Some(match project_config.res_img_type {
-            ResFileType::Fit => 0,
-            ResFileType::Tif => 1,
-        }));
-
-        align_rgb.set_active(project_config.align_rgb);
-        align_rgb_each.set_active(project_config.align_rgb_each);
-
-        let show_calc_opts = |opts: &CalcOpts, mode: &gtk::ComboBoxText, kappa: &gtk::Entry, steps: &gtk::Entry| {
-            mode.append_text("Kappa-Sigma clipping");
-            mode.append_text(&gettext("Median"));
-            mode.append_text(&gettext("Mean"));
-
-            mode.set_active(Some(match opts.mode {
-                CalcMode::CappaSigma => 0,
-                CalcMode::Median => 1,
-                CalcMode::Mean => 2,
-            }));
-            kappa.set_text(&format!("{:.1}", opts.kappa));
-            kappa.set_sensitive(opts.mode == CalcMode::CappaSigma);
-            steps.set_text(&format!("{}", opts.repeats));
-            steps.set_sensitive(opts.mode == CalcMode::CappaSigma);
-
-            mode.connect_changed(clone!(@strong kappa, @strong steps => move |cb| {
-                kappa.set_sensitive(cb.active() == Some(0));
-                steps.set_sensitive(cb.active() == Some(0));
-            }));
-        };
-
-        show_calc_opts(&project_config.light_calc_opts, &lights_stack_mode, &lights_stack_kappa, &lights_stack_steps);
-        show_calc_opts(&project_config.dark_calc_opts, &darks_stack_mode, &darks_stack_kappa, &darks_stack_steps);
-        show_calc_opts(&project_config.flat_calc_opts, &flats_stack_mode, &flats_stack_kappa, &flats_stack_steps);
-        show_calc_opts(&project_config.bias_calc_opts, &bias_stack_mode, &bias_stack_kappa, &bias_stack_steps);
-
-        chb_save_calibrated_img.set_active(project_config.save_aligned_img);
-        chb_save_common_star_img.set_active(project_config.save_common_star_img);
-
-        cb_cfa_array.set_active(Some(match project_config.raw_params.force_cfa {
-            None                => 0,
-            Some(CfaType::GBRG) => 1,
-            Some(CfaType::RGGB) => 2,
-            Some(CfaType::BGGR) => 3,
-            Some(CfaType::GRBG) => 4,
-        }));
-
-        chb_apply_wb.set_active(project_config.raw_params.apply_wb);
-        chb_apply_color.set_active(project_config.raw_params.apply_color);
-        chb_apply_color.set_sensitive(chb_apply_wb.is_active());
-
-        chb_apply_wb.connect_active_notify(clone!(@strong chb_apply_color => move |v| {
-            chb_apply_color.set_sensitive(v.is_active());
-        }));
-
-        dialog.set_transient_for(Some(&self.widgets.window));
-
-        if cfg!(target_os = "windows") {
-            dialog.add_buttons(&[
-                (&gettext("_Ok"), gtk::ResponseType::Ok),
-                (&gettext("_Cancel"), gtk::ResponseType::Cancel),
-            ]);
-        } else {
-            dialog.add_buttons(&[
-                (&gettext("_Cancel"), gtk::ResponseType::Cancel),
-                (&gettext("_Ok"), gtk::ResponseType::Ok),
-            ]);
-        }
-
-        dialog.connect_response(move |dialog, response| {
-            if response == gtk::ResponseType::Ok {
-                let mut project_config = project_config.clone();
-
-                let get_calc_opts = |opts: &mut CalcOpts, mode: &gtk::ComboBoxText, kappa: &gtk::Entry, steps: &gtk::Entry| {
-                    opts.mode = match mode.active() {
-                        Some(0) => CalcMode::CappaSigma,
-                        Some(1) => CalcMode::Median,
-                        Some(2) => CalcMode::Mean,
-                        _ => panic!("Wrong mode.active(): {:?}", mode.active()),
-                    };
-                    opts.kappa = kappa.text().as_str().parse().unwrap_or(opts.kappa);
-                    opts.repeats = steps.text().as_str().parse().unwrap_or(opts.repeats);
-                };
-
-                get_calc_opts(&mut project_config.light_calc_opts, &lights_stack_mode, &lights_stack_kappa, &lights_stack_steps);
-                get_calc_opts(&mut project_config.dark_calc_opts, &darks_stack_mode, &darks_stack_kappa, &darks_stack_steps);
-                get_calc_opts(&mut project_config.flat_calc_opts, &flats_stack_mode, &flats_stack_kappa, &flats_stack_steps);
-                get_calc_opts(&mut project_config.bias_calc_opts, &bias_stack_mode, &bias_stack_kappa, &bias_stack_steps);
-
-                let name = project_name.text();
-                project_config.name = if !name.is_empty() { Some(name.to_string()) } else { None };
-
-                project_config.image_size = match img_size.active() {
-                    Some(0) => ImageSize::Original,
-                    Some(1) => ImageSize::Bin2x2,
-                    _ => panic!("Wrong img_size.active(): {:?}", img_size.active()),
-                };
-
-                project_config.res_img_type = match res_img_type.active() {
-                    Some(0) => ResFileType::Fit,
-                    Some(1) => ResFileType::Tif,
-                    _ => panic!("Wrong res_img_type.active(): {:?}", res_img_type.active()),
-                };
-
-                project_config.align_rgb = align_rgb.is_active();
-                project_config.align_rgb_each = align_rgb_each.is_active();
-
-                project_config.save_aligned_img = chb_save_calibrated_img.is_active();
-                project_config.save_common_star_img = chb_save_common_star_img.is_active();
-
-                project_config.raw_params.force_cfa = match cb_cfa_array.active() {
-                    Some(0) => None,
-                    Some(1) => Some(CfaType::GBRG),
-                    Some(2) => Some(CfaType::RGGB),
-                    Some(3) => Some(CfaType::BGGR),
-                    Some(4) => Some(CfaType::GRBG),
-                    _ => panic!("Wrong cb_cfa_array.active(): {:?}", cb_cfa_array.active()),
-                };
-
-                project_config.raw_params.apply_wb = chb_apply_wb.is_active();
-                project_config.raw_params.apply_color = chb_apply_color.is_active();
-
-                set_fun(project_config);
-            }
-            dialog.close();
+        let self_ = Rc::clone(&self);
+        dialog.exec(move || {
+            self_.update_project_tree();
+            self_.update_project_name_and_time_in_gui();
+            *self_.last_preview_file.borrow_mut() = PathBuf::new();
+            self_.preview_selected_file();
         });
-
-        set_dialog_default_button(&dialog);
-        dialog.show();
     }
 
     fn check_all_light_files_are_registered(self: &Rc<Self>) -> bool {
