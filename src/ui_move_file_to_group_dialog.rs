@@ -5,7 +5,7 @@ use gtk::{prelude::*, glib::clone};
 
 use macros::FromBuilder;
 
-use crate::{gtk_utils::set_dialog_default_button, project::{GroupOptions, Project}, ui_main::SelectedItem};
+use crate::{gtk_utils::{add_ok_and_cancel_buttons, set_dialog_default_button}, project::{GroupOptions, Project}, ui_main::SelectedItem};
 
 pub struct MoveFileToGroupDialog {
     widgets: Widgets,
@@ -30,6 +30,14 @@ impl MoveFileToGroupDialog {
 
         widgets.dialog.set_transient_for(parent);
 
+        add_ok_and_cancel_buttons(
+            &widgets.dialog,
+            &gettext("_Ok"), gtk::ResponseType::Ok,
+            &gettext("_Cancel"), gtk::ResponseType::Cancel
+        );
+
+        set_dialog_default_button(&widgets.dialog);
+
         Rc::new(MoveFileToGroupDialog{
             widgets,
             project: Rc::clone(project)
@@ -42,18 +50,6 @@ impl MoveFileToGroupDialog {
         move_to_group_last_uuid: &str,
         ok_fun: impl Fn() + 'static
     ) {
-        if cfg!(target_os = "windows") {
-            self.widgets.dialog.add_buttons(&[
-                (&gettext("_Ok"), gtk::ResponseType::Ok),
-                (&gettext("_Cancel"), gtk::ResponseType::Cancel),
-            ]);
-        } else {
-            self.widgets.dialog.add_buttons(&[
-                (&gettext("_Cancel"), gtk::ResponseType::Cancel),
-                (&gettext("_Ok"), gtk::ResponseType::Ok),
-            ]);
-        }
-
         let project = self.project.borrow();
         let mut groups_in_cb = Vec::new();
         for (idx, group) in project.groups().iter().enumerate() {

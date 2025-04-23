@@ -565,19 +565,12 @@ impl MainWindow {
             .message_type(gtk::MessageType::Question)
             .build();
 
-        if cfg!(target_os = "windows") {
-            dialog.add_buttons(&[
-                (&gettext("_Yes"), gtk::ResponseType::Yes),
-                (&gettext("_No"), gtk::ResponseType::No),
-                (&gettext("_Cancel"), gtk::ResponseType::Cancel),
-            ]);
-        } else {
-            dialog.add_buttons(&[
-                (&gettext("_Cancel"), gtk::ResponseType::Cancel),
-                (&gettext("_No"), gtk::ResponseType::No),
-                (&gettext("_Yes"), gtk::ResponseType::Yes),
-            ]);
-        }
+        add_yes_no_and_cancel_buttons(
+            dialog.upcast_ref(),
+            &gettext("_Yes"), gtk::ResponseType::Yes,
+            &gettext("_No"), gtk::ResponseType::No,
+            &gettext("_Cancel"), gtk::ResponseType::Cancel
+        );
 
         let response = dialog.run();
         dialog.close();
@@ -1424,6 +1417,8 @@ impl MainWindow {
             &gettext("_Cancel"), gtk::ResponseType::Cancel
         );
 
+        set_dialog_default_button(&fc.upcast_ref());
+
         fc.connect_response(clone!(@strong self as self_ => move |file_chooser, response| {
             if response == gtk::ResponseType::Accept {
                 let file_name = file_chooser.file().expect("Can't get file_name");
@@ -1478,6 +1473,7 @@ impl MainWindow {
             &gettext("_Cancel"), gtk::ResponseType::Cancel
         );
 
+        set_dialog_default_button(&fc.upcast_ref());
 
         if let Some(file_name) = self.project.borrow().file_name() {
             let _ = fc.set_file(&gio::File::for_path(file_name));
@@ -1646,6 +1642,8 @@ impl MainWindow {
             &gettext("_Cancel"), gtk::ResponseType::Cancel
         );
 
+        set_dialog_default_button(&fc.upcast_ref());
+
         fc
     }
 
@@ -1692,17 +1690,14 @@ impl MainWindow {
             cb_group.set_active(Some(selection.group_idx.unwrap_or(0) as u32));
 
             dialog.set_transient_for(Some(&self.widgets.window));
-            if cfg!(target_os = "windows") {
-                dialog.add_buttons(&[
-                    (&gettext("_Add"), gtk::ResponseType::Ok),
-                    (&gettext("_Cancel"), gtk::ResponseType::Cancel),
-                ]);
-            } else {
-                dialog.add_buttons(&[
-                    (&gettext("_Cancel"), gtk::ResponseType::Cancel),
-                    (&gettext("_Add"), gtk::ResponseType::Ok),
-                ]);
-            }
+
+            add_ok_and_cancel_buttons(
+                &dialog,
+                &gettext("_Add"), gtk::ResponseType::Ok,
+                &gettext("_Cancel"), gtk::ResponseType::Cancel,
+            );
+
+            set_dialog_default_button(&dialog);
 
             dialog.connect_response(clone!(@strong self as self_ => move |dlg, resp| {
                 if resp == gtk::ResponseType::Ok {
@@ -2189,17 +2184,13 @@ impl MainWindow {
         dialog.set_title(&title);
         dialog.set_transient_for(Some(&self.widgets.window));
 
-        if cfg!(target_os = "windows") {
-            dialog.add_buttons(&[
-                (&gettext("_Ok"), gtk::ResponseType::Ok),
-                (&gettext("_Cancel"), gtk::ResponseType::Cancel),
-            ]);
-        } else {
-            dialog.add_buttons(&[
-                (&gettext("_Cancel"), gtk::ResponseType::Cancel),
-                (&gettext("_Ok"), gtk::ResponseType::Ok),
-            ]);
-        }
+        add_ok_and_cancel_buttons(
+            &dialog,
+            &gettext("_Ok"), gtk::ResponseType::Ok,
+            &gettext("_Cancel"), gtk::ResponseType::Cancel
+        );
+
+        set_dialog_default_button(&dialog);
 
         rb_custom_name.connect_clicked(clone!(@strong e_name => move |rb| {
             e_name.set_sensitive(rb.is_active());
@@ -2247,17 +2238,13 @@ impl MainWindow {
         dialog.set_title(title);
         dialog.set_transient_for(Some(&self.widgets.window));
 
-        if cfg!(target_os = "windows") {
-            dialog.add_buttons(&[
-                ("_Ok", gtk::ResponseType::Ok),
-                ("_Cancel", gtk::ResponseType::Cancel),
-            ]);
-        } else {
-            dialog.add_buttons(&[
-                ("_Cancel", gtk::ResponseType::Cancel),
-                ("_Ok", gtk::ResponseType::Ok),
-            ]);
-        }
+        add_ok_and_cancel_buttons(
+            &dialog,
+            "_Ok", gtk::ResponseType::Ok, // TODO: translate
+            "_Cancel", gtk::ResponseType::Cancel
+        );
+
+        set_dialog_default_button(&dialog);
 
         for (idx, group) in self.project.borrow().groups().iter().enumerate() {
             groups_list.append(None, &group.name(idx));
@@ -2400,17 +2387,14 @@ impl MainWindow {
         drop(project);
 
         dialog.set_transient_for(Some(&self.widgets.window));
-        if cfg!(target_os = "windows") {
-            dialog.add_buttons(&[
-                (&gettext("_Cleanup"), gtk::ResponseType::Ok),
-                (&gettext("_Close"), gtk::ResponseType::Cancel),
-            ]);
-        } else {
-            dialog.add_buttons(&[
-                (&gettext("_Close"), gtk::ResponseType::Cancel),
-                (&gettext("_Cleanup"), gtk::ResponseType::Ok),
-            ]);
-        }
+
+        add_ok_and_cancel_buttons(
+            &dialog,
+            &gettext("_Cleanup"), gtk::ResponseType::Ok,
+            &gettext("_Close"), gtk::ResponseType::Cancel
+        );
+
+        set_dialog_default_button(&dialog);
 
         dialog.connect_response(clone!(@strong self as self_ => move |dialog, response| {
             if response == gtk::ResponseType::Ok {
@@ -2501,17 +2485,14 @@ impl MainWindow {
         let rb_min_noise = builder.object::<gtk::RadioButton>("rb_min_noise").unwrap();
 
         dialog.set_transient_for(Some(&self.widgets.window));
-        if cfg!(target_os = "windows") {
-            dialog.add_buttons(&[
-                (&gettext("_Assign"), gtk::ResponseType::Ok),
-                (&gettext("_Cancel"), gtk::ResponseType::Cancel),
-            ]);
-        } else {
-            dialog.add_buttons(&[
-                (&gettext("_Cancel"), gtk::ResponseType::Cancel),
-                (&gettext("_Assign"), gtk::ResponseType::Ok),
-            ]);
-        }
+
+        add_ok_and_cancel_buttons(
+            &dialog,
+            &gettext("_Assign"), gtk::ResponseType::Ok,
+            &gettext("_Cancel"), gtk::ResponseType::Cancel
+        );
+
+        set_dialog_default_button(&dialog);
 
         match self.project.borrow().config().ref_image_auto_mode {
             RefImageAutoMode::SmallestStars => rb_smallest_stars.set_active(true),
@@ -2671,17 +2652,13 @@ impl MainWindow {
             .message_type(gtk::MessageType::Question)
             .build();
 
-        if cfg!(target_os = "windows") {
-            dialog.add_buttons(&[
-                (&gettext("_Yes"), gtk::ResponseType::Yes),
-                (&gettext("_No"), gtk::ResponseType::No),
-            ]);
-        } else {
-            dialog.add_buttons(&[
-                (&gettext("_No"), gtk::ResponseType::No),
-                (&gettext("_Yes"), gtk::ResponseType::Yes),
-            ]);
-        }
+        add_ok_and_cancel_buttons(
+            dialog.upcast_ref(),
+            &gettext("_Yes"), gtk::ResponseType::Yes,
+            &gettext("_No"), gtk::ResponseType::No
+        );
+
+        set_dialog_default_button(dialog.upcast_ref());
 
         dialog.connect_response(clone!(@strong self as self_ => move |dlg, resp| {
             if resp == gtk::ResponseType::Yes {
@@ -2699,7 +2676,7 @@ impl MainWindow {
             dlg.close();
         }));
 
-        set_dialog_default_button(&dialog);
+        set_dialog_default_button(dialog.upcast_ref());
         dialog.show();
     }
 

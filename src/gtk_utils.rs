@@ -1,7 +1,7 @@
 use std::{rc::Rc, path::{Path, PathBuf}};
 use gtk::{prelude::*, gio, glib, glib::clone};
 
-pub fn set_dialog_default_button<T: IsA<gtk::Dialog>>(dialog: &T) {
+pub fn set_dialog_default_button(dialog: &gtk::Dialog) {
     use gtk::ResponseType::*;
     for resp in [Ok, Yes, Accept, Apply] {
         if let Some(btn) = dialog.widget_for_response(resp) {
@@ -25,6 +25,31 @@ pub fn add_ok_and_cancel_buttons(
         dialog.add_buttons(&[(cancel_cap, cancel_type), (ok_cap, ok_type)]);
     }
 }
+
+pub fn add_yes_no_and_cancel_buttons(
+    dialog:      &gtk::Dialog,
+    yes_cap:     &str,
+    yes_type:    gtk::ResponseType,
+    no_cap:      &str,
+    no_type:     gtk::ResponseType,
+    cancel_cap:  &str,
+    cancel_type: gtk::ResponseType,
+) {
+    if cfg!(target_os = "windows") {
+        dialog.add_buttons(&[
+            (yes_cap, yes_type),
+            (no_cap, no_type),
+            (cancel_cap, cancel_type),
+        ]);
+    } else {
+        dialog.add_buttons(&[
+            (cancel_cap, cancel_type),
+            (no_cap, no_type),
+            (yes_cap, yes_type),
+        ]);
+    }
+}
+
 
 pub fn disable_scroll_for_most_of_widgets(builder: &gtk::Builder) {
     for object in builder.objects() {

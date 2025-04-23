@@ -5,7 +5,7 @@ use gtk::{prelude::*, glib::clone};
 
 use macros::FromBuilder;
 
-use crate::{calc::{CalcMode, CalcOpts}, gtk_utils::set_dialog_default_button, image_raw::CfaType, project::*};
+use crate::{calc::{CalcMode, CalcOpts}, gtk_utils::{add_ok_and_cancel_buttons, set_dialog_default_button}, image_raw::CfaType, project::*};
 
 pub struct ProjectOptionsDialog {
     widgets: Widgets,
@@ -47,17 +47,11 @@ impl ProjectOptionsDialog {
         let widgets = Widgets::from_builder_str(include_str!("ui/project_options_dialog.ui"));
         widgets.dialog.set_transient_for(parent);
 
-        if cfg!(target_os = "windows") {
-            widgets.dialog.add_buttons(&[
-                (&gettext("_Ok"), gtk::ResponseType::Ok),
-                (&gettext("_Cancel"), gtk::ResponseType::Cancel),
-            ]);
-        } else {
-            widgets.dialog.add_buttons(&[
-                (&gettext("_Cancel"), gtk::ResponseType::Cancel),
-                (&gettext("_Ok"), gtk::ResponseType::Ok),
-            ]);
-        }
+        add_ok_and_cancel_buttons(
+            &widgets.dialog,
+            &gettext("_Ok"), gtk::ResponseType::Ok,
+            &gettext("_Cancel"), gtk::ResponseType::Cancel
+        );
 
         set_dialog_default_button(&widgets.dialog);
 
