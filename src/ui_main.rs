@@ -11,6 +11,7 @@ use gettextrs::*;
 use itertools::*;
 use macros::FromBuilder;
 use crate::ui_about_dialog::show_about_dialog;
+use crate::ui_assign_ref_frame_dialog::AssignRefFrameDialog;
 use crate::ui_move_file_to_group_dialog::MoveFileToGroupDialog;
 use crate::ui_prj_columns_dialog::PrjColumnsDialog;
 use crate::ui_project_options_dialog::ProjectOptionsDialog;
@@ -2473,61 +2474,22 @@ impl MainWindow {
     }
 
     fn ask_user_to_assign_ref_light_image_auto(
-        self   :              &Rc<Self>,
+        self:                 &Rc<Self>,
         start_stacking_after: bool
-    ){
-        let builder = gtk::Builder::from_string(include_str!("ui/assign_ref_light_frame.ui"));
-        let dialog = builder.object::<gtk::Dialog>("assign_key_light_frame_dialog").unwrap();
-
-        let rb_smallest_stars = builder.object::<gtk::RadioButton>("rb_smallest_stars").unwrap();
-        let rb_roundest_stars = builder.object::<gtk::RadioButton>("rb_roundest_stars").unwrap();
-        let rb_min_bg = builder.object::<gtk::RadioButton>("rb_min_bg").unwrap();
-        let rb_min_noise = builder.object::<gtk::RadioButton>("rb_min_noise").unwrap();
-
-        dialog.set_transient_for(Some(&self.widgets.window));
-
-        add_ok_and_cancel_buttons(
-            &dialog,
-            &gettext("_Assign"), gtk::ResponseType::Ok,
-            &gettext("_Cancel"), gtk::ResponseType::Cancel
+    ) {
+        let dialog = AssignRefFrameDialog::new(
+            Some(&self.widgets.window),
+            &self.project
         );
 
-        set_dialog_default_button(&dialog);
-
-        match self.project.borrow().config().ref_image_auto_mode {
-            RefImageAutoMode::SmallestStars => rb_smallest_stars.set_active(true),
-            RefImageAutoMode::RoundestStars => rb_roundest_stars.set_active(true),
-            RefImageAutoMode::MinBg         => rb_min_bg.set_active(true),
-            RefImageAutoMode::NinNoise      => rb_min_noise.set_active(true),
-        }
-
-        dialog.connect_response(clone!(@strong self as self_ => move |dialog, response| {
-            if response == gtk::ResponseType::Ok {
-                let mut project = self_.project.borrow_mut();
-                let mut config = project.config().clone();
-                config.ref_image_auto_mode =
-                    if rb_smallest_stars.is_active()      { RefImageAutoMode::SmallestStars }
-                    else if rb_roundest_stars.is_active() { RefImageAutoMode::RoundestStars }
-                    else if rb_min_bg.is_active()         { RefImageAutoMode::MinBg }
-                    else                                  { RefImageAutoMode::NinNoise };
-
-                project.set_config(config);
-                project.assign_ref_light_frame_automatically();
-
-                drop(project);
-
-                self_.update_project_tree();
-                self_.update_project_name_and_time_in_gui();
-
-                if start_stacking_after {
-                    self_.action_stack();
-                }
+        let self_ = Rc::clone(&self);
+        dialog.exec(move || {
+            self_.update_project_tree();
+            self_.update_project_name_and_time_in_gui();
+            if start_stacking_after {
+                self_.action_stack();
             }
-            dialog.close();
-        }));
-
-        set_dialog_default_button(&dialog);
-        dialog.show();
+        });
     }
 
     fn action_assign_ref_light_image(self: &Rc<Self>) {
