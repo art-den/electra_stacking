@@ -12,6 +12,7 @@ use itertools::*;
 use macros::FromBuilder;
 use crate::ui_about_dialog::show_about_dialog;
 use crate::ui_assign_ref_frame_dialog::AssignRefFrameDialog;
+use crate::ui_cleanup_dialog::CleanupDialog;
 use crate::ui_move_file_to_group_dialog::MoveFileToGroupDialog;
 use crate::ui_prj_columns_dialog::PrjColumnsDialog;
 use crate::ui_project_options_dialog::ProjectOptionsDialog;
@@ -2298,179 +2299,15 @@ impl MainWindow {
         if !self.check_all_light_files_are_registered() {
             return;
         }
-
-        let builder = gtk::Builder::from_string(include_str!("ui/cleanup_dialog.ui"));
-        let dialog = builder.object::<gtk::Dialog>("cleanup_dialog").unwrap();
-        let chbt_check_before = builder.object::<gtk::CheckButton>("check_before").unwrap();
-
-        let project = self.project.borrow();
-        chbt_check_before.set_active(project.cleanup_conf().check_before_execute);
-
-        let show_line = |
-            item: &CleanupConfItem,
-            chk_name: &str,
-            mode_name: &str,
-            kappa_name: &str,
-            repeats_name: &str,
-            percent_name: &str,
-            min_name: &str,
-            max_name: &str,
-        | -> (gtk::CheckButton, gtk::ComboBoxText, gtk::Entry, gtk::Entry, gtk::Entry, gtk::Entry, gtk::Entry) {
-            let chk_w = builder.object::<gtk::CheckButton>(chk_name).unwrap();
-            let mode_w = builder.object::<gtk::ComboBoxText>(mode_name).unwrap();
-            let kappa_w = builder.object::<gtk::Entry>(kappa_name).unwrap();
-            let repeats_w = builder.object::<gtk::Entry>(repeats_name).unwrap();
-            let percent_w = builder.object::<gtk::Entry>(percent_name).unwrap();
-            let min_w = builder.object::<gtk::Entry>(min_name).unwrap();
-            let max_w = builder.object::<gtk::Entry>(max_name).unwrap();
-
-            let correct_sensivity = |
-                chk_w: &gtk::CheckButton,
-                mode_w: &gtk::ComboBoxText,
-                kappa_w: &gtk::Entry,
-                repeats_w: &gtk::Entry,
-                percent_w: &gtk::Entry,
-                min_w: &gtk::Entry,
-                max_w: &gtk::Entry,
-            | {
-                let is_used = chk_w.is_active();
-                let sigma_clip = mode_w.active() == Some(0);
-                let percent = mode_w.active() == Some(1);
-                let min_max = mode_w.active() == Some(2);
-
-                mode_w.set_sensitive(is_used);
-                kappa_w.set_sensitive(is_used && sigma_clip);
-                repeats_w.set_sensitive(is_used && sigma_clip);
-                percent_w.set_sensitive(is_used && percent);
-                min_w.set_sensitive(is_used && min_max);
-                max_w.set_sensitive(is_used && min_max);
-            };
-
-            chk_w.connect_active_notify(clone!(@weak mode_w, @weak kappa_w, @weak repeats_w, @weak percent_w, @weak min_w, @weak max_w => move |chk| {
-                correct_sensivity(chk, &mode_w, &kappa_w, &repeats_w, &percent_w, &min_w, &max_w);
-            }));
-            chk_w.set_active(!item.used);
-            chk_w.set_active(item.used);
-
-            mode_w.connect_changed(clone!(@weak chk_w, @weak kappa_w, @weak repeats_w, @weak percent_w, @weak min_w, @weak max_w => move |cbt| {
-                correct_sensivity(&chk_w, cbt, &kappa_w, &repeats_w, &percent_w, &min_w, &max_w);
-            }));
-            mode_w.append_text(&gettext("Sigma clipping"));
-            mode_w.append_text(&gettext("Percent"));
-            mode_w.append_text(&gettext("Min/Max"));
-            match item.mode {
-                CleanupMode::SigmaClipping => mode_w.set_active(Some(0)),
-                CleanupMode::Percent => mode_w.set_active(Some(1)),
-                CleanupMode::MinMax => mode_w.set_active(Some(2)),
-            }
-
-            kappa_w.set_text(&format!("{:.1}", item.kappa));
-            repeats_w.set_text(&format!("{}", item.repeats));
-            percent_w.set_text(&format!("{}", item.percent));
-
-            min_w.set_text(if let Some(min) = item.min { format!("{:.2}", min) } else { "".to_string() }.as_str());
-            max_w.set_text(if let Some(max) = item.max { format!("{:.2}", max) } else { "".to_string() }.as_str());
-
-            (chk_w, mode_w, kappa_w, repeats_w, percent_w, min_w, max_w)
-        };
-
-        let (chb_rdev, cbt_rdev, e_rdev_kappa, e_rdev_repeats, e_rdev_percent, e_rdev_min, e_rdev_max) =
-            show_line(&project.cleanup_conf().stars_r_dev, "chb_rdev", "cbt_rdev", "e_rdev_kappa", "e_rdev_repeats", "e_rdev_percent", "e_rdev_min", "e_rdev_max");
-        let (chb_fwhm, cbt_fwhm, e_fwhm_kappa, e_fwhm_repeats, e_fwhm_percent, e_fwhm_min, e_fwhm_max) =
-            show_line(&project.cleanup_conf().stars_fwhm, "chb_fwhm", "cbt_fwhm", "e_fwhm_kappa", "e_fwhm_repeats", "e_fwhm_percent", "e_fwhm_min", "e_fwhm_max");
-        let (chb_stars, cbt_stars, e_stars_kappa, e_stars_repeats, e_stars_percent, e_stars_min, e_stars_max) =
-            show_line(&project.cleanup_conf().stars_count, "chb_stars", "cbt_stars", "e_stars_kappa", "e_stars_repeats", "e_stars_percent", "e_stars_min", "e_stars_max");
-        let (chb_noise, cbt_noise, e_noise_kappa, e_noise_repeats, e_noise_percent, e_noise_min, e_noise_max) =
-            show_line(&project.cleanup_conf().noise, "chb_noise", "cbt_noise", "e_noise_kappa", "e_noise_repeats", "e_noise_percent", "e_noise_min", "e_noise_max");
-        let (chb_bg, cbt_bg, e_bg_kappa, e_bg_repeats, e_bg_percent, e_bg_min, e_bg_max) =
-            show_line(&project.cleanup_conf().background, "chb_bg", "cbt_bg", "e_bg_kappa", "e_bg_repeats", "e_bg_percent", "e_bg_min", "e_bg_max");
-
-        drop(project);
-
-        dialog.set_transient_for(Some(&self.widgets.window));
-
-        add_ok_and_cancel_buttons(
-            &dialog,
-            &gettext("_Cleanup"), gtk::ResponseType::Ok,
-            &gettext("_Close"), gtk::ResponseType::Cancel
+        let dialog = CleanupDialog::new(
+            Some(&self.widgets.window),
+            &self.project
         );
-
-        set_dialog_default_button(&dialog);
-
-        dialog.connect_response(clone!(@strong self as self_ => move |dialog, response| {
-            if response == gtk::ResponseType::Ok {
-                let mut project = self_.project.borrow_mut();
-
-                let mut cleanup_conf = project.cleanup_conf().clone();
-
-                cleanup_conf.check_before_execute = chbt_check_before.is_active();
-
-                let get_line = |
-                    item:      &mut CleanupConfItem,
-                    chb_use:   &gtk::CheckButton,
-                    cbt_mode:  &gtk::ComboBoxText,
-                    e_kappa:   &gtk::Entry,
-                    e_repeats: &gtk::Entry,
-                    e_percent: &gtk::Entry,
-                    e_min:     &gtk::Entry,
-                    e_max:     &gtk::Entry,
-                | {
-                    item.used = chb_use.is_active();
-                    item.mode = match cbt_mode.active() {
-                        Some(0) => CleanupMode::SigmaClipping,
-                        Some(1) => CleanupMode::Percent,
-                        Some(2) => CleanupMode::MinMax,
-                        _       => panic!("Wrong cbt_mode.active(): {:?}", cbt_mode.active()),
-                    };
-                    item.kappa = e_kappa.text().as_str().parse().unwrap_or(item.kappa);
-                    item.repeats = e_repeats.text().as_str().parse().unwrap_or(item.repeats);
-                    item.percent = e_percent.text().as_str().parse().unwrap_or(item.percent);
-                    item.min = e_min.text().as_str().parse().ok();
-                    item.max = e_max.text().as_str().parse().ok();
-                };
-
-                get_line(&mut cleanup_conf.stars_r_dev,   &chb_rdev,  &cbt_rdev,  &e_rdev_kappa,  &e_rdev_repeats,  &e_rdev_percent,  &e_rdev_min,  &e_rdev_max);
-                get_line(&mut cleanup_conf.stars_fwhm,    &chb_fwhm,  &cbt_fwhm,  &e_fwhm_kappa,  &e_fwhm_repeats,  &e_fwhm_percent,  &e_fwhm_min,  &e_fwhm_max);
-                get_line(&mut cleanup_conf.stars_count,   &chb_stars, &cbt_stars, &e_stars_kappa, &e_stars_repeats, &e_stars_percent, &e_stars_min, &e_stars_max);
-                get_line(&mut cleanup_conf.noise,         &chb_noise, &cbt_noise, &e_noise_kappa, &e_noise_repeats, &e_noise_percent, &e_noise_min, &e_noise_max);
-                get_line(&mut cleanup_conf.background,    &chb_bg,    &cbt_bg,    &e_bg_kappa,    &e_bg_repeats,    &e_bg_percent,    &e_bg_min,    &e_bg_max);
-
-                project.set_cleanup_conf(cleanup_conf);
-
-                drop(project);
-
-                let result = self_.project.borrow_mut().cleanup_light_files();
-                match result {
-                    Ok(cleaned_up_count) => {
-                        let total_files = self_.project.borrow().total_light_files_count();
-
-                        let message = transl_and_replace(
-                            "Cleaned up {cleaned} files of {total} ({percent}%)", &[
-                            ("{cleaned}", cleaned_up_count.to_string()),
-                            ("{total}",   total_files.to_string()),
-                            ("{percent}", format!("{:.1}", 100.0 * cleaned_up_count as f64 / total_files as f64)),
-                        ]);
-
-                        show_message(
-                            &self_.widgets.window,
-                            &gettext("Cleanup light files result"),
-                            &message,
-                            gtk::MessageType::Info,
-                        );
-                    },
-                    Err(error) =>
-                        show_error_message(&self_.widgets.window, &gettext("Error"), &error.to_string()),
-                }
-                self_.update_project_tree();
-                self_.update_project_name_and_time_in_gui();
-            }
-            else {
-                dialog.close();
-            }
-        }));
-
-        set_dialog_default_button(&dialog);
-        dialog.show();
+        let self_ = Rc::clone(&self);
+        dialog.exec(move || {
+            self_.update_project_tree();
+            self_.update_project_name_and_time_in_gui();
+        });
     }
 
     fn ask_user_to_assign_ref_light_image_auto(
