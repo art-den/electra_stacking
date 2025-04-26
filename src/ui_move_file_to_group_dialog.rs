@@ -119,7 +119,6 @@ impl MoveFileToGroupDialog {
             dlg.close();
         }));
 
-        set_dialog_default_button(&self.widgets.dialog);
         self.widgets.dialog.show();
     }
 }

@@ -80,6 +80,5 @@ impl DndFilesTypeDialog {
         }));
 
         self.widgets.dialog.show();
-
     }
 }

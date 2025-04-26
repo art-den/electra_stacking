@@ -14,6 +14,7 @@ use crate::ui_about_dialog::show_about_dialog;
 use crate::ui_assign_ref_frame_dialog::AssignRefFrameDialog;
 use crate::ui_cleanup_dialog::CleanupDialog;
 use crate::ui_dnd_files_type_dialog::DndFilesTypeDialog;
+use crate::ui_group_options_dialog::GroupOptionsDialog;
 use crate::ui_move_file_to_group_dialog::MoveFileToGroupDialog;
 use crate::ui_prj_columns_dialog::PrjColumnsDialog;
 use crate::ui_project_options_dialog::ProjectOptionsDialog;
@@ -2019,8 +2020,8 @@ impl MainWindow {
 
     fn action_new_group(self: &Rc<Self>) {
         let def_group_options = GroupOptions::default();
-        let dialog = self.group_options_dialog(
-            gettext("Add new group"),
+        self.group_options_dialog(
+            &gettext("Add new group"),
             def_group_options,
             clone!(@strong self as self_ => move |group_options| {
                 self_.project.borrow_mut().add_new_group(group_options);
@@ -2028,9 +2029,6 @@ impl MainWindow {
                 log::info!("New group created");
             })
         );
-
-        set_dialog_default_button(&dialog);
-        dialog.show();
     }
 
     fn action_delete_item(self: &Rc<Self>) {
@@ -2108,8 +2106,8 @@ impl MainWindow {
                 group_idx: Some(group_idx),
                 ..
             } => {
-                let dialog = self.group_options_dialog(
-                    gettext("Group properties"),
+                self.group_options_dialog(
+                    &gettext("Group properties"),
                     self.project.borrow().groups()[group_idx].options().clone(),
                     clone!(@strong self as self_ => move |new_options| {
                         let mut project = self_.project.borrow_mut();
@@ -2120,8 +2118,6 @@ impl MainWindow {
                         self_.update_project_tree();
                     })
                 );
-                set_dialog_default_button(&dialog);
-                dialog.show();
             },
 
             SelectedItem {item_type: SelItemType::Project, ..} => {
@@ -2132,56 +2128,14 @@ impl MainWindow {
         }
     }
 
-    fn group_options_dialog<F: Fn(GroupOptions) + 'static>(
+    fn group_options_dialog(
         self:          &Rc<Self>,
-        title:         String,
+        title:         &str,
         group_options: GroupOptions,
-        fun:           F
-    ) -> gtk::Dialog {
-        let builder = gtk::Builder::from_string(include_str!("ui/group_options_dialog.ui"));
-        let dialog          = builder.object::<gtk::Dialog>("group_options_dialog").unwrap();
-        let rb_default_name = builder.object::<gtk::RadioButton>("rb_default_name").unwrap();
-        let rb_custom_name  = builder.object::<gtk::RadioButton>("rb_custom_name").unwrap();
-        let e_name          = builder.object::<gtk::Entry>("e_name").unwrap();
-
-        dialog.set_title(&title);
-        dialog.set_transient_for(Some(&self.widgets.window));
-
-        add_ok_and_cancel_buttons(
-            &dialog,
-            &gettext("_Ok"), gtk::ResponseType::Ok,
-            &gettext("_Cancel"), gtk::ResponseType::Cancel
-        );
-
-        set_dialog_default_button(&dialog);
-
-        rb_custom_name.connect_clicked(clone!(@strong e_name => move |rb| {
-            e_name.set_sensitive(rb.is_active());
-        }));
-
-        if let Some(name) = &group_options.name {
-            rb_custom_name.set_active(true);
-            e_name.set_text(name);
-            e_name.set_sensitive(true);
-        } else {
-            rb_default_name.set_active(true);
-            e_name.set_sensitive(false);
-        }
-
-        dialog.connect_response(move |dialog, response| {
-            dialog.close();
-            if response == gtk::ResponseType::Ok {
-                let mut group_options = group_options.clone();
-                group_options.name = if rb_custom_name.is_active() {
-                    Some(e_name.text().to_string())
-                } else {
-                    None
-                };
-                fun(group_options);
-            }
-        });
-
-        dialog
+        ok_fun:        impl Fn(GroupOptions) + 'static
+    ) {
+        let dialog = GroupOptionsDialog::new(Some(&self.widgets.window), title);
+        dialog.exec(group_options, ok_fun);
     }
 
     fn get_active_group_index(self: &Rc<Self>, title: &str) -> Option<usize> {
