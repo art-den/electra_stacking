@@ -17,6 +17,7 @@ use crate::ui_dnd_files_type_dialog::DndFilesTypeDialog;
 use crate::ui_move_file_to_group_dialog::MoveFileToGroupDialog;
 use crate::ui_prj_columns_dialog::PrjColumnsDialog;
 use crate::ui_project_options_dialog::ProjectOptionsDialog;
+use crate::ui_select_group_dialog::SelectGroupDialog;
 use crate::{
     gtk_utils::*,
     image_io::*,
@@ -2189,41 +2190,12 @@ impl MainWindow {
             1 => return Some(0),
             _ => {},
         };
-
-        let selection = self.get_current_selection();
-        let cur_group = selection.group_idx;
-
-        let builder = gtk::Builder::from_string(include_str!("ui/select_group_dialog.ui"));
-        let dialog = builder.object::<gtk::Dialog>("select_group_dialog").unwrap();
-        let groups_list = builder.object::<gtk::ComboBoxText>("groups_list").unwrap();
-
-        dialog.set_title(title);
-        dialog.set_transient_for(Some(&self.widgets.window));
-
-        add_ok_and_cancel_buttons(
-            &dialog,
-            "_Ok", gtk::ResponseType::Ok, // TODO: translate
-            "_Cancel", gtk::ResponseType::Cancel
+        let dialog = SelectGroupDialog::new(
+            Some(&self.widgets.window),
+            &self.project,
+            title
         );
-
-        set_dialog_default_button(&dialog);
-
-        for (idx, group) in self.project.borrow().groups().iter().enumerate() {
-            groups_list.append(None, &group.name(idx));
-        }
-
-        if let Some(cur_group) = cur_group {
-            groups_list.set_active(Some(cur_group as u32));
-        }
-
-        let resp = dialog.run();
-        dialog.close();
-
-        if resp != gtk::ResponseType::Ok {
-            return None;
-        }
-
-        groups_list.active().map(|v| v as usize)
+        dialog.exec(self.get_current_selection().group_idx)
     }
 
     fn action_project_options(self: &Rc<Self>) {

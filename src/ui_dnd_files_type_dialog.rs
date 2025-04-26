@@ -30,15 +30,12 @@ impl DndFilesTypeDialog {
     ) -> Rc<Self> {
         let widgets = Widgets::from_builder_str(include_str!("ui/dnd_files_type_dialog.ui"));
         widgets.dialog.set_transient_for(parent);
-
         add_ok_and_cancel_buttons(
             &widgets.dialog,
             &gettext("_Add"), gtk::ResponseType::Ok,
             &gettext("_Cancel"), gtk::ResponseType::Cancel,
         );
-
         set_dialog_default_button(&widgets.dialog);
-
         Rc::new(Self {
             widgets,
             project: Rc::clone(project),
@@ -86,10 +83,3 @@ impl DndFilesTypeDialog {
 
     }
 }
-
-
-/*
-
-
-
-*/
