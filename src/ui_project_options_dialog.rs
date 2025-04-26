@@ -174,7 +174,6 @@ impl ProjectOptionsDialog {
         widgets.chb_apply_wb.set_active(project_config.raw_params.apply_wb);
         widgets.chb_apply_color.set_active(project_config.raw_params.apply_color);
         widgets.chb_apply_color.set_sensitive(widgets.chb_apply_wb.is_active());
-
     }
 
     fn get_option(&self, project_config: &mut ProjectConfig) {
