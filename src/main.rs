@@ -31,6 +31,7 @@ mod ui_move_file_to_group_dialog;
 mod ui_project_options_dialog;
 mod ui_assign_ref_frame_dialog;
 mod ui_cleanup_dialog;
+mod ui_dnd_files_type_dialog;
 
 use gtk::prelude::*;
 use gettextrs::*;

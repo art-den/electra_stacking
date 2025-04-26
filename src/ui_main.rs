@@ -13,6 +13,7 @@ use macros::FromBuilder;
 use crate::ui_about_dialog::show_about_dialog;
 use crate::ui_assign_ref_frame_dialog::AssignRefFrameDialog;
 use crate::ui_cleanup_dialog::CleanupDialog;
+use crate::ui_dnd_files_type_dialog::DndFilesTypeDialog;
 use crate::ui_move_file_to_group_dialog::MoveFileToGroupDialog;
 use crate::ui_prj_columns_dialog::PrjColumnsDialog;
 use crate::ui_project_options_dialog::ProjectOptionsDialog;
@@ -1667,64 +1668,6 @@ impl MainWindow {
             }
         }
 
-        let ask_user_to_select_types_and_add_files = |files: Vec<PathBuf>| {
-            if files.is_empty() { return; }
-            let builder = gtk::Builder::from_string(include_str!("ui/dnd_files_type_dialog.ui"));
-            let dialog = builder.object::<gtk::Dialog>("dnd_files_type_dialog").unwrap();
-            let l_info = builder.object::<gtk::Label>("l_info").unwrap();
-            let cb_group = builder.object::<gtk::ComboBoxText>("cb_group").unwrap();
-
-            let rb_lights = builder.object::<gtk::RadioButton>("rb_lights").unwrap();
-            let rb_darks = builder.object::<gtk::RadioButton>("rb_darks").unwrap();
-            let rb_flats = builder.object::<gtk::RadioButton>("rb_flats").unwrap();
-
-            l_info.set_label(&transl_and_replace(
-                "Add {files} file(s) into project?",
-                &[("{files}", files.len().to_string())]
-            ));
-
-            let project = self.project.borrow();
-            for (idx, group) in project.groups().iter().enumerate() {
-                cb_group.append(None, group.name(idx).as_str());
-            }
-            cb_group.set_sensitive(project.groups().len() > 1);
-            let selection = self.get_current_selection();
-            cb_group.set_active(Some(selection.group_idx.unwrap_or(0) as u32));
-
-            dialog.set_transient_for(Some(&self.widgets.window));
-
-            add_ok_and_cancel_buttons(
-                &dialog,
-                &gettext("_Add"), gtk::ResponseType::Ok,
-                &gettext("_Cancel"), gtk::ResponseType::Cancel,
-            );
-
-            set_dialog_default_button(&dialog);
-
-            dialog.connect_response(clone!(@strong self as self_ => move |dlg, resp| {
-                if resp == gtk::ResponseType::Ok {
-                    let file_type = if rb_lights.is_active() {
-                        ProjectFileType::Light
-                    } else if rb_darks.is_active() {
-                        ProjectFileType::Dark
-                    } else if rb_flats.is_active() {
-                        ProjectFileType::Flat
-                    } else {
-                        ProjectFileType::Bias
-                    };
-                    self_.add_files_into_project(
-                        &files,
-                        cb_group.active().unwrap_or(0_u32) as usize,
-                        file_type
-                    );
-                }
-                dlg.close();
-            }));
-
-            set_dialog_default_button(&dialog);
-            dialog.show();
-        };
-
         let mut files_list = Vec::new();
         for file in sd.uris() {
             let file_name = gio::File::for_uri(&file).path();
@@ -1732,7 +1675,24 @@ impl MainWindow {
                 add_file_to_list(file_name, &mut files_list);
             }
         }
-        ask_user_to_select_types_and_add_files(files_list);
+
+        if files_list.is_empty() { return; }
+        let dialog = DndFilesTypeDialog::new(
+            Some(&self.widgets.window),
+            &self.project
+        );
+        let self_ = Rc::clone(&self);
+        dialog.exec(
+            self.get_current_selection(),
+            files_list.len(),
+            move |file_type, group_index| {
+                self_.add_files_into_project(
+                    &files_list,
+                    group_index,
+                    file_type
+                );
+            }
+        );
     }
 
     fn add_files_into_project(
