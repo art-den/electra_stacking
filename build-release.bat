@@ -6,10 +6,11 @@ call :check_exist cargo.exe
 call :check_exist msgfmt.exe
 call :check_exist 7za.exe
 call :check_exist makensis.exe
+call :check_exist pkg-config.exe
 
 :: getting MINGW_BIN path from `where msgfmt.exe`
 
-FOR /F "tokens=* USEBACKQ" %%F IN (`where msgfmt.exe`) DO (
+FOR /F "tokens=* USEBACKQ" %%F IN (`where pkg-config.exe`) DO (
     SET MSGFMT_PATH=%%F
 )
 set MINGW_BIN=%MSGFMT_PATH%\..
@@ -17,8 +18,8 @@ set MINGW_BIN=%MSGFMT_PATH%\..
 :: Build
 
 set RUSTFLAGS=
-::cargo build --release
-::if %errorlevel% neq 0 goto :error
+cargo build --release
+if %errorlevel% neq 0 goto :error
 
 :: Translate
 
@@ -75,8 +76,7 @@ xcopy /Y "%MINGW_BIN%\libatk-1.*-*.dll" "%GuiDist%"
 xcopy /Y "%MINGW_BIN%\libdatrie-1.dll" "%GuiDist%"
 xcopy /Y "%MINGW_BIN%\libgraphite2.dll" "%GuiDist%"
 xcopy /Y "%MINGW_BIN%\libbrotlicommon.dll" "%GuiDist%"
-xcopy /Y "%MINGW_BIN%\libcfitsio-3.dll" "%GuiDist%"
-
+xcopy /Y "%MINGW_BIN%\libcfitsio-*.dll" "%GuiDist%"
 
 xcopy /Y /S "%MINGW_BIN%\..\share\glib-2.0\schemas\*.*" "%GuiDist%\share\glib-2.0\schemas\*.*"
 xcopy /Y /S "%MINGW_BIN%\..\lib\gdk-pixbuf-2.0\*.*" "%GuiDist%\lib\gdk-pixbuf-2.0\*.*"
@@ -101,13 +101,15 @@ del "%ArchiveFile%"
 7za.exe a -t7z -mx9 -r "%ArchiveFile%" "%GuiDist%/../*.*"
 if %errorlevel% neq 0 goto :error
 
-# Installer
+:: Installer
 
 makensis.exe /DPROG_VERS=%vers% "%~dp0win_stuff\installer.nsi"
 if %errorlevel% neq 0 goto :error
 move /Y "%~dp0win_stuff\*.exe" "%~dp0dist\archives"
 
 exit /B
+
+:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 :check_exist
 echo %1
@@ -121,6 +123,8 @@ if "%__path_for_file%"=="" (
     goto :error
 )
 exit /B
+
+:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 :error
 
