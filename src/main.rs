@@ -46,7 +46,7 @@ fn main() -> anyhow::Result<()> {
         .to_path_buf()
         .join("locale");
 
-    setlocale(LocaleCategory::LcAll, "");
+    bind_textdomain_codeset("electra_stacking", "UTF-8")?;
     bindtextdomain("electra_stacking", locale_path.to_str().unwrap_or(""))?;
     textdomain("electra_stacking")?;
 
