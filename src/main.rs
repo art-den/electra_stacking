@@ -47,8 +47,8 @@ fn main() -> anyhow::Result<()> {
         .join("locale");
 
     setlocale(LocaleCategory::LcAll, "");
-    bindtextdomain("electra_stacking_gui", locale_path.to_str().unwrap_or(""))?;
-    textdomain("electra_stacking_gui")?;
+    bindtextdomain("electra_stacking", locale_path.to_str().unwrap_or(""))?;
+    textdomain("electra_stacking")?;
 
     // logger
     let mut log_dir = get_app_conf_dir(true)?;
@@ -101,5 +101,4 @@ fn panic_handler(panic_info: &std::panic::PanicHookInfo) {
 
     eprintln!("{}", payload_str.unwrap_or_default());
     eprintln!("{}", panic_info.location().map(|loc| loc.to_string()).unwrap_or_default());
-
 }

@@ -32,7 +32,7 @@ FunctionEnd
 Section "${PROG_NAME_USR} (required)"
     SectionIn RO
     SetOutPath $INSTDIR
-    File /r "..\dist\gui\ElectraStacking\*.*"
+    File /r "..\dist\ElectraStacking\*.*"
     WriteRegStr HKLM SOFTWARE\${PROG_NAME_REG} "Install_Dir" "$INSTDIR"
     WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PROG_NAME_REG}" "DisplayName" "${PROG_NAME_USR}"
     WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PROG_NAME_REG}" "UninstallString" '"$INSTDIR\uninstall.exe"'
