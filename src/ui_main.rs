@@ -78,53 +78,8 @@ pub fn build_ui(application: &gtk::Application) {
         trying_to_close: Cell::new(false),
     });
 
-    // Columns for project tree
+    main_window.create_columns_for_project_tree();
 
-    let prj_tree_store_columns = get_prj_tree_store_columns();
-
-    for (col1, col2) in prj_tree_store_columns.iter().tuple_windows() {
-        assert!(col1.2 as u32+1 == col2.2 as u32);
-    }
-
-    let cell_check = gtk::CellRendererToggle::builder()
-        .activatable(true)
-        .mode(gtk::CellRendererMode::Activatable)
-        .sensitive(true)
-        .build();
-
-    for (col_name, _, idx, sidx, _) in prj_tree_store_columns {
-        if col_name.is_empty() { continue; }
-        let cell_text = gtk::CellRendererText::new();
-        let col = gtk::TreeViewColumn::builder()
-            .title(&gettext(col_name))
-            .resizable(true)
-            .clickable(true)
-            .build();
-
-        col.set_sort_column_id(sidx as i32);
-
-        if idx == ColIdx::FileName {
-            let cell_img = gtk::CellRendererPixbuf::new();
-            TreeViewColumnExt::pack_start(&col, &cell_check, false);
-            TreeViewColumnExt::pack_start(&col, &cell_img, false);
-            TreeViewColumnExt::pack_start(&col, &cell_text, true);
-            TreeViewColumnExt::add_attribute(&col, &cell_text, "markup", idx as i32);
-            TreeViewColumnExt::add_attribute(&col, &cell_img, "pixbuf", ColIdx::Icon as i32);
-            TreeViewColumnExt::add_attribute(&col, &cell_check, "active", ColIdx::Checkbox as i32);
-            TreeViewColumnExt::add_attribute(&col, &cell_check, "visible", ColIdx::CheckboxVis as i32);
-        } else {
-            TreeViewColumnExt::pack_start(&col, &cell_text, true);
-            TreeViewColumnExt::add_attribute(&col, &cell_text, "markup", idx as i32);
-        }
-
-        main_window.widgets.project_tree.append_column(&col);
-    }
-
-    cell_check.connect_toggled(clone!(@weak main_window => move |_, path| {
-        if !main_window.prj_tree_is_building.get() {
-            main_window.handler_project_tree_checked_changed(path);
-        }
-    }));
 
     let window = &main_window.widgets.window;
 
@@ -320,6 +275,56 @@ pub fn get_prj_tree_store_columns() -> Vec::<(&'static str, &'static str, ColIdx
 }
 
 impl MainWindow {
+    fn create_columns_for_project_tree(self: &Rc<Self>) {
+        // Columns for project tree
+
+        let prj_tree_store_columns = get_prj_tree_store_columns();
+
+        for (col1, col2) in prj_tree_store_columns.iter().tuple_windows() {
+            assert!(col1.2 as u32+1 == col2.2 as u32);
+        }
+
+        let cell_check = gtk::CellRendererToggle::builder()
+            .activatable(true)
+            .mode(gtk::CellRendererMode::Activatable)
+            .sensitive(true)
+            .build();
+
+        for (col_name, _, idx, sidx, _) in prj_tree_store_columns {
+            if col_name.is_empty() { continue; }
+            let cell_text = gtk::CellRendererText::new();
+            let col = gtk::TreeViewColumn::builder()
+                .title(&gettext(col_name))
+                .resizable(true)
+                .clickable(true)
+                .build();
+
+            col.set_sort_column_id(sidx as i32);
+
+            if idx == ColIdx::FileName {
+                let cell_img = gtk::CellRendererPixbuf::new();
+                TreeViewColumnExt::pack_start(&col, &cell_check, false);
+                TreeViewColumnExt::pack_start(&col, &cell_img, false);
+                TreeViewColumnExt::pack_start(&col, &cell_text, true);
+                TreeViewColumnExt::add_attribute(&col, &cell_text, "markup", idx as i32);
+                TreeViewColumnExt::add_attribute(&col, &cell_img, "pixbuf", ColIdx::Icon as i32);
+                TreeViewColumnExt::add_attribute(&col, &cell_check, "active", ColIdx::Checkbox as i32);
+                TreeViewColumnExt::add_attribute(&col, &cell_check, "visible", ColIdx::CheckboxVis as i32);
+            } else {
+                TreeViewColumnExt::pack_start(&col, &cell_text, true);
+                TreeViewColumnExt::add_attribute(&col, &cell_text, "markup", idx as i32);
+            }
+
+            self.widgets.project_tree.append_column(&col);
+        }
+
+        cell_check.connect_toggled(clone!(@weak self as self_ => move |_, path| {
+            if !self_.prj_tree_is_building.get() {
+                self_.handler_project_tree_checked_changed(path);
+            }
+        }));
+    }
+
     fn connect_ui_events(self: &Rc<Self>) {
 
         // Drag-n-drop for files
