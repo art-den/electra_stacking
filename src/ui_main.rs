@@ -852,7 +852,7 @@ impl MainWindow {
                                         reg_info.stars as u32,
                                         format!("{:.1}", reg_info.fwhm),
                                         reg_info.fwhm,
-                                        format!("{:.3}", reg_info.stars_r_dev),
+                                        format!("{:.1}", reg_info.stars_r_dev),
                                         reg_info.stars_r_dev,
                                     )} else {(
                                         String::new(),

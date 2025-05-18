@@ -1055,7 +1055,7 @@ impl ProjectGroup {
                                         background:  light_file.background,
                                         fwhm:        stars_stat.fwhm,
                                         stars:       light_file.stars.len(),
-                                        stars_r_dev: stars_stat.aver_r_dev,
+                                        stars_r_dev: stars_stat.ovality,
                                     })
                                 },
                                 Err(err) =>
@@ -1514,7 +1514,7 @@ pub struct RegInfo {
     pub background: f32,
     pub fwhm: f32,
     pub stars: usize,
-    pub stars_r_dev: f32,
+    pub stars_r_dev: f32, // ovality
 }
 
 impl Default for RegInfo {

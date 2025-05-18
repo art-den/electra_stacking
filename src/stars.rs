@@ -731,7 +731,7 @@ fn find_similar_triangle<'a>(
 
 pub struct StarsStat {
     pub fwhm: f32,
-    pub aver_r_dev: f32,
+    pub ovality: f32,
     pub common_stars_img: ImageLayerF32,
 }
 
@@ -846,36 +846,41 @@ pub fn create_common_star_image(
 }
 
 pub fn calc_stars_stat(stars: &Stars, image: &ImageLayerF32, fast: bool) -> anyhow::Result<StarsStat> {
-    let mag = if !fast { 8 } else { 8 };
+    let mag: Crd = if !fast { 8 } else { 8 };
     log::info!("calc_stars_stat: stars_count = {}, fast = {}", stars.len(), fast);
     let profiler = TimeLogger::start();
     let common_stars_img = create_common_star_image(stars, image, mag, fast)?;
     profiler.log("create_common_star_image");
+    let fwhm = calc_fwhm(&common_stars_img, mag);
+    let ovality = calc_ovality(&common_stars_img, mag);
+    if ovality > 10.0 {
+        anyhow::bail!("Bad stars quality");
+    }
+    Ok(StarsStat {
+        fwhm,
+        ovality,
+        common_stars_img
+    })
+}
+
+fn calc_fwhm(common_stars_img: &ImageLayerF32, mag: Crd) -> f32 {
     let over_0_5_cnt = common_stars_img
         .as_slice()
         .iter()
         .filter(|&v| *v > 0.5)
         .count();
-    let ovality = calc_ovality(&common_stars_img);
-    if ovality > 10.0 {
-        anyhow::bail!("Bad stars quality");
-    }
-    Ok(StarsStat {
-        fwhm:       over_0_5_cnt as f32 / (mag * mag) as f32,
-        aver_r_dev: ovality,
-        common_stars_img
-    })
+    over_0_5_cnt as f32 / (mag * mag) as f32
 }
 
-fn calc_ovality(star_image: &ImageLayerF32) -> f32 {
-    const ANGLE_CNT: usize = 36;
+fn calc_ovality(star_image: &ImageLayerF32, mag: Crd) -> f32 {
+    const ANGLE_CNT: usize = 32;
     const K: Crd = 4;
     let center_x = (star_image.width() / 2) as f64;
     let center_y = (star_image.height() / 2) as f64;
     let size = (Crd::max(star_image.width(), star_image.height()) * K) as i32;
-    let mut diamemters = Vec::new();
+    let mut diameters = Vec::new();
     for i in 0..ANGLE_CNT {
-        let angle = 2.0 * PI * i as f64 / ANGLE_CNT as f64;
+        let angle = PI * i as f64 / ANGLE_CNT as f64;
         let cos_angle = f64::cos(angle);
         let sin_angle = f64::sin(angle);
         let mut above_count = 0_usize;
@@ -887,10 +892,16 @@ fn calc_ovality(star_image: &ImageLayerF32) -> f32 {
                 if v > 0.5 { above_count += 1; }
             }
         }
-        diamemters.push(above_count);
+        diameters.push(above_count);
     }
-    let max_diameter = diamemters.iter().copied().max().unwrap_or(0) as f32;
-    let min_diameter = diamemters.iter().copied().min().unwrap_or(0) as f32;
-    let result = max_diameter / min_diameter - 1.0;
-    result.min(999.0).max(0.0)
+    let max_diameter_pos = diameters.iter()
+        .enumerate()
+        .max_by_key(|(_, d)| *d)
+        .map(|(idx, _)| idx)
+        .unwrap_or_default();
+    let max_diam = diameters[max_diameter_pos];
+    let min_diameter_pos = (max_diameter_pos + ANGLE_CNT/2) % ANGLE_CNT;
+    let min_diam = diameters[min_diameter_pos];
+
+    (max_diam as f32 - min_diam as f32) / mag as f32
 }
