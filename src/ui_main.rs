@@ -107,7 +107,6 @@ pub fn build_ui(application: &gtk::Application) {
     main_window.connect_ui_events();
     main_window.enable_actions();
 
-
     // Show main window
 
     window.set_application(Some(application));
@@ -561,6 +560,7 @@ impl MainWindow {
         connect_action(window, self, "about",                  Self::action_about);
         connect_action(window, self, "project_columns",        Self::action_project_columns);
         connect_action(window, self, "assign_ref_light_image", Self::action_assign_ref_light_image);
+        connect_action(window, self, "save_aligned_images",    Self::action_save_aligned_images);
 
     }
 
@@ -2454,4 +2454,37 @@ impl MainWindow {
         dialog.exec();
     }
 
+    fn action_save_aligned_images(self: &Rc<Self>) {
+        let project = self.project.borrow();
+        if !project.is_any_used_light_file() {
+            return;
+        }
+        if !project.is_ref_image_assigned()
+        && project.is_possible_assign_ref_light_frame_automatically() {
+            self.ask_user_to_assign_ref_light_image_auto(true);
+            return;
+        }
+        match project.can_exec_stack_light_files() {
+            CanExecStackLightsRes::Ok => (),
+            CanExecStackLightsRes::NoRefFile => {
+                show_error_message(
+                    &self.widgets.window, &gettext("Error"),
+                    &gettext("Reference image is not defined")
+                );
+                return;
+            },
+        }
+        log::info!("Save aligned images started");
+        let project_json = project.to_json_string();
+        let cpu_load = self.config.borrow().cpu_load;
+        drop(project);
+        self.exec_and_show_progress(
+            move|progress, is_canceled| {
+                let project = Project::from_json_string(&project_json);
+                project.save_aligned_images(progress, is_canceled, cpu_load)
+            },
+            move |_self, _result| {
+            }
+        );
+    }
 }

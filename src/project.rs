@@ -326,6 +326,109 @@ impl Project {
         }
     }
 
+    pub fn save_aligned_images(
+        &self,
+        progress:    &ProgressTs,
+        cancel_flag: &IsCancelledFun,
+        cpu_load:    CpuLoad,
+    ) -> anyhow::Result<()> {
+        let thread_pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(cpu_load.to_threads_count())
+            .build()?;
+
+        // master-files
+
+        for (idx, group) in self.groups.iter().filter(|g| g.used).enumerate() {
+            if cancel_flag() { anyhow::bail!("Termimated") }
+            group.create_master_files(
+                idx,
+                progress,
+                cancel_flag,
+                &self.config,
+                &thread_pool
+            )?;
+        }
+
+        let bin = match self.config.image_size {
+            ImageSize::Original => 1,
+            ImageSize::Bin2x2 => 2,
+        };
+
+        // Find and load reference files
+
+        progress.lock().unwrap().stage(&gettext(
+            "Loading reference image..."
+        ));
+
+        let group_with_ref_file = self
+            .find_group_with_light_file(self.ref_image.as_ref().unwrap())
+            .ok_or_else(|| anyhow::anyhow!(gettext("Can't find group with reference image")))?;
+
+        let ref_cal = CalibrationData::load(
+            group_with_ref_file.flat_files.get_master_full_file_name(MASTER_FLAT_FN).as_deref(),
+            group_with_ref_file.dark_files.get_master_full_file_name(MASTER_DARK_FN).as_deref(),
+            group_with_ref_file.bias_files.get_master_full_file_name(MASTER_BIAS_FN).as_deref(),
+        )?;
+
+        let ref_data = RefBgData::new(
+            self.ref_image.as_ref().unwrap(),
+            &ref_cal,
+            bin,
+            &self.config.raw_params
+        )?;
+
+        let temp_file_names = Mutex::new(Vec::<TempFileData>::new());
+        let files_to_del_later = Mutex::new(FilesToDeleteLater::new());
+
+        for (idx, group) in self.groups.iter().enumerate() {
+            if cancel_flag() {
+                anyhow::bail!(gettext("Termimated"))
+            }
+            if !group.used {
+                continue;
+            }
+
+            progress.lock().unwrap().stage(&format!(
+                "Processing group {}",
+                group.name(idx)
+            ));
+
+            let mut flags = CreateTempFileFlags::empty();
+            if self.config.align_rgb_each {
+                flags.set(CreateTempFileFlags::ALIGN_RGB, true);
+            }
+            match self.config.res_img_type {
+                ResFileType::Fit =>
+                    flags.set(CreateTempFileFlags::SAVE_ALIGNED_FITS, true),
+                ResFileType::Tif =>
+                    flags.set(CreateTempFileFlags::SAVE_ALIGNED_TIF, true),
+            }
+
+            create_temp_light_files(
+                progress,
+                group.light_files.get_selected_file_names(),
+                group.flat_files.get_master_full_file_name(MASTER_FLAT_FN).as_deref(),
+                group.dark_files.get_master_full_file_name(MASTER_DARK_FN).as_deref(),
+                group.bias_files.get_master_full_file_name(MASTER_BIAS_FN).as_deref(),
+                &ref_data,
+                bin,
+                &self.config.raw_params,
+                &temp_file_names,
+                &files_to_del_later,
+                &thread_pool,
+                cancel_flag,
+                idx,
+                &flags
+            )?;
+        }
+
+        if cancel_flag() {
+            anyhow::bail!(gettext("Termimated"))
+        }
+
+        Ok(())
+    }
+
     pub fn stack_light_files(
         &self,
         progress:    &ProgressTs,
@@ -397,12 +500,19 @@ impl Project {
                 group.name(idx)
             ));
 
-            let save_aligned_mode =
-                match (self.config.save_aligned_img, self.config.res_img_type) {
-                    (true, ResFileType::Fit) => SaveAlignedImageMode::Fits,
-                    (true, ResFileType::Tif) => SaveAlignedImageMode::Tif,
-                    _                        => SaveAlignedImageMode::No,
-                };
+            let mut flags = CreateTempFileFlags::empty();
+            flags.set(CreateTempFileFlags::SAVE_TEMP_FILE, true);
+            flags.set(CreateTempFileFlags::NORMALIZE_BY_REF, true);
+            if self.config.align_rgb_each {
+                flags.set(CreateTempFileFlags::ALIGN_RGB, true);
+            }
+            match (self.config.save_aligned_img, self.config.res_img_type) {
+                (true, ResFileType::Fit) =>
+                    flags.set(CreateTempFileFlags::SAVE_ALIGNED_FITS, true),
+                (true, ResFileType::Tif) =>
+                    flags.set(CreateTempFileFlags::SAVE_ALIGNED_TIF, true),
+                _ => {}
+            }
 
             create_temp_light_files(
                 progress,
@@ -418,8 +528,7 @@ impl Project {
                 &thread_pool,
                 cancel_flag,
                 idx,
-                save_aligned_mode,
-                self.config.align_rgb_each
+                &flags
             )?;
         }
 

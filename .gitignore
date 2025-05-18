@@ -5,3 +5,5 @@
 Cargo.lock
 **/*.rs.bk
 **/*.*~
+**/*.*#
+rust-toolchain

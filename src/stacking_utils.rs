@@ -1,6 +1,7 @@
 use std::{path::*, io::*, fs::*};
 use std::sync::*;
 use anyhow::bail;
+use bitflags::bitflags;
 use bitstream_io::{BigEndian, BitReader};
 use crate::{
     compression::*,
@@ -332,37 +333,36 @@ pub struct TempFileData {
     group_idx:    usize,
 }
 
-#[derive(Copy, Clone)]
-pub enum SaveAlignedImageMode {
-    No,
-    Tif,
-    Fits
-}
-
 struct SaveTempFileData {
-    file_name:    PathBuf,
-    image:        Image,
-    info:         ImageInfo,
-    save_aligned: SaveAlignedImageMode,
-    orig_fn:      PathBuf,
+    file_name:          PathBuf,
+    image:              Image,
+    info:               ImageInfo,
+    save_temp_file:     bool,
+    save_aligned_tif:   bool,
+    save_aligned_fits:  bool,
+    orig_fn:            PathBuf,
 }
 
 fn save_temp_file(mut args: SaveTempFileData) -> anyhow::Result<()> {
     let save_log = TimeLogger::start();
 
-    let compr_coeff = save_image_into_internal_format(&args.image, &args.file_name)?;
+    if args.save_temp_file {
+        let compr_coeff = save_image_into_internal_format(&args.image, &args.file_name)?;
 
-    log::info!(
-        "compression coeff. for {} is {:.2}",
-        args.file_name.file_name().unwrap_or_default().to_str().unwrap_or_default(),
-        compr_coeff
-    );
+        log::info!(
+            "compression coeff. for {} is {:.2}",
+            args.file_name.file_name().unwrap_or_default().to_str().unwrap_or_default(),
+            compr_coeff
+        );
+    }
 
-    if let SaveAlignedImageMode::Fits|SaveAlignedImageMode::Tif = args.save_aligned {
-        let ext = match args.save_aligned {
-            SaveAlignedImageMode::Fits => FIT_EXTS[0],
-            SaveAlignedImageMode::Tif => TIF_EXTS[0],
-            _ => "",
+    if args.save_aligned_fits || args.save_aligned_tif {
+        let ext = if args.save_aligned_fits {
+            FIT_EXTS[0]
+        } else if args.save_aligned_tif {
+            TIF_EXTS[0]
+        } else {
+            unreachable!();
         };
         let file_name = args.file_name.with_extension(format!("aligned.{}", ext));
         log::info!("Saving aligned image to {:?} file", file_name);
@@ -395,8 +395,7 @@ pub fn create_temp_light_files(
     thread_pool:        &rayon::ThreadPool,
     cancel_flag:        &IsCancelledFun,
     group_idx:          usize,
-    save_aligned:       SaveAlignedImageMode,
-    align_rgb_each:     bool,
+    flags:              &CreateTempFileFlags,
 ) -> anyhow::Result<()> {
     progress.lock().unwrap().percent(0, 100, "Loading calibration images...");
     let cal_data = CalibrationData::load(
@@ -452,8 +451,7 @@ pub fn create_temp_light_files(
                     files_to_del_later,
                     result_list,
                     save_tx,
-                    save_aligned,
-                    align_rgb_each
+                    flags,
                 );
                 if let Err(err) = res {
                     *cur_result.lock().unwrap() = Err(anyhow::anyhow!(
@@ -477,6 +475,15 @@ pub fn create_temp_light_files(
 
 }
 
+bitflags! { pub struct CreateTempFileFlags: u32 {
+    const ALIGN_RGB         = 1;
+    const NORMALIZE_BY_REF  = 2;
+    const SAVE_TEMP_FILE    = 4;
+    const SAVE_ALIGNED_FITS = 8;
+    const SAVE_ALIGNED_TIF  = 16;
+}}
+
+
 fn create_temp_file_from_light_file(
     file:               &Path,
     group_idx:          usize,
@@ -487,8 +494,7 @@ fn create_temp_file_from_light_file(
     files_to_del_later: &Mutex<FilesToDeleteLater>,
     result_list:        &Mutex<Vec<TempFileData>>,
     save_tx:            mpsc::SyncSender<SaveTempFileData>,
-    save_aligned:       SaveAlignedImageMode,
-    align_rgb:          bool
+    flags:              &CreateTempFileFlags
 ) -> anyhow::Result<()> {
     let file_total_log = TimeLogger::start();
 
@@ -508,7 +514,7 @@ fn create_temp_file_from_light_file(
     log::info!("noise = {:.8}", light_file.noise);
     log::info!("info = {:?}", light_file.info);
 
-    if align_rgb && light_file.image.is_rgb() {
+    if flags.contains(CreateTempFileFlags::ALIGN_RGB) && light_file.image.is_rgb() {
         align_rgb_layers(&mut light_file.image)?;
     }
 
@@ -556,35 +562,42 @@ fn create_temp_file_from_light_file(
         );
         rot_log.log("rotating image");
 
-        let norm_log = TimeLogger::start();
-        let norm_res = normalize_range_and_bg(ref_data, &mut light_file)?;
-        norm_log.log("bg normalization TOTAL");
+        let range_factor = if flags.contains(CreateTempFileFlags::NORMALIZE_BY_REF) {
+            let norm_log = TimeLogger::start();
+            let norm_res = normalize_range_and_bg(ref_data, &mut light_file)?;
+            norm_log.log("bg normalization TOTAL");
+            norm_res.range_factor
+        } else {
+            1.0
+        };
 
         let nan_log = TimeLogger::start();
         light_file.image.check_contains_inf_or_nan(false, true)?;
         nan_log.log("check_contains_nan");
 
-        let temp_file_name = file.with_extension("temp_light_data");
-        log::info!("Sending image into saving queue...");
-        save_tx.send(SaveTempFileData{
-            file_name:    temp_file_name.clone(),
-            orig_fn:      file.to_path_buf(),
-            image:        light_file.image,
-            info:         light_file.info.clone(),
-            save_aligned,
-        })?;
-        log::info!("Sending image into saving queue... OK!");
+            let temp_file_name = file.with_extension("temp_light_data");
+            log::info!("Sending image into saving queue...");
+            save_tx.send(SaveTempFileData{
+                file_name:         temp_file_name.clone(),
+                orig_fn:           file.to_path_buf(),
+                image:             light_file.image,
+                info:              light_file.info.clone(),
+                save_temp_file:    flags.contains(CreateTempFileFlags::SAVE_TEMP_FILE),
+                save_aligned_fits: flags.contains(CreateTempFileFlags::SAVE_ALIGNED_FITS),
+                save_aligned_tif:  flags.contains(CreateTempFileFlags::SAVE_ALIGNED_TIF),
+            })?;
+            log::info!("Sending image into saving queue... OK!");
 
-        files_to_del_later.lock().unwrap().add(&temp_file_name);
-        result_list.lock().unwrap().push(TempFileData{
-            orig_file:    file.to_path_buf(),
-            file_name:    temp_file_name,
-            range_factor: norm_res.range_factor,
-            noise:        light_file.noise * norm_res.range_factor,
-            info:         light_file.info,
-            img_offset,
-            group_idx,
-        });
+            files_to_del_later.lock().unwrap().add(&temp_file_name);
+            result_list.lock().unwrap().push(TempFileData{
+                orig_file:    file.to_path_buf(),
+                file_name:    temp_file_name,
+                noise:        light_file.noise * range_factor,
+                info:         light_file.info,
+                range_factor,
+                img_offset,
+                group_idx,
+            });
     } else {
         anyhow::bail!("Can't calculate offset and angle between reference image and light file");
     }
