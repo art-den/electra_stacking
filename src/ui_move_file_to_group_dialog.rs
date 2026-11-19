@@ -59,7 +59,7 @@ impl MoveFileToGroupDialog {
             }
         }
         if !move_to_group_last_uuid.is_empty() {
-            self.widgets.cbx_existing_groups.set_active_id(Some(&*move_to_group_last_uuid));
+            self.widgets.cbx_existing_groups.set_active_id(Some(move_to_group_last_uuid));
         }
 
         if self.widgets.cbx_existing_groups.active_id().is_none() && groups_in_cb.len() == 1 {

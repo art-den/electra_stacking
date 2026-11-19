@@ -239,7 +239,7 @@ pub fn load_src_file_info_for_files(
 // RAW format
 
 pub fn load_src_file_info_raw(file_name: &Path) -> anyhow::Result<ImageInfo> {
-    let mut file = std::fs::File::open(&file_name)?;
+    let mut file = std::fs::File::open(file_name)?;
     let raw_data = rawloader::decode_exif_only(&mut file)?;
     let mut iso = None;
     let mut exp = None;
@@ -327,8 +327,7 @@ pub fn load_src_file_info_tiff(file_name: &Path) -> anyhow::Result<ImageInfo> {
             NaiveDateTime::parse_from_str(&time_str, "%Y:%m:%d %H:%M:%S")
                 .ok()
                 .map(|dt| Local.from_local_datetime(&dt))
-                .map(|res| res.single())
-                .flatten();
+                .and_then(|res| res.single());
 
     }
 
@@ -557,10 +556,10 @@ fn find_image_hdu(
     for hdu in file.iter() {
         if let HduInfo::ImageInfo { shape, image_type } = &hdu.info {
             let image_type = *image_type;
-            match shape.as_slice() {
-                &[height, width] =>
+            match *shape.as_slice() {
+                [height, width] =>
                     return Ok((hdu, width, height, false, image_type)),
-                &[3, height, width] =>
+                [3, height, width] =>
                     return Ok((hdu, width, height, true, image_type)),
                 _ => {},
             }
@@ -601,8 +600,7 @@ fn load_src_file_info_from_fits_hdu(
         fnumber: focal_ratio,
         focal_len,
         camera,
-        lens,
-        .. Default::default()
+        lens
     }
 }
 
@@ -701,7 +699,7 @@ pub fn load_image_from_fits_file(
             ImageType::Double  => 1.0,
         };
 
-        let ct = info.cfa_type.or_else(|| camera_params.map(|(_, ct, _)| ct).flatten());
+        let ct = info.cfa_type.or_else(|| camera_params.and_then(|(_, ct, _)| ct));
         let black = image_hdu.read_key(&mut fptr, "BLKLEVEL").unwrap_or(0.0);
 
         let raw_info = RawImageInfo {
@@ -710,7 +708,7 @@ pub fn load_image_from_fits_file(
             max_values: [max as f32, max as f32, max as f32, max as f32],
             black_values: [black, black, black, black],
             wb: camera_params.map(|(wb, _, _)| wb).unwrap_or([1.0, 1.0, 1.0, 1.0]),
-            cam_to_rgb: camera_params.and_then(|(_, _, ccm)| ccm.map(|v| v.clone())),
+            cam_to_rgb: camera_params.and_then(|(_, _, ccm)| ccm.copied()),
             cfa: Cfa::from_cfa_type(ct),
             camera: info.camera.clone(),
             exposure: info.exp.map(|v| v as f32),
@@ -976,13 +974,11 @@ impl MasterFileInfo {
         let mut file = std::io::BufReader::new(std::fs::File::open(file_name)?);
         let sig_len = leb128::read::unsigned(&mut file)? as usize;
         if sig_len > 42 { anyhow::bail!("Wrong signature lentgh"); }
-        let mut sig = Vec::<u8>::new();
-        sig.resize(sig_len, 0);
+        let mut sig = vec![0; sig_len];
         file.read_exact(&mut sig)?;
         if sig != Self::MASTER_FILE_SIG { anyhow::bail!("Wrong file format"); }
         let header_len = leb128::read::unsigned(&mut file)? as usize;
-        let mut buf = Vec::<u8>::new();
-        buf.resize(header_len, 0);
+        let mut buf = vec![0; header_len];
         file.read_exact(&mut buf)?;
         let header_str = std::str::from_utf8(buf.as_slice())?;
         Ok(serde_json::from_str(header_str)?)
@@ -1018,13 +1014,11 @@ impl RawImageInfo {
     pub fn read_from<R: Read>(src: &mut R) -> anyhow::Result<RawImageInfo> {
         let sig_len = leb128::read::unsigned(src)? as usize;
         if sig_len > 42 { anyhow::bail!("Wrong signature lentgh"); }
-        let mut sig = Vec::<u8>::new();
-        sig.resize(sig_len, 0);
+        let mut sig = vec![0; sig_len];
         src.read_exact(&mut sig)?;
         if sig != Self::CALIBR_FILE_SIG { anyhow::bail!("Wrong file format"); }
         let header_len = leb128::read::unsigned(src)? as usize;
-        let mut buf = Vec::<u8>::new();
-        buf.resize(header_len, 0);
+        let mut buf = vec![0; header_len];
         src.read_exact(&mut buf)?;
         let header_str = std::str::from_utf8(buf.as_slice())?;
         Ok(serde_json::from_str(header_str)?)

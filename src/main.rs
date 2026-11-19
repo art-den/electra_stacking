@@ -83,11 +83,7 @@ fn panic_handler(panic_info: &std::panic::PanicHookInfo) {
     let payload_str =
         if let Some(msg) = panic_info.payload().downcast_ref::<&'static str>() {
             Some(*msg)
-        } else if let Some(msg) = panic_info.payload().downcast_ref::<String>() {
-            Some(msg.as_str())
-        } else {
-            None
-        };
+        } else { panic_info.payload().downcast_ref::<String>().map(|msg| msg.as_str()) };
 
     log::error!("(╯°□°）╯︵ ┻━┻ PANIC OCCURRED");
 

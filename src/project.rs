@@ -595,7 +595,7 @@ impl Project {
                 seconds_to_total_time_str(self.calc_time(), true),
                 self.config.res_img_type.get_file_ext()
             );
-            let result = [parent, &Path::new(&file_name)].iter().collect();
+            let result = [parent, Path::new(&file_name)].iter().collect();
             Ok(result)
         } else {
             anyhow::bail!(gettext("You have to save project before"));

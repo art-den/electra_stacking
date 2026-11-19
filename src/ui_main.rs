@@ -293,7 +293,7 @@ impl MainWindow {
             if col_name.is_empty() { continue; }
             let cell_text = gtk::CellRendererText::new();
             let col = gtk::TreeViewColumn::builder()
-                .title(&gettext(col_name))
+                .title(gettext(col_name))
                 .resizable(true)
                 .clickable(true)
                 .build();
@@ -569,8 +569,8 @@ impl MainWindow {
 
         let dialog = gtk::MessageDialog::builder()
             .transient_for(&self.widgets.window)
-            .title(&gettext("Close application"))
-            .text(&gettext("Project changes. Save?"))
+            .title(gettext("Close application"))
+            .text(gettext("Project changes. Save?"))
             .modal(true)
             .message_type(gtk::MessageType::Question)
             .build();
@@ -681,7 +681,7 @@ impl MainWindow {
 
         // update groups
         let group_id_by_guid: HashMap<_,_> = project.groups()
-            .into_iter()
+            .iter()
             .enumerate()
             .map(|(i, g)| (g.uuid(), i))
             .collect();
@@ -732,7 +732,7 @@ impl MainWindow {
                         (ColIdx::FileSort as u32, &""), // to disable sorting
                     ]);
 
-                    let file_index_by_name: HashMap<_,_> = files.list().into_iter()
+                    let file_index_by_name: HashMap<_,_> = files.list().iter()
                         .enumerate()
                         .map(|(i, f)| (f.file_name().to_str().unwrap_or(""), i))
                         .collect();
@@ -742,7 +742,7 @@ impl MainWindow {
                     if let Some(file_iter) = tree_store.iter_children(Some(&files_iter)) {
                         loop {
                             let file_name = tree_store.value(&file_iter, ColIdx::Guid as i32).get::<String>().unwrap();
-                            let iter_valid = if file_index_by_name.get(file_name.as_str()).is_none() {
+                            let iter_valid = if !file_index_by_name.contains_key(file_name.as_str()) {
                                 tree_store.remove(&file_iter)
                             } else {
                                 tree_file_names.insert(file_name);
@@ -784,7 +784,7 @@ impl MainWindow {
                                     .to_string();
 
                                 if let Some(err_text) = file.get_error_test() {
-                                    file_name.push_str("/");
+                                    file_name.push('/');
                                     file_name.push_str(err_text);
                                 }
 
@@ -1023,7 +1023,7 @@ impl MainWindow {
             .transient_for(window)
             .message_type(gtk::MessageType::Question)
             .buttons(gtk::ButtonsType::OkCancel)
-            .title(&gettext("Confirmation"))
+            .title(gettext("Confirmation"))
             .text(&text)
             .build();
         dialog.connect_response(move |dialog, response| {
@@ -1413,7 +1413,7 @@ impl MainWindow {
         let ff = Self::create_file_filter_for_project();
         let fc = gtk::FileChooserDialog::builder()
             .action(gtk::FileChooserAction::Open)
-            .title(&gettext("Select project file to open"))
+            .title(gettext("Select project file to open"))
             .filter(&ff)
             .modal(true)
             .transient_for(&self.widgets.window)
@@ -1427,7 +1427,7 @@ impl MainWindow {
             &gettext("_Cancel"), gtk::ResponseType::Cancel
         );
 
-        set_dialog_default_button(&fc.upcast_ref());
+        set_dialog_default_button(fc.upcast_ref());
 
         fc.connect_response(clone!(@strong self as self_ => move |file_chooser, response| {
             if response == gtk::ResponseType::Accept {
@@ -1471,7 +1471,7 @@ impl MainWindow {
         let ff = Self::create_file_filter_for_project();
         let fc = gtk::FileChooserDialog::builder()
             .action(gtk::FileChooserAction::Save)
-            .title(&gettext("Select project file to save"))
+            .title(gettext("Select project file to save"))
             .filter(&ff)
             .modal(true)
             .transient_for(&self.widgets.window)
@@ -1483,7 +1483,7 @@ impl MainWindow {
             &gettext("_Cancel"), gtk::ResponseType::Cancel
         );
 
-        set_dialog_default_button(&fc.upcast_ref());
+        set_dialog_default_button(fc.upcast_ref());
 
         if let Some(file_name) = self.project.borrow().file_name() {
             let _ = fc.set_file(&gio::File::for_path(file_name));
@@ -1652,7 +1652,7 @@ impl MainWindow {
             &gettext("_Cancel"), gtk::ResponseType::Cancel
         );
 
-        set_dialog_default_button(&fc.upcast_ref());
+        set_dialog_default_button(fc.upcast_ref());
 
         fc
     }
@@ -1688,7 +1688,7 @@ impl MainWindow {
             Some(&self.widgets.window),
             &self.project
         );
-        let self_ = Rc::clone(&self);
+        let self_ = Rc::clone(self);
         dialog.exec(
             self.get_current_selection(),
             files_list.len(),
@@ -2162,7 +2162,7 @@ impl MainWindow {
             Some(&self.widgets.window),
             &self.project
         );
-        let self_ = Rc::clone(&self);
+        let self_ = Rc::clone(self);
         dialog.exec(move || {
             self_.update_project_tree();
             self_.update_project_name_and_time_in_gui();
@@ -2194,7 +2194,7 @@ impl MainWindow {
             Some(&self.widgets.window),
             &self.project
         );
-        let self_ = Rc::clone(&self);
+        let self_ = Rc::clone(self);
         dialog.exec(move || {
             self_.update_project_tree();
             self_.update_project_name_and_time_in_gui();
@@ -2210,7 +2210,7 @@ impl MainWindow {
             &self.project
         );
 
-        let self_ = Rc::clone(&self);
+        let self_ = Rc::clone(self);
         dialog.exec(move || {
             self_.update_project_tree();
             self_.update_project_name_and_time_in_gui();
@@ -2336,7 +2336,7 @@ impl MainWindow {
 
         let dialog = gtk::MessageDialog::builder()
             .transient_for(&self.widgets.window)
-            .title(&gettext("Change file types"))
+            .title(gettext("Change file types"))
             .text(&message)
             .modal(true)
             .message_type(gtk::MessageType::Question)
@@ -2379,7 +2379,7 @@ impl MainWindow {
             Some(&self.widgets.window),
             &self.project
         );
-        let self_ = Rc::clone(&self);
+        let self_ = Rc::clone(self);
 
         let ok_fun = move || {
             self_.update_project_tree();

@@ -180,7 +180,7 @@ impl LightFile {
         let mut stars = if stars_flag || stars_stat_flag {
             let stars_log = TimeLogger::start();
             let result = find_stars_on_image(
-                &img_layer_to_calc,
+                img_layer_to_calc,
                 Some(noise),
                 flags.contains(LoadLightFlags::NO_ERR_IF_NO_STARS)
             )?;
@@ -191,7 +191,7 @@ impl LightFile {
             Stars::new()
         };
 
-        let stars_stat = calc_stars_stat(&stars, &img_layer_to_calc, open_mode == OpenMode::Preview);
+        let stars_stat = calc_stars_stat(&stars, img_layer_to_calc, open_mode == OpenMode::Preview);
 
         if bin == 2 {
             for (x, y) in &mut overexposures {

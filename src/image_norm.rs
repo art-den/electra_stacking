@@ -166,16 +166,16 @@ pub fn calc_image_layer_bg(image: &ImageLayerF32, mask: &ImageMask) -> anyhow::R
             for (x, y, v) in image.iter_area_crd(&area) {
                 if v.is_infinite() { continue; }
                 values.push(v as f64);
-                x_sum += x as i64;
-                y_sum += y as i64;
+                x_sum += x;
+                y_sum += y;
             }
         } else {
             for ((x, y, v), (.., m))
             in izip!(image.iter_area_crd(&area), mask.iter_area_crd(&area)) {
                 if m || v.is_infinite() { continue; }
                 values.push(v as f64);
-                x_sum += x as i64;
-                y_sum += y as i64;
+                x_sum += x;
+                y_sum += y;
             }
             if values.len() < 256 { continue; }
         }

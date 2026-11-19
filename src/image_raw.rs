@@ -61,16 +61,13 @@ impl CfaPattern {
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug)]
+#[derive(Default)]
 pub enum Cfa {
+    #[default]
     Mono,
     Pattern(CfaPattern),
 }
 
-impl Default for Cfa {
-    fn default() -> Self {
-        Cfa::Mono
-    }
-}
 
 impl Cfa {
     pub fn from_str(cfa_str: &str) -> Cfa {
@@ -531,11 +528,9 @@ impl RawImage {
 
                     let mut sum = 0_f32;
                     let mut cnt = 0_u16;
-                    for v in [g1, g2, g3, g4] {
-                        if let Some(v) = v {
-                            sum += v;
-                            cnt += 1;
-                        }
+                    for v in [g1, g2, g3, g4].into_iter().flatten() {
+                        sum += v;
+                        cnt += 1;
                     }
                     if cnt != 0 { sum / cnt as f32 } else { 0.0 }
                 };
@@ -698,7 +693,7 @@ impl RawImage {
                     unreachable!(),
             }
 
-            Self::find_hot_pixels_in_line(&values, &coords, |_values_crd, aver, value| {
+            Self::find_hot_pixels_in_line(values, coords, |_values_crd, aver, value| {
                 let diff = value-aver.abs();
                 diff_values.push(diff);
             });
@@ -721,7 +716,7 @@ impl RawImage {
                     unreachable!(),
             }
 
-            Self::find_hot_pixels_in_line(&values, &coords, |values_crd, aver, value| {
+            Self::find_hot_pixels_in_line(values, coords, |values_crd, aver, value| {
                 let diff = (value-aver).abs();
                 if diff > border { match it {
                     IterType::Cols =>
@@ -793,7 +788,7 @@ impl RawImage {
                     unreachable!(),
             }
 
-            Self::find_hot_pixels_in_line(&values, &coords, |_values_crd, aver, value| {
+            Self::find_hot_pixels_in_line(values, coords, |_values_crd, aver, value| {
                 let diff = value-aver;
                 if diff >= 0.0 {
                     diff_pos.push(diff);
@@ -829,7 +824,7 @@ impl RawImage {
                     unreachable!(),
             }
 
-            Self::find_hot_pixels_in_line(&values, &coords, |values_crd, aver, value| {
+            Self::find_hot_pixels_in_line(values, coords, |values_crd, aver, value| {
                 let diff = value-aver;
                 if ((diff > 0.0) && (diff > border_pos)) || ((diff < 0.0) && (diff < border_neg)) { match it {
                     IterType::Cols =>
@@ -1104,9 +1099,9 @@ impl CalibrationData {
 
         compare("Width", &info.width, &cal_info.width)?;
         compare("Height", &info.height, &cal_info.height)?;
-        let raw_cam = info.camera.as_ref().map(String::as_str).unwrap_or("");
-        let cal_cam = cal_info.camera.as_ref().map(String::as_str).unwrap_or("");
-        if cal_cam != "" {
+        let raw_cam = info.camera.as_deref().unwrap_or("");
+        let cal_cam = cal_info.camera.as_deref().unwrap_or("");
+        if !cal_cam.is_empty() {
             compare("Camera model", &raw_cam, &cal_cam)?;
         }
 

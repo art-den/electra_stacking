@@ -260,7 +260,7 @@ where
     let mut temp_file_list = FilesToDeleteLater::new();
     let mut first_image_info: Option<RawImageInfo> = None;
     for file_path in files_to_process.lock().unwrap().iter() {
-        let mut file = BufReader::new(File::open(&file_path)?);
+        let mut file = BufReader::new(File::open(file_path)?);
         let image_info = RawImageInfo::read_from(&mut file)?;
         if let Some(fii) = &first_image_info {
             if !fii.check_is_compatible(&image_info) { bail!(
@@ -411,7 +411,7 @@ pub fn create_temp_light_files(
 
     let save_thread = {
         let cur_result = Arc::clone(&cur_result);
-        let progress = Arc::clone(&progress);
+        let progress = Arc::clone(progress);
         std::thread::spawn(move || {
             let save_rx = save_rx;
             while let Ok(item) = save_rx.recv() {
@@ -459,7 +459,6 @@ pub fn create_temp_light_files(
                         err.to_string(),
                         file.to_str().unwrap_or("")
                     ));
-                    return;
                 }
             });
         }
@@ -654,7 +653,7 @@ pub fn merge_temp_light_files(
     let mut weighted_time = 0_f64;
     for temp_file in temp_file_names.iter() {
         let weight = min_noise.powf(2.0) / temp_file.noise.powf(2.0);
-        total_time += temp_file.info.exp.unwrap_or(0.0) as f64;
+        total_time += temp_file.info.exp.unwrap_or(0.0);
         weighted_time += weight as f64 * temp_file.info.exp.unwrap_or(0.0);
 
         log::info!(
@@ -789,8 +788,7 @@ pub fn merge_temp_light_files(
     }
 
     log::info!("Saving image into file {}", result_file.to_str().unwrap_or(""));
-    let mut dst_info = ImageInfo::default();
-    dst_info.exp = Some(total_time);
+    let dst_info = ImageInfo { exp: Some(total_time), ..Default::default() };
     save_image_to_file(&result_image, &dst_info, result_file)?;
 
     progress.lock().unwrap().percent(100, 100, "Done!");

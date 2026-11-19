@@ -25,7 +25,7 @@ impl GroupOptionsDialog {
         title:  &str,
     ) -> Rc<Self> {
         let widgets = Widgets::from_builder_str(include_str!("ui/group_options_dialog.ui"));
-        widgets.dialog.set_title(&title);
+        widgets.dialog.set_title(title);
         widgets.dialog.set_transient_for(parent);
         add_ok_and_cancel_buttons(
             &widgets.dialog,
@@ -55,7 +55,7 @@ impl GroupOptionsDialog {
             self.widgets.rb_default_name.set_active(true);
             self.widgets.e_name.set_sensitive(false);
         }
-        let self_ = Rc::clone(&self);
+        let self_ = Rc::clone(self);
         self.widgets.dialog.connect_response(move |dialog, response| {
             dialog.close();
             if response == gtk::ResponseType::Ok {

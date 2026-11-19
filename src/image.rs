@@ -375,14 +375,14 @@ pub trait PixelsSource {
         let mut dx = (x - ix as f64) as f32;
         if x.is_sign_negative() {
             ix -= 1;
-            dx = 1.0+dx;
+            dx += 1.0;
         }
 
         let mut iy = y as Crd;
         let mut dy = (y - iy as f64) as f32;
         if y.is_sign_negative() {
             iy -= 1;
-            dy = 1.0+dy;
+            dy += 1.0;
         }
 
         let p11 = self.get_int_crd(ix, iy);
@@ -614,9 +614,7 @@ impl ImageLayer<f32> {
         self.data.par_iter()
             .map(|l| {
                 if !l.is_infinite() {
-                    let mut l = (256.0 * fast_pow(((l-min)*range) as f64, gamma_div)) as i32;
-                    if l < 0 { l = 0; }
-                    if l > 255 { l = 255; }
+                    let l = i32::clamp((256.0 * fast_pow(((l-min)*range) as f64, gamma_div)) as i32, 0, 255);
                     let l = l as u8;
                     [l, l, l]
                 } else {
@@ -784,7 +782,7 @@ impl<'a, T: Copy + Clone + ImgLayerDefValue<Type = T>> RectIterCrd<'a, T> {
         y:   Crd
     ) -> std::slice::Iter<'a, T> {
         let line_start = y*img.width;
-        (&img.data[(line_start+x1) as usize ..= (line_start+x2) as usize]).iter()
+        img.data[(line_start+x1) as usize ..= (line_start+x2) as usize].iter()
     }
 }
 
@@ -1252,15 +1250,9 @@ impl Image {
                 .zip_eq(self.b.as_slice().par_iter())
                 .map(|((&r, &g), &b)| {
                     if !r.is_infinite() && !g.is_infinite() && !b.is_infinite() {
-                        let mut r = (256.0 * fast_pow(((r-params.r_min)*params.range) as f64, gamma_div)) as i32;
-                        if r < 0 { r = 0; }
-                        if r > 255 { r = 255; }
-                        let mut g = (256.0 * fast_pow(((g-params.g_min)*params.range) as f64, gamma_div)) as i32;
-                        if g < 0 { g = 0; }
-                        if g > 255 { g = 255; }
-                        let mut b = (256.0 * fast_pow(((b-params.b_min)*params.range) as f64, gamma_div)) as i32;
-                        if b < 0 { b = 0; }
-                        if b > 255 { b = 255; }
+                        let r = i32::clamp((256.0 * fast_pow(((r-params.r_min)*params.range) as f64, gamma_div)) as i32, 0, 255);
+                        let g = i32::clamp((256.0 * fast_pow(((g-params.g_min)*params.range) as f64, gamma_div)) as i32, 0, 255);
+                        let b = i32::clamp((256.0 * fast_pow(((b-params.b_min)*params.range) as f64, gamma_div)) as i32, 0, 255);
                         [r as u8, g as u8, b as u8]
                     } else {
                         [0, 255, 0]
@@ -1321,7 +1313,6 @@ impl Image {
                 *g = r0*cam_to_rgb[1] + g0*cam_to_rgb[4] + b0*cam_to_rgb[7];
                 *b = r0*cam_to_rgb[2] + g0*cam_to_rgb[5] + b0*cam_to_rgb[8];
             }
-            return;
         }
     }
 }

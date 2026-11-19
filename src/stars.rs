@@ -189,7 +189,7 @@ pub fn find_stars_on_image(
         }
 
         let (center_x, center_y, br, radius, radius_dev) = star_calc.calc_center_brightness_radius_and_deviation(
-            &img,
+            img,
             star_bg,
             &star_points,
             true,
@@ -674,7 +674,7 @@ fn get_stars_triangles<'a>(
         let other_stars = &stars[max_stars..];
         let points_to_triangulate: Vec<_> = other_stars
             .iter()
-            .map(|s| Point {x: s.x as f64, y: s.y as f64})
+            .map(|s| Point {x: s.x, y: s.y})
             .collect();
 
         let triagulation = triangulate(&points_to_triangulate);
@@ -817,13 +817,13 @@ pub fn create_common_star_image(
                     1.0
                 );
                 if star_weight > 0.0 {
-                    pt_values.push(CalcValue::new_weighted(norm_star_values as f64, star_weight));
+                    pt_values.push(CalcValue::new_weighted(norm_star_values, star_weight));
                 }
             }
         }
 
         if let Some(filtered_v) = cappa_sigma_weighted_result(pt_values, 1.8, 10, true, true) {
-            *v = (filtered_v.result as f32).min(1.0).max(0.0);
+            *v = f32::clamp(filtered_v.result as f32, 0.0, 1.0);
         }
     };
 
