@@ -1,7 +1,12 @@
-use bitstream_io::*;
-use itertools::*;
+use bitstream_io::{BitRead, BitWrite};
+#[cfg(test)]
+use bitstream_io::{BigEndian, BitReader, BitWriter};
 
+// Block format (frozen for backward compatibility, guarded by test_bitstream_compatibility):
+// per block of COMPR_BUF_SIZE XOR-deltas a 3-bit header picks a mode; zero-count parameters
+// and an optional large-value mask (one bit per value) precede the bit-packed values.
 const COMPR_BUF_SIZE:  usize = 64;
+const COMPR_BUF_BITS:  u32   = COMPR_BUF_SIZE as u32;
 const MAX_LARGE_CNT:   usize = COMPR_BUF_SIZE / 4;
 
 const HEADER_ZEROS:     u32 = 0b000;
@@ -10,6 +15,12 @@ const HEADER_LZ:        u32 = 0b010;
 const HEADER_LZ_2:      u32 = 0b011;
 const HEADER_LZ_TZ:     u32 = 0b100;
 const HEADER_LZ_TZ_2:   u32 = 0b101;
+
+// Must be appended after the final flush: BitWriter discards an incomplete trailing byte
+// when dropped, so without this marker the last block's trailing bits would be lost.
+pub fn write_end_marker<T: BitWrite>(writer: &mut T) -> std::io::Result<()> {
+    writer.write_unsigned::<32, u32>(0)
+}
 
 pub struct ValuesCompressor {
     data:       [u32; COMPR_BUF_SIZE],
@@ -63,19 +74,20 @@ impl ValuesCompressor {
 
     fn compress<T: BitWrite>(&mut self, writer: &mut T) -> std::io::Result<()> {
         let mut lz_freq = [0_u8; 32+1];
-        let mut lz_values = [0_u32; COMPR_BUF_SIZE];
-        let mut lz_large = u32::MAX;
-        let mut min_tz = u32::MAX;
-        for (d, lz) in izip!(self.data, &mut lz_values) {
-            let tz = d.trailing_zeros();
-            if tz < min_tz { min_tz = tz; }
-            *lz = d.leading_zeros();
-            if *lz < lz_large { lz_large = *lz; }
-            lz_freq[*lz as usize] += 1;
+        let mut lz_values = [0_u8; COMPR_BUF_SIZE];
+        let mut lz_large = 32_u32;
+        let mut min_tz = 32_u32;
+        for (d, lz) in self.data.iter().zip(&mut lz_values) {
+            let tz = u32::trailing_zeros(*d);
+            min_tz = u32::min(min_tz, tz);
+            let l = u32::leading_zeros(*d);
+            *lz = l as u8;
+            lz_large = u32::min(lz_large, l);
+            lz_freq[l as usize] += 1;
         }
         if min_tz == 32 {
-            writer.write(3, HEADER_ZEROS)?;
-            return Ok(());
+            writer.write_unsigned::<3, u32>(HEADER_ZEROS)?;
+            return Ok(())
         }
         let mut cnt_sum = 0_usize;
         let mut lz_norm = 0_u32;
@@ -86,57 +98,55 @@ impl ValuesCompressor {
                 break;
             }
         }
-        lz_norm = lz_norm
-            .max(lz_large)
-            .min(31 - min_tz);
+        lz_norm = u32::min(u32::max(lz_norm, lz_large), 31 - min_tz);
 
         if lz_norm + min_tz < 2 {
-            writer.write(3, HEADER_NO_COMPR)?;
+            writer.write_unsigned::<3, u32>(HEADER_NO_COMPR)?;
             for v in self.data {
-                writer.write(32, v)?;
+                writer.write_unsigned::<32, u32>(v)?;
             }
             return Ok(());
         }
-        let use_large_lz_bits = (lz_norm as i32 - lz_large as i32) >= 2;
+        let use_large_lz_bits = lz_norm >= lz_large + 2;
         if min_tz == 0 {
             if !use_large_lz_bits {
-                writer.write(3, HEADER_LZ)?;
-                writer.write(5, lz_large)?;
+                writer.write_unsigned::<3, u32>(HEADER_LZ)?;
+                writer.write_unsigned::<5, u32>(lz_large)?;
             } else {
-                writer.write(3, HEADER_LZ_2)?;
-                writer.write(5, lz_large)?;
-                writer.write(5, lz_norm)?;
+                writer.write_unsigned::<3, u32>(HEADER_LZ_2)?;
+                writer.write_unsigned::<5, u32>(lz_large)?;
+                writer.write_unsigned::<5, u32>(lz_norm)?;
             }
         } else {
             if !use_large_lz_bits {
-                writer.write(3, HEADER_LZ_TZ)?;
-                writer.write(5, lz_large)?;
-                writer.write(5, min_tz)?;
+                writer.write_unsigned::<3, u32>(HEADER_LZ_TZ)?;
+                writer.write_unsigned::<5, u32>(lz_large)?;
+                writer.write_unsigned::<5, u32>(min_tz)?;
             } else {
-                writer.write(3, HEADER_LZ_TZ_2)?;
-                writer.write(5, lz_large)?;
-                writer.write(5, lz_norm)?;
-                writer.write(5, min_tz)?;
+                writer.write_unsigned::<3, u32>(HEADER_LZ_TZ_2)?;
+                writer.write_unsigned::<5, u32>(lz_large)?;
+                writer.write_unsigned::<5, u32>(lz_norm)?;
+                writer.write_unsigned::<5, u32>(min_tz)?;
             }
         }
-        let large_len = (32 - lz_large - min_tz).max(1);
+        let large_len = u32::max(32 - lz_large - min_tz, 1);
         if use_large_lz_bits {
             let mut large_bits = 0_u64;
             for lz in &lz_values {
                 large_bits <<= 1;
-                if *lz < lz_norm {
+                if (*lz as u32) < lz_norm {
                     large_bits |= 1;
                 }
             }
-            writer.write(COMPR_BUF_SIZE as u32, large_bits)?;
-            let norm_len = (32 - lz_norm - min_tz).max(1);
-            for (v, lz) in izip!(&self.data, &lz_values) {
-                let len_to_write = if *lz >= lz_norm { norm_len } else { large_len };
-                writer.write(len_to_write, *v >> min_tz)?;
+            writer.write_unsigned::<COMPR_BUF_BITS, u64>(large_bits)?;
+            let norm_len = u32::max(32 - lz_norm - min_tz, 1);
+            for (v, lz) in self.data.iter().zip(&lz_values) {
+                let len_to_write = if (*lz as u32) >= lz_norm { norm_len } else { large_len };
+                writer.write_unsigned_var(len_to_write, *v >> min_tz)?;
             }
         } else {
-            for v in &self.data {
-                writer.write(large_len, *v >> min_tz)?;
+            for v in self.data {
+                writer.write_unsigned_var(large_len, v >> min_tz)?;
             }
         }
         Ok(())
@@ -184,46 +194,45 @@ impl ValuesDecompressor {
 
     fn decompress_values<T: BitRead>(&mut self, reader: &mut T) -> std::io::Result<()> {
         self.values_ptr = 0;
-        let header = reader.read::<u32>(3)?;
+        let header = reader.read_unsigned::<3, u32>()?;
         if header == HEADER_ZEROS {
             self.values.fill(self.prev_value);
             return Ok(());
         }
         if header == HEADER_NO_COMPR {
             for v in &mut self.values {
-                self.prev_value ^= reader.read::<u32>(32)?;
+                self.prev_value ^= reader.read_unsigned::<32, u32>()?;
                 *v = self.prev_value;
             }
             return Ok(());
         }
         let (lz_large, lz_norm, tz, use_large_lz_bits) = match header {
             HEADER_LZ =>
-                (reader.read::<u32>(5)?, 0, 0, false),
+                (reader.read_unsigned::<5, u32>()?, 0, 0, false),
             HEADER_LZ_2 =>
-                (reader.read::<u32>(5)?, reader.read::<u32>(5)?, 0, true),
+                (reader.read_unsigned::<5, u32>()?, reader.read_unsigned::<5, u32>()?, 0, true),
             HEADER_LZ_TZ =>
-                (reader.read::<u32>(5)?, 0, reader.read::<u32>(5)?, false),
+                (reader.read_unsigned::<5, u32>()?, 0, reader.read_unsigned::<5, u32>()?, false),
             HEADER_LZ_TZ_2 => (
-                reader.read::<u32>(5)?, reader.read::<u32>(5)?, reader.read::<u32>(5)?, true),
+                reader.read_unsigned::<5, u32>()?, reader.read_unsigned::<5, u32>()?,
+                reader.read_unsigned::<5, u32>()?, true),
             _ =>
             unreachable!(),
         };
-        let large_len = (32 - lz_large - tz).max(1);
+        let large_len = u32::max(32 - lz_large - tz, 1);
         if use_large_lz_bits {
-            let norm_len = (32 - lz_norm - tz).max(1);
-            let mut large_bits = reader.read::<u64>(COMPR_BUF_SIZE as u32)?;
+            let norm_len = u32::max(32 - lz_norm - tz, 1);
+            let mut large_bits = reader.read_unsigned::<COMPR_BUF_BITS, u64>()?;
             for v in &mut self.values {
-                if (large_bits & (1 << (COMPR_BUF_SIZE-1))) == 0 {
-                    self.prev_value ^= reader.read::<u32>(norm_len)? << tz;
-                } else {
-                    self.prev_value ^= reader.read::<u32>(large_len)? << tz;
-                }
-                *v = self.prev_value;
+                // Top mask bit set means this value was stored with large_len
+                let len = if (large_bits as i64) < 0 { large_len } else { norm_len };
                 large_bits <<= 1;
+                self.prev_value ^= reader.read_unsigned_var::<u32>(len)? << tz;
+                *v = self.prev_value;
             }
         } else {
             for v in &mut self.values {
-                self.prev_value ^= reader.read::<u32>(large_len)? << tz;
+                self.prev_value ^= reader.read_unsigned_var::<u32>(large_len)? << tz;
                 *v = self.prev_value;
             }
         }
@@ -248,9 +257,7 @@ fn test_i32_compression() {
     compressor.write_i32(i32::MAX, &mut bit_writer).unwrap();
 
     compressor.flush(&mut bit_writer).unwrap();
-    bit_writer.write(8, 0).unwrap();
-    drop(compressor);
-    drop(bit_writer);
+    bit_writer.write_unsigned::<8, u32>(0).unwrap();
 
     let mem_reader = std::io::Cursor::new(&mem_data);
     let mut bit_reader = BitReader::endian(mem_reader, BigEndian);
@@ -266,6 +273,92 @@ fn test_i32_compression() {
     assert_eq!(decompressor.read_i32(&mut bit_reader).unwrap(), i32::MAX);
 }
 
+// Golden byte sequences captured with bitstream-io 1.x.
+// They guarantee that the bitstream format stays compatible
+// with files written by previous versions of this code.
+#[test]
+fn test_bitstream_compatibility() {
+    fn hex_to_bytes(s: &str) -> Vec<u8> {
+        (0..s.len()).step_by(2)
+            .map(|i| u8::from_str_radix(&s[i..i+2], 16).unwrap())
+            .collect()
+    }
+    fn compress_hex<T: Copy>(
+        vals: &[T],
+        write_val: impl Fn(&mut ValuesCompressor, T, &mut BitWriter<std::io::Cursor<&mut Vec<u8>>, BigEndian>) -> std::io::Result<()>,
+    ) -> String {
+        let mut mem = Vec::<u8>::new();
+        let mut w = BitWriter::endian(std::io::Cursor::new(&mut mem), BigEndian);
+        let mut c = ValuesCompressor::new();
+        for v in vals { write_val(&mut c, *v, &mut w).unwrap(); }
+        c.flush(&mut w).unwrap();
+        write_end_marker(&mut w).unwrap();
+        mem.iter().map(|b| format!("{:02x}", b)).collect()
+    }
+    fn decompress_hex<T>(
+        s: &str,
+        count: usize,
+        read_val: impl Fn(&mut ValuesDecompressor, &mut BitReader<std::io::Cursor<&Vec<u8>>, BigEndian>) -> std::io::Result<T>,
+    ) -> Vec<T> {
+        let data = hex_to_bytes(s);
+        let mut r = BitReader::endian(std::io::Cursor::new(&data), BigEndian);
+        let mut d = ValuesDecompressor::new();
+        (0..count).map(|_| read_val(&mut d, &mut r).unwrap()).collect()
+    }
+
+    let g1 = "60ffe00000000000000000000098000000380000023800000038000002a7fffffffc00000000000000000000";
+    let i32_vals = [-10, 10, -42, 42, 0, i32::MIN, i32::MAX];
+    assert_eq!(compress_hex(&i32_vals, |c, v, w| c.write_i32(v, w)), g1);
+    assert_eq!(decompress_hex(g1, i32_vals.len(), |d, r| d.read_i32(r)), i32_vals);
+
+    let g2 = "625bfda492000000000000003c23d70a0200000005615850758561406f1bc700e439080fa9ea600b22c8f70dcc03a4e90805b16c7485210fc370dd485236c5b300e93a41b86e36459701eb7ac1c8723bc6f000d9364d58563e479003d70a3ca3d70f23c92b0ac6c9b21bc6f6721c80000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000";
+    let f32_g2: Vec<f32> = (0..32).map(|i| i as f32 / 100.0).collect();
+    assert_eq!(compress_hex(&f32_g2, |c, v, w| c.write_f32(v, w)), g2);
+    assert_eq!(decompress_hex(g2, f32_g2.len(), |d, r| d.read_f32(r)), f32_g2);
+
+    let g3 = "a1549ea220202000200001fc1fe000800c2003100784c400e26200f098b898803c4c5c4c40fe1317131f131713100f898b898f898b8988000000";
+    let f32_g3: Vec<f32> = (0..64).map(|i| i as f32).collect();
+    assert_eq!(compress_hex(&f32_g3, |c, v, w| c.write_f32(v, w)), g3);
+    assert_eq!(decompress_hex(g3, f32_g3.len(), |d, r| d.read_f32(r)), f32_g3);
+
+    let g4 = "a1549ea2202020002000021c01e000800c2003100784c400e26200f098b898803c4c5c4c40fe1317131f131713100f898b898f898b8988000000";
+    let f32_g4: Vec<f32> = (0..64).map(|i| (i * 256) as f32).collect();
+    assert_eq!(compress_hex(&f32_g4, |c, v, w| c.write_f32(v, w)), g4);
+    assert_eq!(decompress_hex(g4, f32_g4.len(), |d, r| d.read_f32(r)), f32_g4);
+
+    let g5 = "2c204356302f324bd02f324bd02f324bd02f324bd02f324bd02f324bd02f324bd02f324bd02f324bd02f324bd02f324bd02f324bd02f324bd02f324bd02f324bd02f324bd02f324bd02f324bd02f324bd02f324bd02f324bd02f324bd02f324bd02f324bd02f324bd02f324bd02f324bd02f324bd02f324bd02f324bd02f324bd02f324bd02f324bd02f324bd02f324bd02f324bd02f324bd02f324bd02f324bd02f324bd02f324bd02f324bd02f324bd02f324bd02f324bd02f324bd02f324bd02f324bd02f324bd02f324bd02f324bd02f324bd02f324bd02f324bd02f324bd02f324bd02f324bd02f324bd02f324bd02f324bd02f324bd02f324bd02f324bc605e6497a05e6497a05e6497a05e6497a05e6497a05e6497a05e6497a05e6497a05e6497a05e6497a05e6497a05e6497a05e6497a05e6497a05e6497a05e6497a05e6497a05e6497a05e6497a05e6497a05e6497a05e6497a05e6497a05e6497a05e6497a05e6497a05e6497a05e6497a05e6497a05e6497a05e6497a05e6497a05e6497a05e6497a05e6497a05e6497a05e6497a05e6497a05e6497a05e6497a05e6497a05e6497a05e6497a05e6497a05e6497a05e6497a05e6497a05e6497a05e6497a05e6497a05e6497a05e6497a05e6497a05e6497a05e6497a05e6497a05e6497a05e6497a05e6497a05e6497a05e6497a05e6497a05e6497a05e64978000000";
+    let f32_g5: Vec<f32> = (0..128).map(|i| if i % 2 == 0 { 1.5e20 } else { -7.25e19 }).collect();
+    assert_eq!(compress_hex(&f32_g5, |c, v, w| c.write_f32(v, w)), g5);
+    assert_eq!(decompress_hex(g5, f32_g5.len(), |d, r| d.read_f32(r)), f32_g5);
+
+    let g6 = "a1549ea2202020002000023c03e000800c2003100784c400e26200f098b898803c4c5c4c40fe1317131f131713100f898b898f898b8988000000";
+    let f32_g6: Vec<f32> = (0..64).map(|i| (i * 0x10000) as f32).collect();
+    assert_eq!(compress_hex(&f32_g6, |c, v, w| c.write_f32(v, w)), g6);
+    assert_eq!(decompress_hex(g6, f32_g6.len(), |d, r| d.read_f32(r)), f32_g6);
+
+    let g7 = "830800000078f3942020000006c53b380c53b38143ed08386d637e36af1f8f3942020000006c53b380c53b38143ed08386d637e36af1f8f3942020000006c53b380c53b38143ed08386d637e36af1f8f3942020000006c53b380c53b38143ed08386d637e36af1f8f3942020000006c53b380c53b38143ed08386d637e36af1f8f3942020000006c53b380c53b38143ed08386d637e36af1f8f3942020000006c53b380c53b38143ed08386d637e36af1f8f3942020000006c53b380c53b38143ed08386d637e36af1f8f3942020000006c53b380c53b38143ed08386d637e36af1c187c79ca1010000003629d9c0629d9c0a1f6841c36b1bf1b578fc79ca1010000003629d9c0629d9c0a1f6841c36b1bf1b578fc79ca1010000003629d9c0629d9c0a1f6841c36b1bf1b578fc79ca1010000003629d9c0629d9c0a1f6841c36b1bf1b578fc79ca1010000003629d9c0629d9c0a1f6841c36b1bf1b578fc79ca1010000003629d9c0629d9c0a1f6841c36b1bf1b578fc79ca1010000003629d9c0629d9c0a1f6841c36b1bf1b578fc79ca1010000003629d9c0629d9c0a1f6841c36b1bf1b578fc79ca1010000003629d9c0629d9c0a1f6841c36b1bf1b578fc79ca100000000";
+    let f32_g7: Vec<f32> = (0..128).map(|i| (i % 7) as f32 * 1e-20).collect();
+    assert_eq!(compress_hex(&f32_g7, |c, v, w| c.write_f32(v, w)), g7);
+    assert_eq!(decompress_hex(g7, f32_g7.len(), |d, r| d.read_f32(r)), f32_g7);
+
+    let g8 = "7af04444444444444440e8ee9ee8eebee8ee9ee8eefee8ee9ee8eebee8ee9ee8ee80000000";
+    let u32_g8: Vec<u32> = (0..64).collect();
+    assert_eq!(compress_hex(&u32_g8, |c, v, w| c.write_u32(v, w)), g8);
+    assert_eq!(decompress_hex(g8, u32_g8.len(), |d, r| d.read_u32(r)), u32_g8);
+
+    let g9 = "61fc00000000000000042f6e97900000000000000000000000";
+    let f32_g9 = vec![123.456_f32; 100];
+    assert_eq!(compress_hex(&f32_g9, |c, v, w| c.write_f32(v, w)), g9);
+    assert_eq!(decompress_hex(g9, f32_g9.len(), |d, r| d.read_f32(r)), f32_g9);
+
+    let g10 = "5a8218a39259a7a29aabb2dbafc31cb3d35db7e39ebbf3dfbf8218a39259a7a29aabb2dbafc31cb3d35db7e39ebbf3dfbf00000000";
+    let mut u32_g10: Vec<u32> = Vec::new();
+    let mut acc = 0_u32;
+    for i in 0..64 { acc ^= 32 + (i as u32 % 32); u32_g10.push(acc); }
+    assert_eq!(compress_hex(&u32_g10, |c, v, w| c.write_u32(v, w)), g10);
+    assert_eq!(decompress_hex(g10, u32_g10.len(), |d, r| d.read_u32(r)), u32_g10);
+}
+
 #[test]
 fn test_compression_decompression() {
     fn test_values(values: &[f32]) {
@@ -277,9 +370,7 @@ fn test_compression_decompression() {
             compressor.write_f32(*value, &mut bit_writer).unwrap();
         }
         compressor.flush(&mut bit_writer).unwrap();
-        bit_writer.write(8, 0).unwrap();
-        drop(compressor);
-        drop(bit_writer);
+        bit_writer.write_unsigned::<8, u32>(0).unwrap();
 
         let mem_reader = std::io::Cursor::new(&mem_data);
         let mut bit_reader = BitReader::endian(mem_reader, BigEndian);

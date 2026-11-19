@@ -3,7 +3,7 @@ use byteorder::{ReadBytesExt, WriteBytesExt};
 use serde::*;
 use tiff::{*, decoder::*, encoder::*};
 use itertools::*;
-use bitstream_io::{BitWriter, BitWrite, BitReader};
+use bitstream_io::{BitWriter, BitReader};
 use chrono::prelude::*;
 use fitsio::{*, images::*, hdu::*};
 use regex::Regex;
@@ -870,7 +870,7 @@ pub fn save_image_into_internal_format(
         l_writer.flush(&mut writer)?;
         image.width() * image.height() * std::mem::size_of::<f32>() as Crd
     };
-    writer.write(32, 0)?;
+    write_end_marker(&mut writer)?;
     writer.flush()?;
 
     let bytes_saved = file.seek(SeekFrom::End(0))?;
@@ -892,7 +892,7 @@ pub fn save_calibr_format_file(raw: &RawImage, file_name: &Path) -> anyhow::Resu
         compr.write_f32(*v, &mut writer)?;
     }
     compr.flush(&mut writer)?;
-    writer.write(32, 0)?;
+    write_end_marker(&mut writer)?;
     writer.flush()?;
     Ok(())
 }
