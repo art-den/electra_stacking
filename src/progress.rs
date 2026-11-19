@@ -79,13 +79,16 @@ impl Progress for ProgressConsole {
     }
 }
 
+type StageFn = Box<dyn Fn(&str) + Send + 'static>;
+type ProgressFn = Box<dyn Fn(usize, &str) + Send + 'static>;
+
 pub struct ProgressCallBack {
     pos: usize,
     total: usize,
     prev_percent: usize,
     prev_text: String,
-    stage_cb: Box<dyn Fn(&str) + Send + 'static>,
-    progress_cb: Box<dyn Fn(usize, &str) + Send + 'static>,
+    stage_cb: StageFn,
+    progress_cb: ProgressFn,
 }
 
 impl ProgressCallBack {

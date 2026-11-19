@@ -143,7 +143,12 @@ where T: Copy + Clone + ImgLayerDefValue<Type = T> {
     pub fn iter_col_mut(&mut self, x: Crd) -> std::iter::StepBy<std::slice::IterMut<'_, T>> {
         self.data[x as usize..].iter_mut().step_by(self.width as usize)
     }
+}
 
+// `from_*` here denotes the diagonal traversal direction, not a conversion constructor
+#[allow(clippy::wrong_self_convention)]
+impl<T> ImageLayer<T>
+where T: Copy + Clone + ImgLayerDefValue<Type = T> {
     fn get_end_for_from_top_iter_diag1(&self, x: Crd) -> usize {
         let size_diff = self.width - self.height;
         if x > size_diff {
@@ -233,7 +238,10 @@ where T: Copy + Clone + ImgLayerDefValue<Type = T> {
             .iter_mut()
             .step_by(self.width as usize - 1)
     }
+}
 
+impl<T> ImageLayer<T>
+where T: Copy + Clone + ImgLayerDefValue<Type = T> {
     pub fn iter_crd(&self) -> ImageLayerIter1::<'_, T> {
         ImageLayerIter1 {
             iter1: self.data.iter(),

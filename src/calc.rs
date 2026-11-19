@@ -244,7 +244,7 @@ impl IirFilter {
         } else if (0.5..2.5).contains(&sigma) {
             3.97156 - 4.14554 * (1.0 - 0.26891 * sigma).sqrt()
         } else {
-            0.1147705018520355224609375
+            0.1147705
         };
 
         let q2 = q * q;

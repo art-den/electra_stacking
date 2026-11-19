@@ -12,6 +12,7 @@ pub enum CfaColor {
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug)]
+#[allow(clippy::upper_case_acronyms)] // canonical Bayer pattern names, also serde keys
 pub enum CfaType {
     GBRG,
     RGGB,
@@ -160,7 +161,7 @@ impl RawImage {
             let srgb_2_xyz = matrix![
                 0.4124564, 0.3575761, 0.1804375;
                 0.2126729, 0.7151522, 0.0721750;
-                0.0193339, 0.1191920, 0.9503041;
+                0.0193339, 0.119192, 0.9503041;
             ];
 
             let mut srgb_to_cam = xyz_2_cam * srgb_2_xyz;

@@ -1,5 +1,9 @@
 use crate::image_raw::*;
 
+type WbGains = [f32; 4];
+type ColorMatrix = &'static [f32; 9];
+type CameraEntry = (&'static str, WbGains, Option<CfaType>, Option<ColorMatrix>);
+
 // Color coefficients for camera sensors
 const SONY_IMX294_WB: [f32; 4] = [1.255, 1.000, 1.607, 0.000];
 const SONY_IMX294_CCM: &[f32; 9] = &[
@@ -37,7 +41,7 @@ const SONY_IMX571_CCM: &[f32; 9] = &[
 ];
 
 // table for cameras if no params in raw FITS file
-const CAMERAS_TABLE: &[(&str, [f32; 4], Option<CfaType>, Option<&[f32; 9]>)] = &[
+const CAMERAS_TABLE: &[CameraEntry] = &[
     // camera    |color balance  |bayer|color matrix
     ("asi294mc",         SONY_IMX294_WB, None, Some(SONY_IMX294_CCM)),
     ("sv405cc",          SONY_IMX294_WB, None, Some(SONY_IMX294_CCM)),
@@ -50,7 +54,7 @@ const CAMERAS_TABLE: &[(&str, [f32; 4], Option<CfaType>, Option<&[f32; 9]>)] = &
 
 pub fn find_camera_params(
     camera_name: Option<&str>
-) -> Option<([f32; 4], Option<CfaType>, Option<&[f32; 9]>)> {
+) -> Option<(WbGains, Option<CfaType>, Option<ColorMatrix>)> {
     if let Some(camera_name) = camera_name {
         let name_lc = camera_name.to_string().to_lowercase();
         CAMERAS_TABLE.iter()

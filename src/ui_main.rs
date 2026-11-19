@@ -150,6 +150,8 @@ struct Icons {
     ref_image: Option<gdk_pixbuf::Pixbuf>,
 }
 
+type PreviewScrollPos = ((f64, f64), (f64, f64));
+
 struct MainWindow {
     widgets: Widgets,
     icons: Icons,
@@ -160,7 +162,7 @@ struct MainWindow {
     prev_preview_cancel_flags: RefCell<Option<Arc<AtomicBool>>>,
     prev_preview_img: RefCell<image::Image>,
     prev_preview_params: RefCell<image::ToRgbBytesParams>,
-    preview_scroll_pos: RefCell<Option<((f64, f64), (f64, f64))>>,
+    preview_scroll_pos: RefCell<Option<PreviewScrollPos>>,
     global_cancel_flag: Arc<AtomicBool>,
     move_to_group_last_uuid: RefCell<String>,
     prj_tree_is_building: Cell<bool>,
@@ -1595,7 +1597,7 @@ impl MainWindow {
                     });
 
                 if let Some(group_index) = group_index {
-                    let user_selected_files = file_chooser.files().iter()
+                    let user_selected_files: Vec<PathBuf> = file_chooser.files().iter()
                         .filter_map(|f| f.path())
                         .collect();
 
@@ -1704,11 +1706,11 @@ impl MainWindow {
 
     fn add_files_into_project(
         self:             &Rc<Self>,
-        file_names:       &Vec<PathBuf>,
+        file_names:       &[PathBuf],
         group_iter_index: usize,
         file_type:        ProjectFileType
     ) {
-        let mut file_names = file_names.clone();
+        let mut file_names = file_names.to_vec();
         let project = self.project.borrow();
         let group = project.groups().get(group_iter_index);
         if let Some(group) = group {
@@ -1848,6 +1850,7 @@ impl MainWindow {
         file_name: &Path,
         mode:      PreviewFileMode,
     ) {
+        #[allow(clippy::large_enum_variant)] // one-shot preview messages, variant size is irrelevant
         enum UiMessage {
             Image{
                 image:     LightFile,
@@ -1864,7 +1867,7 @@ impl MainWindow {
         let (sender, receiver) = async_channel::unbounded();
 
         glib::spawn_future_local(clone!(@strong self as self_ => async move {
-            while let Ok(message) = receiver.recv().await {
+            if let Ok(message) = receiver.recv().await {
                 match message {
                     UiMessage::Image { image, file_name } => {
                         let config = self_.config.borrow();
@@ -1921,7 +1924,6 @@ impl MainWindow {
                         self_.last_preview_file.borrow_mut().clear();
                     },
                 }
-                break; // while
             }
         }));
 

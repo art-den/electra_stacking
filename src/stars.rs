@@ -846,7 +846,7 @@ pub fn create_common_star_image(
 }
 
 pub fn calc_stars_stat(stars: &Stars, image: &ImageLayerF32, fast: bool) -> anyhow::Result<StarsStat> {
-    let mag: Crd = if !fast { 8 } else { 8 };
+    let mag: Crd = 8;
     log::info!("calc_stars_stat: stars_count = {}, fast = {}", stars.len(), fast);
     let profiler = TimeLogger::start();
     let common_stars_img = create_common_star_image(stars, image, mag, fast)?;
