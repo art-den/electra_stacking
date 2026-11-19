@@ -29,7 +29,7 @@ const SONY_IMX183_CCM: &[f32; 9] = &[
     -0.03362, -0.29018,  1.47698,
 ];
 
-const SONY_IMX571_WB: [f32; 4] = [1.251, 1.000, 1.548, 0.000];
+const SONY_IMX571_WB: [f32; 4] = [1.61, 1.000, 1.53, 0.000];
 const SONY_IMX571_CCM: &[f32; 9] = &[
      1.08988, -0.33464,  0.07279,
     -0.08379,  1.60281, -0.50702,
@@ -45,6 +45,7 @@ const CAMERAS_TABLE: &[(&str, [f32; 4], Option<CfaType>, Option<&[f32; 9]>)] = &
     ("asi178mc",         SONY_IMX178_WB, None, Some(SONY_IMX178_CCM)),
     ("asi183mc",         SONY_IMX183_WB, None, Some(SONY_IMX183_CCM)),
     ("atr3cmos26000kpa", SONY_IMX571_WB, None, Some(SONY_IMX571_CCM)),
+    ("atr2600c",         SONY_IMX571_WB, None, Some(SONY_IMX571_CCM)),
 ];
 
 pub fn find_camera_params(
