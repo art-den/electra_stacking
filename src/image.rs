@@ -108,11 +108,11 @@ where T: Copy + Clone + ImgLayerDefValue<Type = T> {
         self.data[(y*self.width+x) as usize] = value;
     }
 
-    pub fn iter(&self) -> std::slice::Iter<T> {
+    pub fn iter(&self) -> std::slice::Iter<'_, T> {
         self.data.iter()
     }
 
-    pub fn iter_mut(&mut self) -> std::slice::IterMut<T> {
+    pub fn iter_mut(&mut self) -> std::slice::IterMut<'_, T> {
         self.data.iter_mut()
     }
 
@@ -126,21 +126,21 @@ where T: Copy + Clone + ImgLayerDefValue<Type = T> {
         &mut self.data[pos..pos + self.width as usize]
     }
 
-    pub fn iter_row(&self, y: Crd) -> std::slice::Iter<T> {
+    pub fn iter_row(&self, y: Crd) -> std::slice::Iter<'_, T> {
         let pos = (y*self.width) as usize;
         self.data[pos..pos + self.width as usize].iter()
     }
 
-    pub fn iter_row_mut(&mut self, y: Crd) -> std::slice::IterMut<T> {
+    pub fn iter_row_mut(&mut self, y: Crd) -> std::slice::IterMut<'_, T> {
         let pos = (y*self.width) as usize;
         self.data[pos..pos + self.width as usize].iter_mut()
     }
 
-    pub fn iter_col(&self, x: Crd) -> std::iter::StepBy<std::slice::Iter<T>> {
+    pub fn iter_col(&self, x: Crd) -> std::iter::StepBy<std::slice::Iter<'_, T>> {
         self.data[x as usize..].iter().step_by(self.width as usize)
     }
 
-    pub fn iter_col_mut(&mut self, x: Crd) -> std::iter::StepBy<std::slice::IterMut<T>> {
+    pub fn iter_col_mut(&mut self, x: Crd) -> std::iter::StepBy<std::slice::IterMut<'_, T>> {
         self.data[x as usize..].iter_mut().step_by(self.width as usize)
     }
 
@@ -153,14 +153,14 @@ where T: Copy + Clone + ImgLayerDefValue<Type = T> {
         }
     }
 
-    pub fn from_top_iter_diag1(&self, x: Crd) -> std::iter::StepBy<std::slice::Iter<T>> {
+    pub fn from_top_iter_diag1(&self, x: Crd) -> std::iter::StepBy<std::slice::Iter<'_, T>> {
         let end = self.get_end_for_from_top_iter_diag1(x);
         self.data[x as usize ..= end]
             .iter()
             .step_by(self.width as usize + 1)
     }
 
-    pub fn from_top_iter_diag1_mut(&mut self, x: Crd) -> std::iter::StepBy<std::slice::IterMut<T>> {
+    pub fn from_top_iter_diag1_mut(&mut self, x: Crd) -> std::iter::StepBy<std::slice::IterMut<'_, T>> {
         let end = self.get_end_for_from_top_iter_diag1(x);
         self.data[x as usize ..= end]
             .iter_mut()
@@ -176,14 +176,14 @@ where T: Copy + Clone + ImgLayerDefValue<Type = T> {
         }
     }
 
-    pub fn from_left_iter_diag1(&self, y: Crd) -> std::iter::StepBy<std::slice::Iter<T>> {
+    pub fn from_left_iter_diag1(&self, y: Crd) -> std::iter::StepBy<std::slice::Iter<'_, T>> {
         let end = self.get_end_for_from_left_diag1_iter(y);
         self.data[(y*self.width) as usize ..= end]
             .iter()
             .step_by(self.width as usize + 1)
     }
 
-    pub fn from_left_iter_diag1_mut(&mut self, y: Crd) -> std::iter::StepBy<std::slice::IterMut<T>> {
+    pub fn from_left_iter_diag1_mut(&mut self, y: Crd) -> std::iter::StepBy<std::slice::IterMut<'_, T>> {
         let end = self.get_end_for_from_left_diag1_iter(y);
         self.data[(y*self.width) as usize ..= end]
             .iter_mut()
@@ -198,14 +198,14 @@ where T: Copy + Clone + ImgLayerDefValue<Type = T> {
         }
     }
 
-    pub fn from_top_iter_diag2(&self, x: Crd) -> std::iter::StepBy<std::slice::Iter<T>> {
+    pub fn from_top_iter_diag2(&self, x: Crd) -> std::iter::StepBy<std::slice::Iter<'_, T>> {
         let end = self.get_end_for_from_top_iter_diag2(x);
         self.data[x as usize ..= end]
             .iter()
             .step_by(self.width as usize - 1)
     }
 
-    pub fn from_top_iter_diag2_mut(&mut self, x: Crd) -> std::iter::StepBy<std::slice::IterMut<T>> {
+    pub fn from_top_iter_diag2_mut(&mut self, x: Crd) -> std::iter::StepBy<std::slice::IterMut<'_, T>> {
         let end = self.get_end_for_from_top_iter_diag2(x);
         self.data[x as usize ..= end]
             .iter_mut()
@@ -220,21 +220,21 @@ where T: Copy + Clone + ImgLayerDefValue<Type = T> {
         }
     }
 
-    pub fn from_right_iter_diag2(&self, y: Crd) -> std::iter::StepBy<std::slice::Iter<T>> {
+    pub fn from_right_iter_diag2(&self, y: Crd) -> std::iter::StepBy<std::slice::Iter<'_, T>> {
         let end = self.get_end_for_from_right_iter_diag2(y);
         self.data[(y*self.width + self.width - 1) as usize ..= end]
             .iter()
             .step_by(self.width as usize - 1)
     }
 
-    pub fn from_right_iter_diag2_mut(&mut self, y: Crd) -> std::iter::StepBy<std::slice::IterMut<T>> {
+    pub fn from_right_iter_diag2_mut(&mut self, y: Crd) -> std::iter::StepBy<std::slice::IterMut<'_, T>> {
         let end = self.get_end_for_from_right_iter_diag2(y);
         self.data[(y*self.width + self.width - 1) as usize ..= end]
             .iter_mut()
             .step_by(self.width as usize - 1)
     }
 
-    pub fn iter_crd(&self) -> ImageLayerIter1::<T> {
+    pub fn iter_crd(&self) -> ImageLayerIter1::<'_, T> {
         ImageLayerIter1 {
             iter1: self.data.iter(),
             x: 0,
@@ -243,7 +243,7 @@ where T: Copy + Clone + ImgLayerDefValue<Type = T> {
         }
     }
 
-    pub fn iter_crd_mut(&mut self) -> ImageLayerMutIter1::<T> {
+    pub fn iter_crd_mut(&mut self) -> ImageLayerMutIter1::<'_, T> {
         ImageLayerMutIter1 {
             iter1: self.data.iter_mut(),
             x: 0,
@@ -352,11 +352,11 @@ where T: Copy + Clone + ImgLayerDefValue<Type = T> {
     }
 
     /// Iterate rectangle area
-    pub fn iter_rect_crd(&self, x1: Crd, y1: Crd, x2: Crd, y2: Crd) -> RectIterCrd<T> {
+    pub fn iter_rect_crd(&self, x1: Crd, y1: Crd, x2: Crd, y2: Crd) -> RectIterCrd<'_, T> {
         RectIterCrd::new(self, x1, y1, x2, y2)
     }
 
-    pub fn iter_area_crd(&self, area: &RectArea) -> RectIterCrd<T> {
+    pub fn iter_area_crd(&self, area: &RectArea) -> RectIterCrd<'_, T> {
         RectIterCrd::new(self, area.x1, area.y1, area.x2, area.y2)
     }
 
@@ -952,19 +952,19 @@ impl Image {
         }
     }
 
-    pub fn iter_l_crd(&self) -> ImageLayerIter1<f32> {
+    pub fn iter_l_crd(&self) -> ImageLayerIter1<'_, f32> {
         self.l.iter_crd()
     }
 
-    pub fn iter_l_crd_mut(&mut self) -> ImageLayerMutIter1<f32> {
+    pub fn iter_l_crd_mut(&mut self) -> ImageLayerMutIter1<'_, f32> {
         self.l.iter_crd_mut()
     }
 
-    pub fn iter_rgb_crd(&self) -> ImageLayerIter3<f32> {
+    pub fn iter_rgb_crd(&self) -> ImageLayerIter3<'_, f32> {
         ImageLayerF32::iter_crd3(&self.r, &self.g, &self.b)
     }
 
-    pub fn iter_rgb_crd_mut(&mut self) -> ImageLayerMutIter3<f32> {
+    pub fn iter_rgb_crd_mut(&mut self) -> ImageLayerMutIter3<'_, f32> {
         ImageLayerF32::iter_crd_mut3(&mut self.r, &mut self.g, &mut self.b)
     }
 

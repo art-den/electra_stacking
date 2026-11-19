@@ -977,7 +977,7 @@ impl RawImage {
         result
     }
 
-    pub fn iter_row_color(&self, y: Crd, cc: CfaColor) -> RowColorIterator {
+    pub fn iter_row_color(&self, y: Crd, cc: CfaColor) -> RowColorIterator<'_> {
         let pos = (y*self.data.width()) as usize;
         let data = self.data.as_slice();
         RowColorIterator {
@@ -987,7 +987,7 @@ impl RawImage {
         }
     }
 
-    pub fn iter_col_color(&self, x: Crd, cc: CfaColor) -> ColColorIterator {
+    pub fn iter_col_color(&self, x: Crd, cc: CfaColor) -> ColColorIterator<'_> {
         let data = self.data.as_slice();
         ColColorIterator {
             iter: data[x as usize..].iter().step_by(self.data.width() as usize),
@@ -996,7 +996,7 @@ impl RawImage {
         }
     }
 
-    pub fn iter_cfa(&self, y: Crd) -> std::iter::Cycle<std::slice::Iter<CfaColor>> {
+    pub fn iter_cfa(&self, y: Crd) -> std::iter::Cycle<std::slice::Iter<'_, CfaColor>> {
         match self.info.cfa {
             Cfa::Pattern(ref pattern) =>
                 pattern.get_row(y).iter().cycle(),
