@@ -75,6 +75,7 @@ pub fn normalize_range_and_bg(
     Ok(NormResult { range_factor: range as f32 })
 }
 
+/// Returns the image/ref dynamic range ratio; identity factor 1.0 for degenerate input.
 fn calc_range(ref_img: &ImageLayerF32, image: &ImageLayerF32, mask: &ImageMask) -> f64 {
     const SIZE: Crd = 16;
     struct RangeArea {
@@ -105,6 +106,8 @@ fn calc_range(ref_img: &ImageLayerF32, image: &ImageLayerF32, mask: &ImageMask) 
         ref_values.select_nth_unstable_by(bord1, cmp_f64);
         ref_values[bord1..].select_nth_unstable_by(bord2-bord1, cmp_f64);
         let ref_diff = mean_f64(&ref_values[bord2..]) - mean_f64(&ref_values[..bord1]);
+        // Caller's mask pre-excludes non-finite pixels in both layers, so lengths match
+        debug_assert_eq!(ref_values.len(), img_values.len());
         img_values.select_nth_unstable_by(bord1, cmp_f64);
         img_values[bord1..].select_nth_unstable_by(bord2-bord1, cmp_f64);
         let img_diff = mean_f64(&img_values[bord2..]) - mean_f64(&img_values[..bord1]);
@@ -112,6 +115,11 @@ fn calc_range(ref_img: &ImageLayerF32, image: &ImageLayerF32, mask: &ImageMask) 
             let range = img_diff / ref_diff;
             ranges.push(RangeArea { range, ref_value, img_value });
         }
+    }
+
+    if ranges.is_empty() {
+        log::warn!("calc_range(): no valid tiles, using identity range factor");
+        return 1.0;
     }
 
     // skip 1/8 of ranges with low RangeArea::range
@@ -338,5 +346,35 @@ impl RefBgData {
         let bg = calc_image_bg(&image.image, &mask)?;
 
         Ok(RefBgData { image, grey, bg })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_inputs(ref_val: f32, img_val: f32, masked: bool)
+    -> (ImageLayerF32, ImageLayerF32, ImageMask) {
+        const W: Crd = 32;
+        const H: Crd = 32;
+        let n = (W * H) as usize;
+        (
+            ImageLayerF32::new_from_vec(W, H, vec![ref_val; n]),
+            ImageLayerF32::new_from_vec(W, H, vec![img_val; n]),
+            ImageMask::new_from_vec(W, H, vec![masked; n]),
+        )
+    }
+
+    #[test]
+    fn calc_range_all_tiles_masked_returns_identity() {
+        let (ref_img, img, mask) = make_inputs(1.0, 2.0, true);
+        assert_eq!(calc_range(&ref_img, &img, &mask), 1.0);
+    }
+
+    #[test]
+    fn calc_range_uniform_images_returns_identity() {
+        // ref_diff == 0 for every tile, so no entry is ever pushed to `ranges`
+        let (ref_img, img, mask) = make_inputs(1.0, 2.0, false);
+        assert_eq!(calc_range(&ref_img, &img, &mask), 1.0);
     }
 }
