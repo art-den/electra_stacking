@@ -239,6 +239,12 @@ enum PreviewFileMode {
     FlatFile,
 }
 
+enum ActionAfterAssign {
+    None,
+    Stack,
+    SaveAlignedImages,
+}
+
 pub fn get_prj_tree_store_columns() -> Vec::<(&'static str, &'static str, ColIdx, ColIdx, glib::Type)> {
     vec![
       // Column name in tree | ID       | Model column       | Sort model column | Model column type
@@ -2208,8 +2214,8 @@ impl MainWindow {
     }
 
     fn ask_user_to_assign_ref_light_image_auto(
-        self:                 &Rc<Self>,
-        start_stacking_after: bool
+        self:        &Rc<Self>,
+        action_after: ActionAfterAssign
     ) {
         let dialog = AssignRefFrameDialog::new(
             Some(&self.widgets.window),
@@ -2220,8 +2226,12 @@ impl MainWindow {
         dialog.exec(move || {
             self_.update_project_tree();
             self_.update_project_name_and_time_in_gui();
-            if start_stacking_after {
-                self_.action_stack();
+            // dialog exec() is non-blocking, so follow-up actions must run from this callback;
+            // the ref image is already assigned here, so re-entry into the action is safe.
+            match action_after {
+                ActionAfterAssign::None            => (),
+                ActionAfterAssign::Stack           => self_.action_stack(),
+                ActionAfterAssign::SaveAlignedImages => self_.action_save_aligned_images(),
             }
         });
     }
@@ -2239,7 +2249,7 @@ impl MainWindow {
             return;
         }
 
-        self.ask_user_to_assign_ref_light_image_auto(false);
+        self.ask_user_to_assign_ref_light_image_auto(ActionAfterAssign::None);
     }
 
     fn action_stack(self: &Rc<Self>) {
@@ -2249,7 +2259,7 @@ impl MainWindow {
         }
         if !project.is_ref_image_assigned()
         && project.is_possible_assign_ref_light_frame_automatically() {
-            self.ask_user_to_assign_ref_light_image_auto(true);
+            self.ask_user_to_assign_ref_light_image_auto(ActionAfterAssign::Stack);
             return;
         }
         match project.can_exec_stack_light_files() {
@@ -2467,7 +2477,7 @@ impl MainWindow {
         }
         if !project.is_ref_image_assigned()
         && project.is_possible_assign_ref_light_frame_automatically() {
-            self.ask_user_to_assign_ref_light_image_auto(true);
+            self.ask_user_to_assign_ref_light_image_auto(ActionAfterAssign::SaveAlignedImages);
             return;
         }
         match project.can_exec_stack_light_files() {
