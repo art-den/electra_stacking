@@ -2,6 +2,7 @@ use std::{io::stdout, io::Write, sync::*};
 
 pub trait Progress {
     fn stage(&mut self, text: &str);
+    /// Total for the current stage; `total == 0` is allowed and reports 0%.
     fn set_total(&mut self, total: usize);
     fn progress(&mut self, step: bool, text: &str);
     fn percent(&mut self, value: usize, total: usize, text: &str);
@@ -36,8 +37,8 @@ impl ProgressConsole {
 
     fn show_progress(&mut self, text: &str) {
         const MAX_WIDTH: usize = 42;
-        let width = (MAX_WIDTH * self.pos / self.total).min(MAX_WIDTH);
-        let percent = (100 * self.pos / self.total).min(100);
+        let width = usize::checked_div(MAX_WIDTH * self.pos, self.total).map_or(0, |w| usize::min(w, MAX_WIDTH));
+        let percent = usize::checked_div(100 * self.pos, self.total).map_or(0, |p| usize::min(p, 100));
         if percent == self.prev_percent && text == self.prev_text {
             return;
         }
@@ -108,7 +109,7 @@ impl ProgressCallBack {
     }
 
     fn show_progress(&mut self, text: &str) {
-        let percent = (100 * self.pos / self.total).min(100);
+        let percent = usize::checked_div(100 * self.pos, self.total).map_or(0, |p| usize::min(p, 100));
         if percent == self.prev_percent && text == self.prev_text {
             return;
         }

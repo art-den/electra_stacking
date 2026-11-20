@@ -234,6 +234,7 @@ impl Project {
         let result = Mutex::new(HashMap::new());
         for (idx, group) in self.groups.iter().enumerate() {
             if cancel_flag() { return Ok(HashMap::new()); }
+            if group.light_files.list.is_empty() { continue; }
             group.register_light_files(
                 idx,
                 progress,
