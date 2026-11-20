@@ -33,13 +33,12 @@ impl PrjColumnsDialog {
         })
     }
 
+    /// Single-use: call exactly once per instance (column, model and handler are built here).
     pub fn exec(self: &Rc<Self>) {
         const COLUMN_CHECK: i32 = 0;
         const COLUMN_NAME: i32 = 1;
-        const COLUMN_ID: i32 = 2;
         let model = gtk::ListStore::new(&[
             bool::static_type(),
-            String::static_type(),
             String::static_type(),
         ]);
         // headers are hidden in columns_selector.ui; toggle defaults are already activatable/sensitive
@@ -55,17 +54,19 @@ impl PrjColumnsDialog {
         for i in 0..self.project_tree.n_columns() {
             let tree_col = self.project_tree.column(i as i32).unwrap();
             let name = tree_columns[i as usize].0;
-            let id = tree_columns[i as usize].1;
             model.insert_with_values(None, &[
                 (COLUMN_CHECK as u32, &tree_col.is_visible()),
                 (COLUMN_NAME as u32, &gettext(name)),
-                (COLUMN_ID as u32, &id),
             ]);
         }
         self.widgets.lv_list.set_model(Some(&model));
-        cell_check.connect_toggled(clone!(@strong self as self_, @weak model => move |_, path| {
+        // Capture the tree view directly: @strong self would form an Rc reference cycle.
+        // The Rc<Self> wrapper is dropped as soon as exec() returns; the shown dialog
+        // survives via GTK's toplevel-list reference.
+        let project_tree = self.project_tree.clone();
+        cell_check.connect_toggled(clone!(@strong project_tree, @weak model => move |_, path| {
             let values = path.indices();
-            let tree_col = self_.project_tree.column(values[0]).unwrap();
+            let tree_col = project_tree.column(values[0]).unwrap();
             tree_col.set_visible(!tree_col.is_visible());
             let iter = model.iter(&path).unwrap();
             model.set(&iter, &[(COLUMN_CHECK as u32, &tree_col.is_visible())])

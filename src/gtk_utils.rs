@@ -1,4 +1,4 @@
-use std::{rc::Rc, path::{Path, PathBuf}};
+use std::{cell::RefCell, rc::Rc, path::{Path, PathBuf}};
 use gettextrs::gettext;
 use gtk::{prelude::*, gio, glib, glib::clone};
 
@@ -27,6 +27,28 @@ pub fn add_ok_and_cancel_buttons(
     } else {
         dialog.add_buttons(&[(cancel_cap, cancel_type), (ok_cap, ok_type)]);
     }
+}
+
+/// Connects a dialog response handler and disconnects it once the dialog closes, so the
+/// closure's strong refs (usually the `Rc` owning the dialog wrapper) are released and the
+/// `Rc -> dialog -> handler -> Rc` reference cycle cannot leak.
+/// The handler returns whether the dialog should close; closing and disconnecting happen
+/// on that response (GLib releases the boxed closure only after the signal emission ends).
+pub fn connect_response_self_disconnecting<F>(dialog: &gtk::Dialog, handler: F)
+where
+    F: Fn(&gtk::Dialog, gtk::ResponseType) -> bool + 'static,
+{
+    let id_cell: Rc<RefCell<Option<glib::SignalHandlerId>>> = Rc::new(RefCell::new(None));
+    let id_cell_in_handler = Rc::clone(&id_cell);
+    let handler_id = dialog.connect_response(move |dlg, response| {
+        if handler(dlg, response) {
+            dlg.close();
+            if let Some(id) = id_cell_in_handler.borrow_mut().take() {
+                dlg.disconnect(id);
+            }
+        }
+    });
+    *id_cell.borrow_mut() = Some(handler_id);
 }
 
 pub fn add_yes_no_and_cancel_buttons(

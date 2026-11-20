@@ -5,7 +5,7 @@ use gtk::{prelude::*, glib::clone};
 
 use macros::FromBuilder;
 
-use crate::{calc::{CalcMode, CalcOpts, MIN_KAPPA, MIN_REPEATS}, gtk_utils::{add_ok_and_cancel_buttons, parse_clamped_f32, parse_clamped_u32, set_dialog_default_button, show_warnings}, image_raw::CfaType, project::*};
+use crate::{calc::{CalcMode, CalcOpts, MIN_KAPPA, MIN_REPEATS}, gtk_utils::{add_ok_and_cancel_buttons, connect_response_self_disconnecting, parse_clamped_f32, parse_clamped_u32, set_dialog_default_button, show_warnings}, image_raw::CfaType, project::*};
 
 pub struct ProjectOptionsDialog {
     widgets: Widgets,
@@ -61,13 +61,18 @@ impl ProjectOptionsDialog {
     }
 
     fn connect_ui_events(self: &Rc<Self>) {
+        // Weak ref: a strong `Rc` clone here would form a reference cycle with the widget.
+        let self_weak = Rc::downgrade(self);
         self.widgets.chb_apply_wb.connect_active_notify(
-            clone!(@strong self as self_ => move |v| {
-                self_.widgets.chb_apply_color.set_sensitive(v.is_active());
-            })
+            move |v| {
+                if let Some(self_) = self_weak.upgrade() {
+                    self_.widgets.chb_apply_color.set_sensitive(v.is_active());
+                }
+            }
         );
     }
 
+    /// Single-use: call exactly once per instance (response handler is connected here).
     pub fn exec(
         self:   &Rc<Self>,
         ok_fun: impl Fn() + 'static
@@ -77,8 +82,8 @@ impl ProjectOptionsDialog {
         self.show_options(project_config);
         drop(project);
 
-        self.widgets.dialog.connect_response(
-            clone!(@strong self as self_ => move |dialog, response| {
+        connect_response_self_disconnecting(&self.widgets.dialog,
+            clone!(@strong self as self_ => move |_dialog, response| {
                 if response == gtk::ResponseType::Ok {
                     let mut project = self_.project.borrow_mut();
                     let mut project_config = project.config().clone();
@@ -87,7 +92,7 @@ impl ProjectOptionsDialog {
                     drop(project);
                     ok_fun();
                 }
-                dialog.close();
+                true
             }
         ));
 
@@ -121,7 +126,8 @@ impl ProjectOptionsDialog {
                 CalcMode::Median => 1,
                 CalcMode::Mean => 2,
             }));
-            kappa.set_text(&format!("{:.1}", opts.kappa));
+            // Default Display format: shortest round-trip, no precision loss on OK.
+            kappa.set_text(&format!("{}", opts.kappa));
             kappa.set_sensitive(opts.mode == CalcMode::CappaSigma);
             steps.set_text(&format!("{}", opts.repeats));
             steps.set_sensitive(opts.mode == CalcMode::CappaSigma);

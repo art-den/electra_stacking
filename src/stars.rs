@@ -619,8 +619,17 @@ pub fn calc_image_offset_by_stars(
         return None;
     }
 
+    // The last kappa-sigma retain can empty corr_items (x/y survivor sets may be disjoint).
+    if corr_items.is_empty() {
+        log::info!("no corr_items left after kappa-sigma filtering");
+        return None;
+    }
+
     let ref_sum: f64 = corr_items.iter().map(|item| item.ref_triangle.len).sum();
     let sum: f64 = corr_items.iter().map(|item| item.triangle.len).sum();
+    if ref_sum == 0.0 {
+        return None;
+    }
     let ratio = sum/ref_sum;
 
     log::info!("(used for calculation) corr_items.len() = {}", corr_items.len());
@@ -684,9 +693,9 @@ impl<'a> StarsTriangle<'a> {
         let e2 = cmp_fun(1, 2, 0);
         let e3 = cmp_fun(2, 0, 1);
 
-        if      e1 < e2 && e1 < e3 { (e1, [0, 1, 2]) }
-        else if e2 < e1 && e2 < e3 { (e2, [1, 2, 0]) }
-        else                       { (e3, [2, 0, 1]) }
+        if      e1 <= e2 && e1 <= e3 { (e1, [0, 1, 2]) }
+        else if e2 <= e1 && e2 <= e3 { (e2, [1, 2, 0]) }
+        else                         { (e3, [2, 0, 1]) }
     }
 
     fn calc_angle(&self, other: &StarsTriangle) -> f64 {
@@ -862,7 +871,8 @@ pub fn create_common_star_image(
     let mag_mul_max_height = mag * max_height;
     let div_mag = 1.0 / mag as f64;
     let result_width = result.width() as usize;
-    let result_height = result.width() as usize;
+    // Row stride, NOT result.height(): the image may be non-square (oval stars).
+    let row_stride = result.width() as usize;
 
     let calc_one_common_star_value = |v: &mut f32, x, y, pt_values: &mut Vec<CalcValue>| {
         for (star, &star_weight) in izip!(stars_for_image(), &star_weights) {
@@ -892,7 +902,7 @@ pub fn create_common_star_image(
     if fast { // multi-threaded
         result.as_slice_mut().par_iter_mut().enumerate().for_each(|(i, v)| {
             let x = (i % result_width) as Crd;
-            let y = (i / result_height) as Crd;
+            let y = (i / row_stride) as Crd;
             let mut pt_values = Vec::new();
             calc_one_common_star_value(v, x, y, &mut pt_values);
         });
@@ -984,6 +994,27 @@ mod tests {
                 .map(|&(x, y)| StarPoint { x, y })
                 .collect(),
         }
+    }
+
+    #[test]
+    fn triangle_compare_tie_returns_min_error() {
+        let s1 = make_star(&[]);
+        let s2 = make_star(&[]);
+        let s3 = make_star(&[]);
+        let t1 = StarsTriangle {
+            stars: [&s1, &s2, &s3],
+            edges: [1.0, 2.0, 2.0],
+            len:   5.0,
+        };
+        let t2 = StarsTriangle {
+            stars: [&s1, &s2, &s3],
+            edges: [0.0, 1.0, 0.0],
+            len:   1.0,
+        };
+        // e1 == e2 == 6.0 < e3 == 8.0: the tie must not fall through to the largest error.
+        let (err, perm) = t1.compare(&t2);
+        assert_eq!(err, 6.0);
+        assert_eq!(perm, [0, 1, 2]);
     }
 
     #[test]

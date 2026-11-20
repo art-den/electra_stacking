@@ -1843,7 +1843,7 @@ impl MainWindow {
         }
         let bytes = image.to_rgb_bytes(
             &self.prev_preview_params.borrow(),
-            config.preview_gamma.min(20.0),
+            config.preview_gamma,
         );
         self.show_preview_image(
             bytes,

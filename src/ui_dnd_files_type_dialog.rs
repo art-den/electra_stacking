@@ -42,6 +42,8 @@ impl DndFilesTypeDialog {
         })
     }
 
+    /// Single-use: call exactly once per instance (combo entries and the response handler
+    /// are (re)built here; rows are positionally mapped to group indices).
     pub fn exec(
         self:   &Rc<Self>,
         selection: SelectedItem,
@@ -54,13 +56,15 @@ impl DndFilesTypeDialog {
         ));
 
         let project = self.project.borrow();
+        self.widgets.cb_group.remove_all();
         for (idx, group) in project.groups().iter().enumerate() {
             self.widgets.cb_group.append(None, group.name(idx).as_str());
         }
         self.widgets.cb_group.set_sensitive(project.groups().len() > 1);
         self.widgets.cb_group.set_active(Some(selection.group_idx.unwrap_or(0) as u32));
 
-        self.widgets.dialog.connect_response(clone!(@strong self as self_ => move |dlg, resp| {
+        connect_response_self_disconnecting(&self.widgets.dialog,
+            clone!(@strong self as self_ => move |_dlg, resp| {
             if resp == gtk::ResponseType::Ok {
                 let file_type = if self_.widgets.rb_lights.is_active() {
                     ProjectFileType::Light
@@ -76,7 +80,7 @@ impl DndFilesTypeDialog {
 
                 ok_fun(file_type, group_index);
             }
-            dlg.close();
+            true
         }));
 
         self.widgets.dialog.show();

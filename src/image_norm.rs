@@ -19,6 +19,8 @@ fn mask_stars(mask: &mut ImageMask, width: Crd, height: Crd, stars: &Stars) {
         }
     }
 
+/// Normalizes `light_file.image` in place: subtract own bg, multiply by the range factor,
+/// then add the reference bg. `NormResult.range_factor` records the factor actually applied.
 pub fn normalize_range_and_bg(
     ref_data:   &RefBgData,
     light_file: &mut LightFile
@@ -172,6 +174,7 @@ pub fn calc_image_bg(
     Ok(ImageBg { l, r, g, b })
 }
 
+/// An empty `mask` means "no masking at all"; a non-empty mask is assumed to be image-sized.
 pub fn calc_image_layer_bg(image: &ImageLayerF32, mask: &ImageMask) -> anyhow::Result<BgCols> {
     let mut values = Vec::new();
     let mut bg_values = HashMap::<i64, Vec::<(f64, i64, i64, usize)>>::new();
@@ -257,6 +260,7 @@ impl BgCols {
         BgCols { cols }
     }
 
+    /// `neg: true` subtracts the fitted background, `false` adds it.
     pub fn apply_to_image(&self, img: &mut ImageLayerF32, neg: bool) -> anyhow::Result<()> {
         let mut x_values = Vec::new();
         let mut y_values = Vec::new();
@@ -287,6 +291,7 @@ pub struct ImageBg {
 }
 
 impl ImageBg {
+    /// `neg: true` subtracts the fitted background, `false` adds it.
     pub fn apply_to_image(&self, image: &mut Image, neg: bool) -> anyhow::Result<()> {
         let try_apply_layer = |name: &str, cols: &Option<BgCols>, layer: &mut ImageLayerF32| -> anyhow::Result<()> {
             match cols {

@@ -704,7 +704,7 @@ impl RawImage {
             }
 
             Self::find_hot_pixels_in_line(values, coords, |_values_crd, aver, value| {
-                let diff = value-aver.abs();
+                let diff = (value-aver).abs();
                 diff_values.push(diff);
             });
         };

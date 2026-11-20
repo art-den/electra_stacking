@@ -5,7 +5,7 @@ use gtk::{prelude::*, glib::clone};
 
 use macros::FromBuilder;
 
-use crate::{gtk_utils::{add_ok_and_cancel_buttons, set_dialog_default_button}, project::{GroupOptions, Project}, ui_main::SelectedItem};
+use crate::{gtk_utils::{add_ok_and_cancel_buttons, connect_response_self_disconnecting, set_dialog_default_button}, project::{GroupOptions, Project}, ui_main::SelectedItem};
 
 pub struct MoveFileToGroupDialog {
     widgets: Widgets,
@@ -78,15 +78,24 @@ impl MoveFileToGroupDialog {
         self.widgets.cbx_existing_groups.set_sensitive(self.widgets.rbtn_existing_group.is_active());
         self.widgets.e_new_group.set_sensitive(self.widgets.rbtn_new_group.is_active());
 
-        self.widgets.rbtn_existing_group.connect_clicked(clone!(@strong self as self_ => move |rb| {
-            self_.widgets.cbx_existing_groups.set_sensitive(rb.is_active());
-        }));
+        // Weak refs here: these handlers are not the dialog's lifeline (the response handler
+        // is), and strong `Rc` clones would form reference cycles.
+        let self_weak = Rc::downgrade(self);
+        self.widgets.rbtn_existing_group.connect_clicked(move |rb| {
+            if let Some(self_) = self_weak.upgrade() {
+                self_.widgets.cbx_existing_groups.set_sensitive(rb.is_active());
+            }
+        });
 
-        self.widgets.rbtn_new_group.connect_clicked(clone!(@strong self as self_ => move |rb| {
-            self_.widgets.e_new_group.set_sensitive(rb.is_active());
-        }));
+        let self_weak = Rc::downgrade(self);
+        self.widgets.rbtn_new_group.connect_clicked(move |rb| {
+            if let Some(self_) = self_weak.upgrade() {
+                self_.widgets.e_new_group.set_sensitive(rb.is_active());
+            }
+        });
 
-        self.widgets.dialog.connect_response(clone!(@strong self as self_ => move |dlg, resp| {
+        connect_response_self_disconnecting(&self.widgets.dialog,
+            clone!(@strong self as self_ => move |_dlg, resp| {
             if resp == gtk::ResponseType::Ok {
                 let mut project = self_.project.borrow_mut();
                 let group_id = if self_.widgets.rbtn_new_group.is_active() {
@@ -100,7 +109,7 @@ impl MoveFileToGroupDialog {
                 } else {
                     match self_.widgets.cbx_existing_groups.active_id() {
                         Some(s) => s.to_string(),
-                        _ => return,
+                        _ => return false,
                     }
                 };
 
@@ -116,7 +125,7 @@ impl MoveFileToGroupDialog {
 
                 ok_fun();
             }
-            dlg.close();
+            true
         }));
 
         self.widgets.dialog.show();

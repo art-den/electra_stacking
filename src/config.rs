@@ -42,6 +42,10 @@ impl CpuLoad {
     }
 }
 
+/// Preview gamma slider bounds (main_window.ui); config values are clamped to this range on load.
+pub const PREVIEW_GAMMA_MIN: f32 = 2.0;
+pub const PREVIEW_GAMMA_MAX: f32 = 10.0;
+
 #[derive(Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
@@ -101,6 +105,12 @@ impl Config {
             }
         };
         *self = config;
+        // Keep hand-edited values inside the widget bounds so all render paths agree.
+        self.preview_gamma = if self.preview_gamma.is_finite() {
+            f32::clamp(self.preview_gamma, PREVIEW_GAMMA_MIN, PREVIEW_GAMMA_MAX)
+        } else {
+            Self::default().preview_gamma
+        };
         Ok(())
     }
 
@@ -193,6 +203,23 @@ mod tests {
         let mut config = Config::default();
         assert!(config.load_from(&dir.join("config.json")).is_ok());
         assert_eq!(config.preview_gamma, 4.0);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn load_from_clamps_out_of_range_preview_gamma() {
+        let dir = temp_config_dir("gamma");
+        let conf = dir.join("config.json");
+        let mut config = Config::default();
+
+        std::fs::write(&conf, b"{ \"preview_gamma\": 50.0 }").unwrap();
+        assert!(config.load_from(&conf).is_ok());
+        assert_eq!(config.preview_gamma, PREVIEW_GAMMA_MAX);
+
+        std::fs::write(&conf, b"{ \"preview_gamma\": 0.5 }").unwrap();
+        assert!(config.load_from(&conf).is_ok());
+        assert_eq!(config.preview_gamma, PREVIEW_GAMMA_MIN);
+
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

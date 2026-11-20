@@ -20,9 +20,15 @@ const MASTER_DARK_FN: &str = "master-dark.es_raw";
 const MASTER_FLAT_FN: &str = "master-flat.es_raw";
 const MASTER_BIAS_FN: &str = "master-bias.es_raw";
 
+/// Schema version of saved project files. Pre-versioning files deserialize to 0.
+const PROJECT_FILE_VERSION: u32 = 1;
+
 #[derive(Serialize, Deserialize, Clone, Default)]
 #[serde(default)]
 pub struct Project {
+    /// Persisted schema version; `0` means "saved before versioning existed".
+    version: u32,
+
     config: ProjectConfig,
     cleanup_conf: CleanupConf,
     groups: Vec<ProjectGroup>,
@@ -66,6 +72,7 @@ impl Project {
     pub fn load(&mut self, file_name: &Path) -> anyhow::Result<()> {
         let reader = BufReader::new(File::open(file_name)?);
         *self = serde_json::from_reader(reader)?;
+        self.migrate_file_version()?;
         let weak_changed = Rc::downgrade(&self.changed);
         for group in &mut self.groups {
             group.assign_project_changed_flag(weak_changed.clone());
@@ -75,7 +82,21 @@ impl Project {
         Ok(())
     }
 
+    /// Check/migrate the schema version after load. Add per-step migrations here as the format evolves.
+    fn migrate_file_version(&mut self) -> anyhow::Result<()> {
+        if self.version > PROJECT_FILE_VERSION {
+            anyhow::bail!(
+                "Project file schema version {} is newer than supported version {}",
+                self.version, PROJECT_FILE_VERSION
+            );
+        }
+        // No per-version migrations yet: older files need no conversion.
+        self.version = PROJECT_FILE_VERSION;
+        Ok(())
+    }
+
     pub fn save(&mut self, file_name: &Path) -> anyhow::Result<()> {
+        self.version = PROJECT_FILE_VERSION;
         let writer = BufWriter::new(File::create(file_name)?);
         self.file_name = Some(file_name.to_path_buf());
         self.make_file_names_relative();
@@ -90,7 +111,10 @@ impl Project {
     }
 
     pub fn from_json_string(json_string: &str) -> Project {
-        serde_json::from_str(json_string).unwrap()
+        let mut result: Project = serde_json::from_str(json_string).unwrap();
+        // Keep the version invariant on this in-process path too (JSON here is self-produced).
+        result.migrate_file_version().expect("in-process project JSON must carry a supported version");
+        result
     }
 
     pub fn changed(&self) -> bool {
@@ -339,8 +363,9 @@ impl Project {
 
         // master-files
 
-        for (idx, group) in self.groups.iter().filter(|g| g.used).enumerate() {
+        for (idx, group) in self.groups.iter().enumerate() {
             if cancel_flag() { anyhow::bail!(gettext("Terminated")) }
+            if !group.used { continue; }
             group.create_master_files(
                 idx,
                 progress,
@@ -444,8 +469,9 @@ impl Project {
 
         // master-files
 
-        for (idx, group) in self.groups.iter().filter(|g| g.used).enumerate() {
+        for (idx, group) in self.groups.iter().enumerate() {
             if cancel_flag() { anyhow::bail!(gettext("Terminated")) }
+            if !group.used { continue; }
             group.create_master_files(
                 idx,
                 progress,
@@ -1205,6 +1231,7 @@ impl ProjectGroup {
                 }
                 if let Some(reg_info) = item.reg_info.as_ref() {
                     let value = fun(reg_info);
+                    // Zero metrics stay out of the mean/dev pool but remain clip candidates below.
                     if value != 0.0 {
                         values.push(CalcValue::new(value as f64));
                     }
@@ -1247,11 +1274,17 @@ impl ProjectGroup {
                 if let Some(reg_info) = item.reg_info.as_ref() {
                     let value = fun(reg_info) as f64;
                     if (remove_min && value < min) || (remove_max && value > max) {
-                        item.set_used(false);
-                        item.set_flags(*item.flags() | flags_to_set);
                         *to_exclude = true;
                     }
                 }
+            }
+        }
+
+        // Apply exclusions only after all passes succeeded: a mid-pass bail leaves state untouched.
+        for (item, excluded) in self.light_files.list.iter_mut().zip(&to_exclude) {
+            if *excluded {
+                item.set_used(false);
+                item.set_flags(*item.flags() | flags_to_set);
             }
         }
 
@@ -1803,7 +1836,28 @@ fn percent_of_len(len: usize, percent: u32) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::percent_of_len;
+    use super::{percent_of_len, Project, PROJECT_FILE_VERSION};
+
+    #[test]
+    fn project_file_version_check_and_migration() {
+        let mut dir = std::env::temp_dir();
+        dir.push(format!("electra_prj_version_{}_{}", std::process::id(), uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("test.es_prj");
+
+        // Pre-versioning files (no `version` key) load and get stamped with the current version.
+        std::fs::write(&file, b"{}").unwrap();
+        let mut project = Project::default();
+        assert!(project.load(&file).is_ok());
+        assert_eq!(project.version, PROJECT_FILE_VERSION);
+
+        // Files from a future schema version are rejected instead of silently losing fields.
+        std::fs::write(&file, format!("{{\"version\": {}}}", PROJECT_FILE_VERSION + 1)).unwrap();
+        let mut project = Project::default();
+        assert!(project.load(&file).is_err());
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 
     #[test]
     fn test_percent_of_len() {

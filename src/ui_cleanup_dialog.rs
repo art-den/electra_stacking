@@ -71,12 +71,21 @@ impl CleanupDialog {
             &gettext("_Close"), gtk::ResponseType::Cancel
         );
         set_dialog_default_button(&widgets.dialog);
+        for cbt in [
+            &widgets.cbt_rdev, &widgets.cbt_fwhm, &widgets.cbt_stars,
+            &widgets.cbt_noise, &widgets.cbt_bg,
+        ] {
+            cbt.append_text(&gettext("Sigma clipping"));
+            cbt.append_text(&gettext("Percent"));
+            cbt.append_text(&gettext("Min/Max"));
+        }
         Rc::new(Self {
             widgets,
             project: Rc::clone(project)
         })
     }
 
+    /// Single-use: call exactly once per instance (response handler is connected here).
     pub fn exec(
         self:   &Rc<Self>,
         ok_fun: impl Fn() + 'static
@@ -125,21 +134,19 @@ impl CleanupDialog {
             mode_w.connect_changed(clone!(@weak chk_w, @weak kappa_w, @weak repeats_w, @weak percent_w, @weak min_w, @weak max_w => move |cbt| {
                 correct_sensitivity(&chk_w, cbt, &kappa_w, &repeats_w, &percent_w, &min_w, &max_w);
             }));
-            mode_w.append_text(&gettext("Sigma clipping"));
-            mode_w.append_text(&gettext("Percent"));
-            mode_w.append_text(&gettext("Min/Max"));
             match item.mode {
                 CleanupMode::SigmaClipping => mode_w.set_active(Some(0)),
                 CleanupMode::Percent => mode_w.set_active(Some(1)),
                 CleanupMode::MinMax => mode_w.set_active(Some(2)),
             }
 
-            kappa_w.set_text(&format!("{:.1}", item.kappa));
+            // Default Display format: shortest round-trip, no precision loss on OK.
+            kappa_w.set_text(&format!("{}", item.kappa));
             repeats_w.set_text(&format!("{}", item.repeats));
             percent_w.set_text(&format!("{}", item.percent));
 
-            min_w.set_text(if let Some(min) = item.min { format!("{:.2}", min) } else { "".to_string() }.as_str());
-            max_w.set_text(if let Some(max) = item.max { format!("{:.2}", max) } else { "".to_string() }.as_str());
+            min_w.set_text(if let Some(min) = item.min { format!("{}", min) } else { "".to_string() }.as_str());
+            max_w.set_text(if let Some(max) = item.max { format!("{}", max) } else { "".to_string() }.as_str());
         };
 
         show_line(
@@ -199,7 +206,8 @@ impl CleanupDialog {
 
         drop(project);
 
-        self.widgets.dialog.connect_response(clone!(@strong self as self_ => move |dialog, response| {
+        connect_response_self_disconnecting(&self.widgets.dialog,
+            clone!(@strong self as self_ => move |_dialog, response| {
             if response == gtk::ResponseType::Ok {
                 let mut project = self_.project.borrow_mut();
 
@@ -225,7 +233,7 @@ impl CleanupDialog {
                         Some(0) => CleanupMode::SigmaClipping,
                         Some(1) => CleanupMode::Percent,
                         Some(2) => CleanupMode::MinMax,
-                        _       => panic!("Wrong cbt_mode.active(): {:?}", cbt_mode.active()),
+                        _       => item.mode.clone(),
                     };
                     item.kappa = parse_clamped_f32(
                         e_kappa, item.kappa, MIN_KAPPA, &format!("{}: {}", label, gettext("Kappa")), &mut warnings);
@@ -312,7 +320,8 @@ impl CleanupDialog {
                 drop(project);
 
                 let result = self_.project.borrow_mut().cleanup_light_files();
-                let window = self_.widgets.dialog.transient_for().unwrap();
+                let window = self_.widgets.dialog.transient_for()
+                    .unwrap_or_else(|| self_.widgets.dialog.clone().upcast::<gtk::Window>());
                 match result {
                     Ok(cleaned_up_count) => {
                         let total_files = self_.project.borrow().total_light_files_count();
@@ -335,10 +344,10 @@ impl CleanupDialog {
                         show_error_message(&window, &gettext("Error"), &error.to_string()),
                 }
                 ok_fun();
+                // Keep the dialog open after a cleanup run (previous behaviour).
+                return false;
             }
-            else {
-                dialog.close();
-            }
+            true
         }));
 
         self.widgets.dialog.show();

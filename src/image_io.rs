@@ -117,8 +117,8 @@ pub fn is_fits_ext(ext: &str) -> bool {
 
 pub fn is_source_file_name(file_name: &Path) -> bool {
     let ext = extract_extension(file_name);
-    is_raw_ext(ext) |
-    is_tiff_ext(ext) |
+    is_raw_ext(ext) ||
+    is_tiff_ext(ext) ||
     is_fits_ext(ext)
 }
 
@@ -227,7 +227,7 @@ impl FromFileNameInfoExtractor {
 }
 
 pub fn load_src_file_info_for_files(
-    file_names:   &Vec<PathBuf>,
+    file_names:   &[PathBuf],
     is_cancelled: &IsCancelledFun,
     progress:     &ProgressTs,
 ) -> anyhow::Result<Vec<ImageInfo>> {
@@ -453,8 +453,8 @@ pub fn save_grayscale_image_to_tiff_file(
 ) -> anyhow::Result<()> {
     assert!(!image.is_empty());
     let mut file = BufWriter::new(File::create(file_name)?);
-    let mut decoder = TiffEncoder::new(&mut file)?;
-    let mut tiff = decoder.new_image::<colortype::Gray32Float>(
+    let mut encoder = TiffEncoder::new(&mut file)?;
+    let mut tiff = encoder.new_image::<colortype::Gray32Float>(
         image.width() as u32,
         image.height() as u32
     )?;
@@ -471,9 +471,9 @@ pub fn save_image_to_tiff_file(
     assert!(!image.is_empty());
 
     let mut file = BufWriter::new(File::create(file_name)?);
-    let mut decoder = TiffEncoder::new(&mut file)?;
+    let mut encoder = TiffEncoder::new(&mut file)?;
     if image.is_greyscale() {
-        let mut tiff = decoder.new_image::<colortype::Gray32Float>(
+        let mut tiff = encoder.new_image::<colortype::Gray32Float>(
             image.width() as u32,
             image.height() as u32
         )?;
@@ -485,7 +485,7 @@ pub fn save_image_to_tiff_file(
             .map(|(r, g, b)| [*r, *g, *b])
             .flatten()
             .collect();
-        let mut tiff = decoder.new_image::<colortype::RGB32Float>(
+        let mut tiff = encoder.new_image::<colortype::RGB32Float>(
             image.width() as u32,
             image.height() as u32
         )?;
@@ -505,9 +505,9 @@ pub fn save_image_to_tiff16_file(
     assert!(!image.is_empty());
 
     let mut file = BufWriter::new(File::create(file_name)?);
-    let mut decoder = TiffEncoder::new(&mut file)?;
+    let mut encoder = TiffEncoder::new(&mut file)?;
     if image.is_greyscale() {
-        let mut tiff = decoder.new_image::<colortype::Gray32Float>(
+        let mut tiff = encoder.new_image::<colortype::Gray32Float>(
             image.width() as u32,
             image.height() as u32
         )?;
@@ -519,7 +519,7 @@ pub fn save_image_to_tiff16_file(
             .map(|(r, g, b)| [(*r * 65535.0) as u16, (*g * 65535.0) as u16, (*b * 65535.0) as u16])
             .flatten()
             .collect();
-        let mut tiff = decoder.new_image::<colortype::RGB16>(
+        let mut tiff = encoder.new_image::<colortype::RGB16>(
             image.width() as u32,
             image.height() as u32
         )?;
@@ -855,7 +855,7 @@ pub fn save_image_into_internal_format(
     let mut file = BufWriter::with_capacity(1024 * 256, File::create(file_name)?);
     let mut writer = BitWriter::endian(&mut file, bitstream_io::BigEndian);
 
-    let bytes_putted_in_stream = if image.is_rgb() {
+    let bytes_put_in_stream = if image.is_rgb() {
         let mut r_writer = ValuesCompressor::new();
         let mut g_writer = ValuesCompressor::new();
         let mut b_writer = ValuesCompressor::new();
@@ -883,7 +883,7 @@ pub fn save_image_into_internal_format(
 
     let bytes_saved = file.seek(SeekFrom::End(0))?;
     let compression_coeff = if bytes_saved != 0 {
-        bytes_putted_in_stream as f64 / bytes_saved as f64
+        bytes_put_in_stream as f64 / bytes_saved as f64
     } else {
         0.0
     };
@@ -981,7 +981,7 @@ impl MasterFileInfo {
     pub fn read_from(file_name: &Path) -> anyhow::Result<MasterFileInfo> {
         let mut file = std::io::BufReader::new(std::fs::File::open(file_name)?);
         let sig_len = leb128::read::unsigned(&mut file)? as usize;
-        if sig_len > 42 { anyhow::bail!("Wrong signature lentgh"); }
+        if sig_len > 42 { anyhow::bail!("Wrong signature length"); }
         let mut sig = vec![0; sig_len];
         file.read_exact(&mut sig)?;
         if sig != Self::MASTER_FILE_SIG { anyhow::bail!("Wrong file format"); }
@@ -1021,7 +1021,7 @@ impl RawImageInfo {
 
     pub fn read_from<R: Read>(src: &mut R) -> anyhow::Result<RawImageInfo> {
         let sig_len = leb128::read::unsigned(src)? as usize;
-        if sig_len > 42 { anyhow::bail!("Wrong signature lentgh"); }
+        if sig_len > 42 { anyhow::bail!("Wrong signature length"); }
         let mut sig = vec![0; sig_len];
         src.read_exact(&mut sig)?;
         if sig != Self::CALIBR_FILE_SIG { anyhow::bail!("Wrong file format"); }

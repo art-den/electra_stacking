@@ -23,7 +23,7 @@ impl SelectGroupDialog {
         parent:  Option<&impl IsA<gtk::Window>>,
         project: &Rc<RefCell<Project>>,
         title:   &str,
-    ) -> Rc<Self> {
+    ) -> Self {
         let widgets = Widgets::from_builder_str(include_str!("ui/select_group_dialog.ui"));
         widgets.dialog.set_title(title);
         widgets.dialog.set_transient_for(parent);
@@ -33,13 +33,15 @@ impl SelectGroupDialog {
             &gettext("_Cancel"), gtk::ResponseType::Cancel,
         );
         set_dialog_default_button(&widgets.dialog);
-        Rc::new(Self {
+        Self {
             widgets,
             project: Rc::clone(project),
-        })
+        }
     }
 
-    pub fn exec(self: &Rc<Self>, cur_group: Option<usize>) -> Option<usize> {
+    /// Single-use: call exactly once per instance (combo rows are rebuilt here).
+    pub fn exec(&self, cur_group: Option<usize>) -> Option<usize> {
+        self.widgets.groups_list.remove_all();
         for (idx, group) in self.project.borrow().groups().iter().enumerate() {
             self.widgets.groups_list.append(None, &group.name(idx));
         }

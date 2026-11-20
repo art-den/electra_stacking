@@ -504,6 +504,8 @@ impl ImageLayer<f32> {
         Ok(())
     }
 
+    /// 2x2 mean over non-sentinel pixels only (renormalized); all-sentinel blocks stay NO_VALUE_F32.
+    /// Odd dimensions are silently truncated: result size is floor(dim/2).
     pub fn decrease_2x(&self) -> ImageLayerF32 {
         let res_width = self.width / 2;
         let res_height = self.height / 2;
@@ -512,10 +514,15 @@ impl ImageLayer<f32> {
             let mut it1 = self.iter_row(2*y);
             let mut it2 = self.iter_row(2*y+1);
             for d in result.iter_row_mut(y) {
-                *d = 0.25 * (
-                    it1.next().unwrap_or(&0.0) + it1.next().unwrap_or(&0.0) +
-                    it2.next().unwrap_or(&0.0) + it2.next().unwrap_or(&0.0)
-                );
+                let mut sum = 0.0_f32;
+                let mut cnt = 0_usize;
+                for v in [it1.next(), it1.next(), it2.next(), it2.next()].into_iter().flatten() {
+                    if *v != NO_VALUE_F32 {
+                        sum += *v;
+                        cnt += 1;
+                    }
+                }
+                *d = if cnt > 0 { sum / cnt as f32 } else { NO_VALUE_F32 };
             }
         }
         result
@@ -1367,6 +1374,20 @@ mod tests {
         let mut layer = ImageLayerF32::new_from_vec(4, 4, vec![NO_VALUE_F32; 16]);
         layer.set_novalue_as_median();
         assert!(layer.iter().all(|v| *v == NO_VALUE_F32));
+    }
+
+    #[test]
+    fn decrease_2x_skips_sentinels_with_renormalized_mean() {
+        let layer = ImageLayerF32::new_from_vec(2, 2, vec![NO_VALUE_F32, 1.0, 2.0, 3.0]);
+        let result = layer.decrease_2x();
+        assert_eq!(result.get(0, 0), Some(2.0));
+    }
+
+    #[test]
+    fn decrease_2x_all_sentinel_block_stays_novalue() {
+        let layer = ImageLayerF32::new_from_vec(2, 2, vec![NO_VALUE_F32; 4]);
+        let result = layer.decrease_2x();
+        assert_eq!(result.get(0, 0), Some(NO_VALUE_F32));
     }
 
     #[test]

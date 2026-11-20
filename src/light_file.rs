@@ -215,8 +215,15 @@ impl LightFile {
 
         image.mark_overexposures(&overexposures);
 
+        let mut info = image_data.info;
+        if bin == 2 {
+            // Keep info in sync with the binned image dims (see decrease_2x above).
+            info.width /= 2;
+            info.height /= 2;
+        }
+
         Ok(LightFile{
-            info: image_data.info,
+            info,
             image,
             stars,
             stars_stat,

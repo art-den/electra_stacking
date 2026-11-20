@@ -47,7 +47,7 @@ fn main() -> anyhow::Result<()> {
         .join("locale");
 
     bind_textdomain_codeset("electra_stacking", "UTF-8")?;
-    bindtextdomain("electra_stacking", locale_path.to_str().unwrap_or(""))?;
+    bindtextdomain("electra_stacking", &locale_path)?;
     textdomain("electra_stacking")?;
 
     // logger
@@ -74,7 +74,10 @@ fn main() -> anyhow::Result<()> {
     application.connect_activate(crate::ui_main::build_ui);
 
     // run
-    application.run();
+    let exit_code = application.run().value();
+    if exit_code != 0 {
+        std::process::exit(exit_code);
+    }
 
     Ok(())
 }

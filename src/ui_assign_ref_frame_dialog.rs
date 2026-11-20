@@ -40,6 +40,7 @@ impl AssignRefFrameDialog {
         })
     }
 
+    /// Single-use: call exactly once per instance (connects the response handler here).
     pub fn exec(
         self: &Rc<Self>,
         ok_fun: impl Fn() + 'static
@@ -50,8 +51,8 @@ impl AssignRefFrameDialog {
             RefImageAutoMode::MinBg         => self.widgets.rb_min_bg.set_active(true),
             RefImageAutoMode::NinNoise      => self.widgets.rb_min_noise.set_active(true),
         }
-        self.widgets.dialog.connect_response(
-            clone!(@strong self as self_ => move |dialog, response| {
+        connect_response_self_disconnecting(&self.widgets.dialog,
+            clone!(@strong self as self_ => move |_dialog, response| {
                 if response == gtk::ResponseType::Ok {
                     let mut project = self_.project.borrow_mut();
                     let mut config = project.config().clone();
@@ -61,11 +62,13 @@ impl AssignRefFrameDialog {
                         else if self_.widgets.rb_min_bg.is_active()         { RefImageAutoMode::MinBg }
                         else                                                { RefImageAutoMode::NinNoise };
                     project.set_config(config);
-                    project.assign_ref_light_frame_automatically();
+                    if project.is_possible_assign_ref_light_frame_automatically() {
+                        project.assign_ref_light_frame_automatically();
+                    }
                     drop(project);
                     ok_fun();
                 }
-                dialog.close();
+                true
             })
         );
         self.widgets.dialog.show();

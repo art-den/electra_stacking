@@ -1,6 +1,10 @@
 use std::{io::stdout, io::Write, sync::*};
 
+/// Sentinel for `prev_percent` meaning "nothing emitted yet" (real percents are 0..=100).
+const PREV_PERCENT_NONE: usize = 101;
+
 pub trait Progress {
+    /// Starts a new stage; also resets progress and deduplication state.
     fn stage(&mut self, text: &str);
     /// Total for the current stage; `total == 0` is allowed and reports 0%.
     fn set_total(&mut self, total: usize);
@@ -24,9 +28,15 @@ impl ProgressConsole {
         ProgressConsole {
             pos: 0,
             total: 1,
-            prev_percent: 101,
+            prev_percent: PREV_PERCENT_NONE,
             prev_text: String::new()
         }
+    }
+
+    fn reset_state(&mut self) {
+        self.pos = 0;
+        self.prev_percent = PREV_PERCENT_NONE;
+        self.prev_text.clear();
     }
 
     pub fn new_ts() -> ProgressTs {
@@ -58,14 +68,14 @@ impl Progress for ProgressConsole {
     fn stage(&mut self, text: &str) {
         if self.pos != 0 {
             println!();
-            self.pos = 0;
         }
+        self.reset_state();
         println!("{}", text);
     }
 
     fn set_total(&mut self, total: usize) {
         self.total = total;
-        self.pos = 0;
+        self.reset_state();
     }
 
     fn progress(&mut self, step: bool, text: &str) {
@@ -101,11 +111,17 @@ impl ProgressCallBack {
         Arc::new(Mutex::new(ProgressCallBack {
             pos: 0,
             total: 1,
-            prev_percent: 101,
+            prev_percent: PREV_PERCENT_NONE,
             prev_text: String::new(),
             stage_cb: Box::new(stage_fun),
             progress_cb: Box::new(progress_fun),
         }))
+    }
+
+    fn reset_state(&mut self) {
+        self.pos = 0;
+        self.prev_percent = PREV_PERCENT_NONE;
+        self.prev_text.clear();
     }
 
     fn show_progress(&mut self, text: &str) {
@@ -121,12 +137,13 @@ impl ProgressCallBack {
 
 impl Progress for ProgressCallBack {
     fn stage(&mut self, text: &str) {
+        self.reset_state();
         (*self.stage_cb)(text);
     }
 
     fn set_total(&mut self, total: usize) {
         self.total = total;
-        self.pos = 0;
+        self.reset_state();
     }
 
     fn progress(&mut self, step: bool, text: &str) {
@@ -138,5 +155,44 @@ impl Progress for ProgressCallBack {
         self.pos = value;
         self.total = total;
         self.show_progress(text);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn console_stage_resets_state() {
+        let mut p = ProgressConsole::new();
+        p.set_total(10);
+        p.progress(true, "a");
+        p.stage("next stage");
+        assert_eq!(p.pos, 0);
+        assert_eq!(p.prev_percent, PREV_PERCENT_NONE);
+        assert!(p.prev_text.is_empty());
+    }
+
+    #[test]
+    fn callback_stage_resets_dedup_state() {
+        let emitted: Arc<Mutex<Vec<(usize, String)>>> = Arc::new(Mutex::new(Vec::new()));
+        let progress = ProgressCallBack::new_ts(
+            |_| {},
+            {
+                let emitted = Arc::clone(&emitted);
+                move |percent, text: &str| {
+                    emitted.lock().unwrap().push((percent, text.to_string()));
+                }
+            },
+        );
+        let mut p = progress.lock().unwrap();
+        p.set_total(10);
+        p.progress(true, "a");
+        p.stage("next stage");
+        p.set_total(10);
+        p.progress(true, "a");
+        drop(p);
+        // Without the reset in stage()/set_total() the identical second emission would be deduped.
+        assert_eq!(emitted.lock().unwrap().len(), 2);
     }
 }
