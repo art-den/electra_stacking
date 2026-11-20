@@ -1,4 +1,6 @@
 use std::{path::*, io::*, fs::*};
+use std::collections::{HashMap, HashSet};
+use std::ffi::OsString;
 use std::sync::*;
 use anyhow::bail;
 use bitflags::bitflags;
@@ -22,6 +24,50 @@ use std::f64::consts::PI;
 ///////////////////////////////////////////////////////////////////////////////
 
 /* Stacking bias, darks and flat files */
+
+const TAG_TEMP_RAW: &str = "temp_raw";
+const TAG_TEMP_LIGHT_DATA: &str = "temp_light_data";
+
+// Temp/export names must be unique per source file: with_extension()-based names
+// collide for same-stem sources (e.g. x.fits vs x.fit) and silently double-count.
+// Format: {stem}.{orig_ext}[.g{group_idx}].{tag}; save_temp_file relies on this
+// format to derive collision-free aligned-export names.
+fn make_temp_file_name(file: &Path, group_idx: Option<usize>, tag: &str) -> PathBuf {
+    // stem/ext kept as OsStr so non-UTF-8 names stay unique
+    let mut name: OsString = file.file_stem().map_or_else(OsString::new, |s| s.to_os_string());
+    if let Some(ext) = file.extension() {
+        name.push(".");
+        match ext.to_str() {
+            // lowercasing makes case-variant duplicates collide and get rejected
+            Some(s) => name.push(s.to_lowercase()),
+            None => name.push(ext),
+        }
+    }
+    if let Some(idx) = group_idx {
+        name.push(format!(".g{}", idx));
+    }
+    name.push(".");
+    name.push(tag);
+    file.with_file_name(name)
+}
+
+fn ensure_unique_temp_names(
+    files:     &[PathBuf],
+    group_idx: Option<usize>,
+    tag:       &str,
+) -> anyhow::Result<()> {
+    let mut seen: HashMap<PathBuf, &PathBuf> = HashMap::new();
+    for f in files {
+        let temp = make_temp_file_name(f, group_idx, tag);
+        if let Some(prev) = seen.insert(temp.clone(), f) {
+            bail!(
+                "Files {:?} and {:?} map to the same temp file {:?}. Remove duplicates or rename the files.",
+                prev, f, temp
+            );
+        }
+    }
+    Ok(())
+}
 
 pub fn create_master_dark_or_bias_file(
     files_list:  &[PathBuf],
@@ -208,6 +254,8 @@ where
 
     let cur_result = Mutex::new(anyhow::Result::<bool>::Ok(false));
 
+    ensure_unique_temp_names(files_list, None, TAG_TEMP_RAW)?;
+
     progress.lock().unwrap().set_total(files_list.len());
     let files_to_process = Mutex::new(Vec::new());
 
@@ -242,7 +290,7 @@ where
                     }
                 };
                 if !is_ok { return; }
-                let temp_fn = file_path.with_extension("temp_raw");
+                let temp_fn = make_temp_file_name(file_path, None, TAG_TEMP_RAW);
                 let locker = disk_access_mutex.lock();
                 let save_res = save_calibr_format_file(&raw, &temp_fn);
                 drop(locker);
@@ -377,6 +425,8 @@ fn save_temp_file(mut args: SaveTempFileData) -> anyhow::Result<()> {
         } else {
             unreachable!();
         };
+        // args.file_name already embeds original stem, ext and group index,
+        // so the aligned-export name is collision-free
         let file_name = args.file_name.with_extension(format!("aligned.{}", ext));
         log::info!("Saving aligned image to {:?} file", file_name);
 
@@ -410,6 +460,8 @@ pub fn create_temp_light_files(
     group_idx:          usize,
     flags:              &CreateTempFileFlags,
 ) -> anyhow::Result<()> {
+    ensure_unique_temp_names(&files_list, Some(group_idx), TAG_TEMP_LIGHT_DATA)?;
+
     progress.lock().unwrap().percent(0, 100, "Loading calibration images...");
     let cal_data = CalibrationData::load(
         master_flat,
@@ -587,7 +639,7 @@ fn create_temp_file_from_light_file(
         light_file.image.check_contains_inf_or_nan(false, true)?;
         nan_log.log("check_contains_nan");
 
-            let temp_file_name = file.with_extension("temp_light_data");
+            let temp_file_name = make_temp_file_name(file, Some(group_idx), TAG_TEMP_LIGHT_DATA);
             log::info!("Sending image into saving queue...");
             save_tx.send(SaveTempFileData{
                 file_name:         temp_file_name.clone(),
@@ -648,6 +700,15 @@ pub fn merge_temp_light_files(
     result_file:     &Path,
     cancel_flag:     &IsCancelledFun,
 ) -> anyhow::Result<()> {
+    {
+        let mut seen = HashSet::new();
+        for t in temp_file_names.iter() {
+            if !seen.insert(&t.file_name) {
+                bail!("Duplicate temp file {:?} in merge list", t.file_name);
+            }
+        }
+    }
+
     let min_noise = temp_file_names.iter().map(|v| v.noise).min_by(cmp_f32).unwrap();
 
     progress.lock().unwrap().percent(0, 100, "Opening temp files...");
@@ -858,3 +919,79 @@ fn align_rgb_layers(image: &mut Image) -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod temp_name_tests {
+
+use super::*;
+
+#[test]
+fn temp_names_unique_for_same_stem() {
+    let a = make_temp_file_name(Path::new("/d/light_001.fits"), Some(0), TAG_TEMP_LIGHT_DATA);
+    let b = make_temp_file_name(Path::new("/d/light_001.fit"),  Some(0), TAG_TEMP_LIGHT_DATA);
+    assert!(a != b);
+    assert!(a == *"/d/light_001.fits.g0.temp_light_data");
+}
+
+#[test]
+fn temp_names_unique_per_group() {
+    let a = make_temp_file_name(Path::new("/d/light_001.fits"), Some(0), TAG_TEMP_LIGHT_DATA);
+    let b = make_temp_file_name(Path::new("/d/light_001.fits"), Some(1), TAG_TEMP_LIGHT_DATA);
+    assert!(a != b);
+}
+
+#[test]
+fn temp_name_without_extension() {
+    let a = make_temp_file_name(Path::new("/d/IMG0001"), None, TAG_TEMP_RAW);
+    assert!(a == *"/d/IMG0001.temp_raw");
+}
+
+#[test]
+fn multi_dot_file_name() {
+    let a = make_temp_file_name(Path::new("/d/img.v2.fits"), None, TAG_TEMP_RAW);
+    let b = make_temp_file_name(Path::new("/d/img.v2.fit"),  None, TAG_TEMP_RAW);
+    assert!(a == *"/d/img.v2.fits.temp_raw");
+    assert!(a != b);
+}
+
+#[test]
+fn aligned_export_name_format() {
+    // mirrors the with_extension() derivation inside save_temp_file
+    let temp = make_temp_file_name(Path::new("/d/IMG_1.CR3"), Some(0), TAG_TEMP_LIGHT_DATA);
+    let export = temp.with_extension("aligned.fits");
+    assert!(export == *"/d/IMG_1.cr3.g0.aligned.fits");
+}
+
+#[test]
+#[cfg(unix)]
+fn non_utf8_names_stay_unique() {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+    let a = Path::new(OsStr::from_bytes(b"/d/\xff.fits"));
+    let b = Path::new(OsStr::from_bytes(b"/d/\xfe.fits"));
+    assert!(make_temp_file_name(a, None, TAG_TEMP_RAW)
+         != make_temp_file_name(b, None, TAG_TEMP_RAW));
+}
+
+#[test]
+fn ensure_unique_detects_duplicates() {
+    let ok = vec![
+        PathBuf::from("/d/x.fits"),
+        PathBuf::from("/d/x.fit"),
+    ];
+    assert!(ensure_unique_temp_names(&ok, None, TAG_TEMP_RAW).is_ok());
+
+    let same_stem_other_case = vec![
+        PathBuf::from("/d/x.fits"),
+        PathBuf::from("/d/x.FITS"),
+    ];
+    assert!(ensure_unique_temp_names(&same_stem_other_case, None, TAG_TEMP_RAW).is_err());
+
+    let exact_duplicate = vec![
+        PathBuf::from("/d/x.fits"),
+        PathBuf::from("/d/x.fits"),
+    ];
+    assert!(ensure_unique_temp_names(&exact_duplicate, None, TAG_TEMP_RAW).is_err());
+}
+
+} // mod temp_name_tests
