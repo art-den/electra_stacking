@@ -290,15 +290,19 @@ impl IirFilter {
     }
 }
 
+/// Two-pass (forward + reverse) recursive filter approximating a zero-phase
+/// Gaussian smoothing. `src` and `dst` must have the same length.
 pub fn iir_filter(filter: &mut IirFilter, src: &[f32], dst: &mut [f32]) {
+    debug_assert_eq!(src.len(), dst.len());
     filter.init();
     for (s, d) in src.iter().zip(dst.iter_mut()) {
         *d = filter.filter(*s);
     }
 
     filter.init();
-    for (s, d) in src.iter().zip(dst.iter_mut()).rev() {
-        *d = filter.filter(*s);
+    // Reverse pass filters the forward pass output in place, giving a symmetric response.
+    for d in dst.iter_mut().rev() {
+        *d = filter.filter(*d);
     }
 }
 
@@ -477,6 +481,47 @@ mod tests {
         assert_eq!(median_f32(&mut v), Some(5.0));
         let mut w: Vec<f32> = vec![4.0, 8.0, f32::NAN, 9.0, 1.0, 7.0, 3.0, 6.0, 5.0];
         assert_eq!(median_f32(&mut w), Some(6.0));
+    }
+
+    #[test]
+    fn iir_filter_gauss_impulse_response_is_centered_and_symmetric() {
+        const N: usize = 400;
+        const CENTER: usize = N / 2;
+        const SIGMA: f32 = 42.0;
+
+        let mut src = vec![0.0f32; N];
+        src[CENTER] = 1.0;
+        let mut dst = vec![0.0f32; N];
+        let mut filter = IirFilter::new_gauss(SIGMA);
+        iir_filter(&mut filter, &src, &mut dst);
+
+        let peak = dst.iter().enumerate()
+            .max_by(|a, b| f32::total_cmp(a.1, b.1)).unwrap();
+        assert_eq!(peak.0, CENTER);
+
+        let expected_peak = 1.0 / (SIGMA * f32::sqrt(std::f32::consts::TAU));
+        assert!(f32::abs(dst[CENTER] / expected_peak - 1.0) < 0.05);
+
+        // Check symmetry only within ~2.5 sigma of the peak: near the array edges
+        // the first_time state init transient dominates the tiny Gaussian tail.
+        for k in 1..=100 {
+            let l = dst[CENTER - k];
+            let r = dst[CENTER + k];
+            let m = f32::max(l, r);
+            assert!(f32::abs(l - r) / m < 0.05, "asymmetric at offset {}", k);
+        }
+    }
+
+    #[test]
+    fn iir_filter_preserves_constant_signal() {
+        let src = vec![7.5f32; 100];
+        let mut dst = vec![0.0f32; src.len()];
+        let mut filter = IirFilter::new_gauss(42.0);
+        iir_filter(&mut filter, &src, &mut dst);
+        for &v in &dst {
+            // Loose bound: f32 cancellation in the IIR recursion is ~1e-4 of the signal.
+            assert!(f32::abs(v - 7.5) < 7.5e-3);
+        }
     }
 
     #[test]
