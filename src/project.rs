@@ -1240,6 +1240,7 @@ impl ProjectGroup {
         Ok(())
     }
 
+    /// Excludes the worst/best `percent`% of eligible (non-error, registered) light files.
     fn cleanup_by_percent<F: Fn(&RegInfo) -> f32>(
         &mut self,
         conf:         &CleanupConfItem,
@@ -1265,7 +1266,7 @@ impl ProjectGroup {
 
         items.sort_by(|i1, i2| cmp_f32(&i1.1, &i2.1));
 
-        let percent_cnt = self.light_files.list.len() * conf.percent as usize / 100;
+        let percent_cnt = percent_of_len(items.len(), conf.percent);
 
         if remove_min {
             for (idx, _) in &items[..percent_cnt] {
@@ -1274,7 +1275,7 @@ impl ProjectGroup {
         }
 
         if remove_max {
-            for (idx, _) in &items[items.len()-percent_cnt..] {
+            for (idx, _) in &items[usize::saturating_sub(items.len(), percent_cnt)..] {
                 let item = &mut self.light_files.list[*idx];
                 item.set_used(false);
                 item.set_flags(*item.flags() | flags_to_set);
@@ -1774,4 +1775,24 @@ impl Default for CleanupConf {
 
 pub struct StackLightsResult {
     pub file_name: PathBuf,
+}
+
+/// Number of files to remove for `percent` of `len`; clamped to guard configs
+/// loaded from project JSON, which bypass the dialog's input validation.
+fn percent_of_len(len: usize, percent: u32) -> usize {
+    usize::min(len * u32::min(percent, 100) as usize / 100, len)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::percent_of_len;
+
+    #[test]
+    fn test_percent_of_len() {
+        assert_eq!(percent_of_len(9, 100), 9);
+        assert_eq!(percent_of_len(10, 150), 10);
+        assert_eq!(percent_of_len(10, 20), 2);
+        assert_eq!(percent_of_len(10, 0), 0);
+        assert_eq!(percent_of_len(0, 100), 0);
+    }
 }

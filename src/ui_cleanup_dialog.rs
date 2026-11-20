@@ -226,7 +226,7 @@ impl CleanupDialog {
                     };
                     item.kappa = e_kappa.text().as_str().parse().unwrap_or(item.kappa);
                     item.repeats = e_repeats.text().as_str().parse().unwrap_or(item.repeats);
-                    item.percent = e_percent.text().as_str().parse().unwrap_or(item.percent);
+                    item.percent = u32::clamp(e_percent.text().as_str().parse().unwrap_or(item.percent), 0, 100);
                     item.min = e_min.text().as_str().parse().ok();
                     item.max = e_max.text().as_str().parse().ok();
                 };
