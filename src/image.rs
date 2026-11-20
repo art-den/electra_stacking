@@ -1012,7 +1012,13 @@ impl Image {
         }
     }
 
-    pub fn normalize_to_1(&mut self, if_greater_1: bool) {
+    /// Scales all layers so the max finite pixel value becomes 0.999.
+    /// INF pixels are legal "no data" markers: excluded from the max search,
+    /// preserved by scaling, and filled later by the caller
+    /// (see fill_inf_areas_with_one).
+    /// `if_greater_1`: skip normalization when the max is already below 0.999.
+    /// Bails on non-positive or non-finite max (all-zero/empty/NaN image).
+    pub fn normalize_to_1(&mut self, if_greater_1: bool) -> anyhow::Result<()> {
         let max = self.l
             .iter()
             .chain(self.r.iter())
@@ -1020,12 +1026,16 @@ impl Image {
             .chain(self.b.iter())
             .copied()
             .filter(|v| !v.is_infinite())
-            .max_by(cmp_f32)
+            .max_by(f32::total_cmp)
             .unwrap_or(0.0);
+
+        if max <= 0.0 || !max.is_finite() {
+            anyhow::bail!("Cannot normalize: non-positive or non-finite max value ({})", max);
+        }
 
         const MAX: f32 = 0.999;
 
-        if max < MAX && if_greater_1 { return; }
+        if max < MAX && if_greater_1 { return Ok(()); }
 
         let do_norm = |k, img: &mut ImageLayerF32| {
             for v in img.iter_mut() {
@@ -1038,6 +1048,7 @@ impl Image {
         do_norm(k, &mut self.r);
         do_norm(k, &mut self.g);
         do_norm(k, &mut self.b);
+        Ok(())
     }
 
     pub fn check_contains_inf_or_nan(&self,
@@ -1468,5 +1479,46 @@ mod tests {
         // Median of [1, 2, 3, 4, 5]
         assert_eq!(layer.get(0, 0), Some(3.0));
         assert_eq!(layer.get(2, 2), Some(3.0));
+    }
+
+    #[test]
+    fn normalize_to_1_all_zero_bails() {
+        let mut img = Image::new_grey(4, 4);
+        assert!(img.normalize_to_1(false).is_err());
+    }
+
+    #[test]
+    fn normalize_to_1_nan_bails() {
+        let mut img = Image::new_grey(4, 4);
+        img.l.set(1, 1, f32::NAN);
+        assert!(img.normalize_to_1(false).is_err());
+    }
+
+    #[test]
+    fn normalize_to_1_scales_peak_to_target() {
+        let mut img = Image::new_color(4, 4);
+        img.r.set(0, 0, 2.0);
+        img.g.set(2, 2, 0.5);
+        img.normalize_to_1(false).unwrap();
+        assert!((img.r.get(0, 0).unwrap() - 0.999).abs() < 1e-6);
+        assert!((img.g.get(2, 2).unwrap() - 0.249_75).abs() < 1e-6);
+    }
+
+    #[test]
+    fn normalize_to_1_if_greater_1_skips_small_peak() {
+        let mut img = Image::new_grey(4, 4);
+        img.l.set(0, 0, 0.5);
+        img.normalize_to_1(true).unwrap();
+        assert_eq!(img.l.get(0, 0), Some(0.5));
+    }
+
+    #[test]
+    fn normalize_to_1_keeps_inf_markers() {
+        let mut img = Image::new_color(4, 4);
+        img.r.set(0, 0, 2.0);
+        img.b.set(3, 3, f32::INFINITY);
+        img.normalize_to_1(false).unwrap();
+        assert!((img.r.get(0, 0).unwrap() - 0.999).abs() < 1e-6);
+        assert!(img.b.get(3, 3).unwrap().is_infinite());
     }
 }

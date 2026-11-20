@@ -779,7 +779,7 @@ pub fn merge_temp_light_files(
     progress.lock().unwrap().percent(100, 100, "Saving result...");
 
     result_image.check_contains_inf_or_nan(false, true)?;
-    result_image.normalize_to_1(false);
+    result_image.normalize_to_1(false)?;
     result_image.fill_inf_areas_with_one();
     result_image.check_contains_inf_or_nan(true, true)?;
 
