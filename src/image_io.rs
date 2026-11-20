@@ -28,19 +28,19 @@ pub const RAW_EXTS: &[&str] = &[
     "pef", // Pentax
 ];
 
-fn try_to_decode_date_time_str(dt_str: &str) -> Option<DateTime<Local>> {
+fn parse_naive_date_time_str(dt_str: &str) -> Option<NaiveDateTime> {
     if dt_str.is_empty() {
         return None;
     }
 
     let fmt_strings = [
-        "%Y:%m:%d %H:%M:%S%.3f",
-        "%Y:%m:%dT%H:%M:%S%.3f",
-        "%Y-%m-%d %H:%M:%S%.3f",
-        "%Y-%m-%dT%H:%M:%S%.3f",
+        "%Y:%m:%d %H:%M:%S%.f",
+        "%Y:%m:%dT%H:%M:%S%.f",
+        "%Y-%m-%d %H:%M:%S%.f",
+        "%Y-%m-%dT%H:%M:%S%.f",
         "%Y:%m:%d %H:%M:%S",
-        "%Y-%m-%d %H:%M:%S",
         "%Y:%m:%dT%H:%M:%S",
+        "%Y-%m-%d %H:%M:%S",
         "%Y-%m-%dT%H:%M:%S",
     ];
 
@@ -48,10 +48,22 @@ fn try_to_decode_date_time_str(dt_str: &str) -> Option<DateTime<Local>> {
         .filter_map(|fmt|
             NaiveDateTime::parse_from_str(dt_str, fmt).ok()
         )
-        .map(|dt|
-            Local.from_utc_datetime(&dt)
-        )
         .next()
+}
+
+// Camera/observatory wall-clock time (EXIF DateTimeOriginal, FITS DATE-LOC)
+fn try_to_decode_local_date_time_str(dt_str: &str) -> Option<DateTime<Local>> {
+    let dt = parse_naive_date_time_str(dt_str)?;
+    Local.from_local_datetime(&dt).earliest()
+}
+
+// FITS DATE-OBS is UTC; may carry a trailing 'Z' or a numeric offset
+fn try_to_decode_utc_date_time_str(dt_str: &str) -> Option<DateTime<Local>> {
+    if let Ok(dt) = DateTime::parse_from_rfc3339(dt_str) {
+        return Some(dt.with_timezone(&Local));
+    }
+    let dt = parse_naive_date_time_str(dt_str)?;
+    Some(Utc.from_utc_datetime(&dt).with_timezone(&Local))
 }
 
 pub fn load_image_from_file(
@@ -135,7 +147,7 @@ pub struct ImageInfo {
     /// Height in pixels
     pub height: usize,
 
-    /// Datetime from Exif or from file tile
+    /// Datetime from Exif/FITS keyword or from file mtime
     pub file_time: Option<DateTime<Local>>,
 
     /// Type of CFA pattern
@@ -256,7 +268,7 @@ pub fn load_src_file_info_raw(file_name: &Path) -> anyhow::Result<ImageInfo> {
         focal_len = exif.get_rational(rawloader::Tag::FocalLength);
         lens = exif.get_str(rawloader::Tag::LensModel).map(|v| v.to_string());
         if let Some(time_str) = exif.get_str(rawloader::Tag::DateTimeOriginal) {
-            file_time = try_to_decode_date_time_str(time_str);
+            file_time = try_to_decode_local_date_time_str(time_str);
         }
     }
 
@@ -323,12 +335,7 @@ pub fn load_src_file_info_tiff(file_name: &Path) -> anyhow::Result<ImageInfo> {
     // 0x9003 = DateTimeOriginal
     let time_str = decoder.get_tag_ascii_string(tags::Tag::Unknown(0x9003));
     if let Ok(time_str) = time_str {
-        file_time =
-            NaiveDateTime::parse_from_str(&time_str, "%Y:%m:%d %H:%M:%S")
-                .ok()
-                .map(|dt| Local.from_local_datetime(&dt))
-                .and_then(|res| res.single());
-
+        file_time = try_to_decode_local_date_time_str(&time_str);
     }
 
     if file_time.is_none() {
@@ -584,9 +591,10 @@ fn load_src_file_info_from_fits_hdu(
     let focal_ratio = hdu.read_key(fptr, "FOCRATIO").ok();
     let lens = hdu.read_key(fptr, "TELESCOP").ok();
 
-    let file_time = hdu.read_key::<String>(fptr, "DATE-LOC")
-        .or_else(|_| hdu.read_key::<String>(fptr, "DATE-OBS")).ok()
-        .and_then(|v| try_to_decode_date_time_str(&v))
+    let file_time = hdu.read_key::<String>(fptr, "DATE-LOC").ok()
+        .and_then(|v| try_to_decode_local_date_time_str(&v))
+        .or_else(|| hdu.read_key::<String>(fptr, "DATE-OBS").ok()
+            .and_then(|v| try_to_decode_utc_date_time_str(&v)))
         .or_else(|| get_file_time(file_name).ok() );
 
     ImageInfo {
@@ -1073,5 +1081,26 @@ mod tests {
             panic!("expected raw image on raw branch");
         };
         assert_eq!(raw.info.max_values[0], u8::MAX as f32);
+    }
+
+    #[test]
+    fn local_datetime_str_keeps_wall_clock_time() {
+        // Wall time must be displayed unchanged (regression only detectable on non-UTC machines)
+        let parsed = try_to_decode_local_date_time_str("2024:01:01 20:00:00").unwrap();
+        assert_eq!(parsed.format("%Y-%m-%d %H:%M:%S").to_string(), "2024-01-01 20:00:00");
+        // colon date with 'T' separator must keep parsing
+        assert!(try_to_decode_local_date_time_str("2024:01:01T12:00:00").is_some());
+    }
+
+    #[test]
+    fn utc_datetime_str_accepts_trailing_z() {
+        // 2024-01-01T12:00:00.123Z == epoch millis 1704110400123, timezone-independent check
+        let parsed = try_to_decode_utc_date_time_str("2024-01-01T12:00:00.123Z").unwrap();
+        assert_eq!(parsed.timestamp_millis(), 1_704_110_400_123);
+        // no 'Z' -> still UTC, fractional seconds of any length
+        let plain = try_to_decode_utc_date_time_str("2024-01-01T12:00:00").unwrap();
+        assert_eq!(plain.timestamp_millis(), 1_704_110_400_000);
+        let frac = try_to_decode_utc_date_time_str("2024-01-01T12:00:00.123456").unwrap();
+        assert_eq!(frac.timestamp_millis(), 1_704_110_400_123);
     }
 }
