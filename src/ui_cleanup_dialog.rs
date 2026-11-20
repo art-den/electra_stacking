@@ -231,9 +231,18 @@ impl CleanupDialog {
                         e_kappa, item.kappa, MIN_KAPPA, &format!("{}: {}", label, gettext("Kappa")), &mut warnings);
                     item.repeats = parse_clamped_u32(
                         e_repeats, item.repeats, MIN_REPEATS, &format!("{}: {}", label, gettext("Repeats")), &mut warnings);
-                    item.percent = u32::clamp(e_percent.text().as_str().parse().unwrap_or(item.percent), 0, 100);
-                    item.min = e_min.text().as_str().parse().ok();
-                    item.max = e_max.text().as_str().parse().ok();
+                    item.percent = match e_percent.text().as_str().trim().parse::<u32>() {
+                        Ok(v) => u32::clamp(v, 0, 100),
+                        Err(_) => {
+                            warnings.push(keep_prev_warning(
+                                &format!("{}: {}", label, gettext("Percent")), e_percent.text().trim()));
+                            item.percent
+                        }
+                    };
+                    item.min = parse_optional_f32(
+                        e_min, item.min, &format!("{}: {}", label, gettext("Min")), &mut warnings);
+                    item.max = parse_optional_f32(
+                        e_max, item.max, &format!("{}: {}", label, gettext("Max")), &mut warnings);
                 };
 
                 get_line(

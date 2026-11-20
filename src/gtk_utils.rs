@@ -153,7 +153,8 @@ pub fn show_error_message(
 
 /// Parses the entry text as `f32`; valid values are finite and `>= min`.
 /// Out-of-range input is clamped to `min`, written back into the entry and
-/// reported in `warnings`. Unparseable text keeps `prev`.
+/// reported in `warnings`. Unparseable text keeps `prev` and is reported in
+/// `warnings`.
 pub fn parse_clamped_f32(
     entry:    &gtk::Entry,
     prev:     f32,
@@ -161,15 +162,33 @@ pub fn parse_clamped_f32(
     label:    &str,
     warnings: &mut Vec<String>,
 ) -> f32 {
-    let text = entry.text();
-    match text.as_str().parse::<f32>() {
-        Ok(v) if f32::is_finite(v) && v >= min => v,
+    let (value, rewrite) = parse_clamped_f32_text(entry.text().as_str(), prev, min, label, warnings);
+    if let Some(new_text) = rewrite {
+        entry.set_text(&new_text);
+    }
+    value
+}
+
+/// Pure core of `parse_clamped_f32`; the second tuple element is the corrected
+/// text to write back into the entry, if any.
+fn parse_clamped_f32_text(
+    text:     &str,
+    prev:     f32,
+    min:      f32,
+    label:    &str,
+    warnings: &mut Vec<String>,
+) -> (f32, Option<String>) {
+    let text = text.trim();
+    match text.parse::<f32>() {
+        Ok(v) if f32::is_finite(v) && v >= min => (v, None),
         Ok(v) => {
             warnings.push(clamp_warning(label, &v.to_string(), &format!("{min:.1}")));
-            entry.set_text(&format!("{min:.1}"));
-            min
+            (min, Some(format!("{min:.1}")))
         }
-        Err(_) => prev,
+        Err(_) => {
+            warnings.push(keep_prev_warning(label, text));
+            (prev, None)
+        }
     }
 }
 
@@ -184,6 +203,14 @@ fn clamp_warning(label: &str, value: &str, min_str: &str) -> String {
     )
 }
 
+/// Shared warning for "input rejected, previous value kept".
+pub fn keep_prev_warning(label: &str, value: &str) -> String {
+    transl_and_replace(
+        "{label}: '{value}' is invalid. Using previous value.",
+        &[("{label}", label.to_string()), ("{value}", value.to_string())],
+    )
+}
+
 /// Same as `parse_clamped_f32`, for integer (`u32`) entries.
 pub fn parse_clamped_u32(
     entry:    &gtk::Entry,
@@ -192,15 +219,71 @@ pub fn parse_clamped_u32(
     label:    &str,
     warnings: &mut Vec<String>,
 ) -> u32 {
-    let text = entry.text();
-    match text.as_str().parse::<u32>() {
-        Ok(v) if v >= min => v,
+    let (value, rewrite) = parse_clamped_u32_text(entry.text().as_str(), prev, min, label, warnings);
+    if let Some(new_text) = rewrite {
+        entry.set_text(&new_text);
+    }
+    value
+}
+
+/// Pure core of `parse_clamped_u32`; the second tuple element is the corrected
+/// text to write back into the entry, if any.
+fn parse_clamped_u32_text(
+    text:     &str,
+    prev:     u32,
+    min:      u32,
+    label:    &str,
+    warnings: &mut Vec<String>,
+) -> (u32, Option<String>) {
+    let text = text.trim();
+    match text.parse::<u32>() {
+        Ok(v) if v >= min => (v, None),
         Ok(v) => {
             warnings.push(clamp_warning(label, &v.to_string(), &min.to_string()));
-            entry.set_text(&min.to_string());
-            min
+            (min, Some(min.to_string()))
         }
-        Err(_) => prev,
+        Err(_) => {
+            warnings.push(keep_prev_warning(label, text));
+            (prev, None)
+        }
+    }
+}
+
+/// Parses the entry text as optional `f32`. Empty/whitespace-only text means
+/// `None` (the bound is intentionally disabled); non-finite or unparseable text
+/// keeps `prev` and is reported in `warnings`.
+pub fn parse_optional_f32(
+    entry:    &gtk::Entry,
+    prev:     Option<f32>,
+    label:    &str,
+    warnings: &mut Vec<String>,
+) -> Option<f32> {
+    parse_optional_f32_text(entry.text().as_str(), prev, label, warnings)
+}
+
+/// Pure core of `parse_optional_f32`.
+fn parse_optional_f32_text(
+    text:     &str,
+    prev:     Option<f32>,
+    label:    &str,
+    warnings: &mut Vec<String>,
+) -> Option<f32> {
+    let text = text.trim();
+    if text.is_empty() {
+        return None;
+    }
+    match text.parse::<f32>() {
+        Ok(v) if f32::is_finite(v) => Some(v),
+        _ => {
+            warnings.push(match prev {
+                Some(_) => keep_prev_warning(label, text),
+                None => transl_and_replace(
+                    "{label}: '{value}' is invalid. Value left empty.",
+                    &[("{label}", label.to_string()), ("{value}", text.to_string())],
+                ),
+            });
+            prev
+        }
     }
 }
 
@@ -516,5 +599,84 @@ pub fn select_file_name_to_save(
         Some(fc.file()?
         .path()?
         .with_extension(ext))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_clamped_f32_text, parse_clamped_u32_text, parse_optional_f32_text};
+
+    fn parse(text: &str, prev: Option<f32>) -> (Option<f32>, Vec<String>) {
+        let mut warnings = Vec::new();
+        let value = parse_optional_f32_text(text, prev, "L", &mut warnings);
+        (value, warnings)
+    }
+
+    #[test]
+    fn empty_or_whitespace_text_means_none() {
+        assert_eq!(parse("", Some(1.5)), (None, vec![]));
+        assert_eq!(parse("   ", Some(1.5)), (None, vec![]));
+    }
+
+    #[test]
+    fn parses_finite_values() {
+        assert_eq!(parse("1.5", None), (Some(1.5), vec![]));
+        assert_eq!(parse(" -2.25 ", Some(0.0)), (Some(-2.25), vec![]));
+    }
+
+    #[test]
+    fn unparsable_text_keeps_prev_with_warning() {
+        let (value, warnings) = parse("1,5", Some(1.5));
+        assert_eq!(value, Some(1.5));
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("previous value"));
+
+        let (value, warnings) = parse("1,5", None);
+        assert_eq!(value, None);
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("left empty"));
+    }
+
+    #[test]
+    fn rejects_non_finite_values() {
+        assert_eq!(parse("inf", Some(1.5)).0, Some(1.5));
+        assert_eq!(parse("NaN", None).0, None);
+        assert_eq!(parse("inf", Some(1.5)).1.len(), 1);
+        assert_eq!(parse("NaN", None).1.len(), 1);
+    }
+
+    #[test]
+    fn clamped_f32_valid_and_below_min() {
+        let mut warnings = Vec::new();
+        assert_eq!(parse_clamped_f32_text(" 1.8 ", 2.0, 1.0, "L", &mut warnings), (1.8, None));
+        assert!(warnings.is_empty());
+
+        let (value, rewrite) = parse_clamped_f32_text("0.5", 2.0, 1.0, "L", &mut warnings);
+        assert_eq!((value, rewrite.as_deref()), (1.0, Some("1.0")));
+        assert_eq!(warnings.len(), 1);
+    }
+
+    #[test]
+    fn clamped_f32_unparsable_keeps_prev_with_warning() {
+        let mut warnings = Vec::new();
+        let (value, rewrite) = parse_clamped_f32_text("1,8", 2.0, 1.0, "L", &mut warnings);
+        assert_eq!((value, rewrite), (2.0, None));
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("previous value"));
+    }
+
+    #[test]
+    fn clamped_u32_valid_below_min_and_unparsable() {
+        let mut warnings = Vec::new();
+        assert_eq!(parse_clamped_u32_text("3", 1, 1, "L", &mut warnings), (3, None));
+        assert!(warnings.is_empty());
+
+        let (value, rewrite) = parse_clamped_u32_text("0", 5, 1, "L", &mut warnings);
+        assert_eq!((value, rewrite.as_deref()), (1, Some("1")));
+
+        let (value, rewrite) = parse_clamped_u32_text("2.5", 5, 1, "L", &mut warnings);
+        assert_eq!((value, rewrite), (5, None));
+        assert_eq!(warnings.len(), 2);
+        assert!(warnings[1].contains("previous value"));
     }
 }

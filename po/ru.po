@@ -357,6 +357,12 @@ msgstr "Предупреждение"
 msgid "{label}: '{value}' is invalid, must be >= {min}. Using {min}."
 msgstr "{label}: значение '{value}' недопустимо, должно быть >= {min}. Использовано {min}."
 
+msgid "{label}: '{value}' is invalid. Using previous value."
+msgstr "{label}: значение '{value}' недопустимо. Использовано прежнее значение."
+
+msgid "{label}: '{value}' is invalid. Value left empty."
+msgstr "{label}: значение '{value}' недопустимо. Значение оставлено пустым."
+
 ###########################################################
 
 # Project options Dialog
@@ -457,6 +463,12 @@ msgstr "Режим очистки"
 
 msgid "Percent"
 msgstr "Процент"
+
+msgid "Min"
+msgstr "Мин"
+
+msgid "Max"
+msgstr "Макс"
 
 msgid "By stars FWHM"
 msgstr "По площади звёзд (FWHM)"
