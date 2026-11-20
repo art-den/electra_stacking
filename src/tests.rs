@@ -1,6 +1,5 @@
 #[cfg(test)]
-
-mod tests {
+mod image_tests {
 
 use crate::image::*;
 
@@ -38,4 +37,4 @@ fn area_iter() {
     }
 }
 
-} // mod tests
+} // mod image_tests

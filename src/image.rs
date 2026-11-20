@@ -555,6 +555,8 @@ impl ImageLayer<f32> {
         }
     }
 
+    /// Replaces NO_VALUE pixels with the median of the valid ones.
+    /// If there are no valid pixels at all, leaves the layer untouched.
     pub fn set_novalue_as_median(&mut self) {
         if self.data.is_empty() {
             return;
@@ -562,6 +564,9 @@ impl ImageLayer<f32> {
         let mut data_copy = Vec::new();
         data_copy.extend_from_slice(&self.data);
         data_copy.retain(|v| *v != NO_VALUE_F32);
+        if data_copy.is_empty() {
+            return;
+        }
         let len2 = data_copy.len() / 2;
         let median = *data_copy.select_nth_unstable_by(len2, cmp_f32).1;
         for v in &mut self.data {
@@ -1438,5 +1443,30 @@ impl FloodFiller {
             check_neibour(pt_x, pt_y-1);
             check_neibour(pt_x, pt_y+1);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn set_novalue_as_median_all_novalue_no_panic() {
+        let mut layer = ImageLayerF32::new_from_vec(4, 4, vec![NO_VALUE_F32; 16]);
+        layer.set_novalue_as_median();
+        assert!(layer.iter().all(|v| *v == NO_VALUE_F32));
+    }
+
+    #[test]
+    fn set_novalue_as_median_replaces_with_median() {
+        let mut layer = ImageLayerF32::new_from_vec(
+            3, 3,
+            vec![NO_VALUE_F32, 1.0, NO_VALUE_F32, 3.0, NO_VALUE_F32, 5.0, 2.0, 4.0, NO_VALUE_F32]
+        );
+        layer.set_novalue_as_median();
+        assert!(layer.iter().all(|v| *v != NO_VALUE_F32));
+        // Median of [1, 2, 3, 4, 5]
+        assert_eq!(layer.get(0, 0), Some(3.0));
+        assert_eq!(layer.get(2, 2), Some(3.0));
     }
 }
