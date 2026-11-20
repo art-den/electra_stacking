@@ -688,13 +688,13 @@ pub fn load_image_from_fits_file(
 
     if !is_color_image && (info.cfa_type.is_some() || camera_params.is_some() || force_as_raw) {
         let max = match data_type {
-            ImageType::UnsignedByte => 127.0,
-            ImageType::Byte  =>  255.0,
-            ImageType::Short  => 32767.0,
-            ImageType::UnsignedShort  => 65535.0,
-            ImageType::Long  => ((1u64 << 31) - 1) as f64,
-            ImageType::UnsignedLong  => ((1u64 << 32) - 1) as f64,
-            ImageType::LongLong  => ((1u64 << 63) - 1) as f64,
+            ImageType::UnsignedByte => u8::MAX as f64,
+            ImageType::Byte  =>  i8::MAX as f64,
+            ImageType::Short  => i16::MAX as f64,
+            ImageType::UnsignedShort  => u16::MAX as f64,
+            ImageType::Long  => i32::MAX as f64,
+            ImageType::UnsignedLong  => u32::MAX as f64,
+            ImageType::LongLong  => i64::MAX as f64,
             ImageType::Float  => 1.0,
             ImageType::Double  => 1.0,
         };
@@ -1037,5 +1037,41 @@ impl RawImageInfo {
         self.width == other.width &&
         self.height == other.height &&
         self.cfa == other.cfa
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn write_mono_fits_u8(path: &Path) {
+        let mut fptr = FitsFile::create(path).open().unwrap();
+        let desc = ImageDescription {
+            data_type: ImageType::UnsignedByte,
+            dimensions: &[3, 5],
+        };
+        let hdu = fptr.create_image("IMAGE", &desc).unwrap();
+        hdu.write_image(&mut fptr, &[0u8, 64, 128, 192, 255, 10, 20, 30, 40, 50]).unwrap();
+    }
+
+    #[test]
+    fn fits_bitpix8_raw_branch_uses_unsigned_byte_max() {
+        let path = std::env::temp_dir().join(format!(
+            "electra_bitpix8_test_{}_{}.fits",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        write_mono_fits_u8(&path);
+        let res = load_image_from_fits_file(&path, true);
+        let _ = std::fs::remove_file(&path);
+
+        let image_data = res.unwrap();
+        let RawOrImage::Raw(raw) = image_data.image else {
+            panic!("expected raw image on raw branch");
+        };
+        assert_eq!(raw.info.max_values[0], u8::MAX as f32);
     }
 }
