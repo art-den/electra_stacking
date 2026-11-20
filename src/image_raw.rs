@@ -116,6 +116,17 @@ pub struct RawImage {
     pub data: ImageLayerF32,
 }
 
+/// Crop sums must leave a non-empty area; all arithmetic is checked because
+/// file-derived values may wrap (negative dims would become huge usize later).
+fn validate_crops(width: usize, height: usize, crops: &[usize; 4]) -> anyhow::Result<(Crd, Crd)> {
+    let crop_w = usize::checked_sub(width, crops[1]).and_then(|w| usize::checked_sub(w, crops[3]));
+    let crop_h = usize::checked_sub(height, crops[0]).and_then(|h| usize::checked_sub(h, crops[2]));
+    match Option::zip(crop_w, crop_h) {
+        Some((w, h)) if w > 0 && h > 0 => Ok((w as Crd, h as Crd)),
+        _ => anyhow::bail!("Invalid raw crops {:?} for {}x{} image", crops, width, height),
+    }
+}
+
 #[derive(Hash, PartialEq, Eq, Clone, Copy)]
 pub struct BadPixel {
     pub x: Crd,
@@ -135,10 +146,11 @@ impl RawImage {
     pub fn load(file_name: &Path) -> anyhow::Result<(RawImage, ImageInfo)> {
         let raw = rawloader::decode_file(file_name)?;
 
+        // rawloader crops ([top, right, bottom, left]) are taken from the file
+        // without bounds checks; validate before any unchecked arithmetic.
+        let (width, height) = validate_crops(raw.width, raw.height, &raw.crops)?;
         let crop_left = raw.crops[3] as Crd;
         let crop_top = raw.crops[0] as Crd;
-        let width = raw.width as Crd - raw.crops[1] as Crd - crop_left;
-        let height = raw.height as Crd - raw.crops[2] as Crd - crop_top;
 
         let mut info = ImageInfo::default();
         if let Some(raw_exif) = &raw.exif {
@@ -382,6 +394,11 @@ impl RawImage {
     }
 
     pub fn demosaic(&self, demosaic_algo: DemosaicAlgo, mt: bool) -> anyhow::Result<Image> {
+        // is_empty() ignores height==0, see ImageLayer::is_empty
+        if self.data.height() < 1 || self.data.is_empty() {
+            anyhow::bail!("Raw image is empty");
+        }
+
         if let Cfa::Pattern(p) = &self.info.cfa {
             match demosaic_algo {
                 DemosaicAlgo::Linear =>
@@ -397,10 +414,6 @@ impl RawImage {
     }
 
     fn demosaic_bayer_linear(&self, p: &CfaPattern, _mt: bool) -> anyhow::Result<Image> {
-        if self.data.is_empty() {
-            anyhow::bail!("Raw image is empty");
-        }
-
         let width = self.data.width();
         let height = self.data.height();
 
@@ -503,10 +516,6 @@ impl RawImage {
     }
 
     fn demosaic_bayer_color_ratio(&self, p: &CfaPattern, _mt: bool) -> anyhow::Result<Image> {
-        if self.data.is_empty() {
-            anyhow::bail!("Raw image is empty");
-        }
-
         const MAX_DIFF_WITH_LIN: f32 = 12.0;
 
         // simple green by linear interpolation
@@ -1173,5 +1182,71 @@ impl<'a> Iterator for ColColorIterator<'a> {
         let result = (self.y, *value);
         self.y += 1;
         Some(result)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validate_crops_default_and_normal_ok() {
+        assert_eq!(validate_crops(100, 80, &[0, 0, 0, 0]).unwrap(), (100, 80));
+        assert_eq!(validate_crops(100, 80, &[10, 5, 20, 5]).unwrap(), (90, 50));
+    }
+
+    #[test]
+    fn validate_crops_minimal_area_ok() {
+        // 1-pixel-wide active area is the smallest valid result
+        assert_eq!(validate_crops(100, 80, &[0, 99, 0, 0]).unwrap(), (1, 80));
+        assert_eq!(validate_crops(100, 80, &[0, 0, 79, 0]).unwrap(), (100, 1));
+    }
+
+    #[test]
+    fn validate_crops_zero_or_negative_area_rejected() {
+        assert!(validate_crops(100, 80, &[0, 100, 0, 0]).is_err());
+        assert!(validate_crops(100, 80, &[0, 50, 0, 50]).is_err());
+        assert!(validate_crops(100, 80, &[0, 0, 80, 0]).is_err());
+        assert!(validate_crops(100, 80, &[0, 60, 0, 50]).is_err());
+        assert!(validate_crops(100, 80, &[40, 0, 50, 0]).is_err());
+    }
+
+    #[test]
+    fn validate_crops_wrapped_huge_rejected() {
+        // Simulates file-derived values wrapped inside rawloader's unchecked math
+        assert!(validate_crops(100, 80, &[0, usize::MAX, 0, 0]).is_err());
+        assert!(validate_crops(100, 80, &[usize::MAX, 0, 0, 0]).is_err());
+        assert!(validate_crops(100, 80, &[0, usize::MAX, usize::MAX, usize::MAX]).is_err());
+    }
+
+    fn raw_image(width: Crd, height: Crd, cfa: Cfa) -> RawImage {
+        RawImage {
+            info: RawImageInfo {
+                width, height,
+                max_values:   [1.0; 4],
+                black_values: [0.0; 4],
+                wb:           [1.0; 4],
+                cam_to_rgb:   None,
+                cfa,
+                camera:       None,
+                exposure:     None,
+                iso:          None,
+            },
+            data: ImageLayer::new(width, height),
+        }
+    }
+
+    #[test]
+    fn demosaic_degenerate_images_rejected() {
+        // height==0 with nonzero width slips past ImageLayer::is_empty()
+        let cfas = [Cfa::Mono, Cfa::from_cfa_type(Some(CfaType::RGGB))];
+        let algos = [DemosaicAlgo::Linear, DemosaicAlgo::ColorRatio];
+        for cfa in cfas {
+            for algo in algos {
+                assert!(raw_image(8, 0, cfa).demosaic(algo, false).is_err());
+                assert!(raw_image(0, 8, cfa).demosaic(algo, false).is_err());
+                assert!(raw_image(0, 0, cfa).demosaic(algo, false).is_err());
+            }
+        }
     }
 }
