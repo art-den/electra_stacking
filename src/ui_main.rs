@@ -533,8 +533,8 @@ impl MainWindow {
         let window = &self.widgets.window;
         connect_action(window, self, "new_project",            Self::action_new_project);
         connect_action(window, self, "open_project",           Self::action_open_project);
-        connect_action(window, self, "save_project_as",        Self::action_save_project_as);
-        connect_action(window, self, "save_project",           Self::action_save_project);
+        connect_action(window, self, "save_project_as",        |w| { w.action_save_project_as(); });
+        connect_action(window, self, "save_project",           |w| { w.action_save_project(); });
         connect_action(window, self, "exit",                   Self::action_exit);
         connect_action(window, self, "add_light_files",        Self::action_add_light_files);
         connect_action(window, self, "add_dark_files",         Self::action_add_dark_files);
@@ -566,6 +566,8 @@ impl MainWindow {
 
     }
 
+    /// Returns false if the user cancelled or the save failed; the changed flag
+    /// must then stay set (reset by `Project::save()` only on success).
     fn ask_user_to_save_project(self: &Rc<Self>) -> bool {
         if !self.project.borrow().changed() { return true; }
 
@@ -590,9 +592,7 @@ impl MainWindow {
 
         match response {
             gtk::ResponseType::Yes => {
-                self.action_save_project();
-                self.project.borrow_mut().reset_changed_flag();
-                true
+                self.action_save_project()
             },
             gtk::ResponseType::No => {
                 self.project.borrow_mut().reset_changed_flag();
@@ -1460,16 +1460,18 @@ impl MainWindow {
         }
     }
 
-    fn action_save_project(self: &Rc<Self>) {
+    /// Returns false on save failure or Save-As dialog cancel.
+    fn action_save_project(self: &Rc<Self>) -> bool {
         let file_name = self.project.borrow().file_name().clone();
         if let Some(file_name) = file_name {
-            self.save_project(&file_name);
+            self.save_project(&file_name)
         } else {
-            self.action_save_project_as();
+            self.action_save_project_as()
         }
     }
 
-    fn action_save_project_as(self: &Rc<Self>) {
+    /// Returns false on chooser cancel or save failure.
+    fn action_save_project_as(self: &Rc<Self>) -> bool {
         let ff = Self::create_file_filter_for_project();
         let fc = gtk::FileChooserDialog::builder()
             .action(gtk::FileChooserAction::Save)
@@ -1517,11 +1519,13 @@ impl MainWindow {
             self.project.borrow_mut().set_config(new_conf);
 
             let ok = self.save_project(&path);
-            if !ok { return; }
+            if !ok { return false; }
 
             self.update_project_tree();
             self.update_project_name_and_time_in_gui();
+            return true;
         }
+        false
     }
 
     fn save_project(self: &Rc<Self>, file_name: &Path) -> bool {
