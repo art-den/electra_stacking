@@ -7,12 +7,18 @@ pub enum CalcMode {
     Mean,
 }
 
+/// Hard lower bound for sigma-clip `kappa` (`.ui` hint labels show recommended ranges).
+pub const MIN_KAPPA: f32 = 1.0;
+
+/// Hard lower bound for sigma-clip repeats count.
+pub const MIN_REPEATS: u32 = 1;
+
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct CalcOpts {
     /// Calculation mode
     pub mode: CalcMode,
 
-    /// Kappa for cappa-sigma mode
+    /// Kappa for cappa-sigma mode (>= `MIN_KAPPA`)
     pub kappa: f32,
 
     /// repeats count for cappa-sigma mode
@@ -164,6 +170,8 @@ pub fn median_result(values: &mut [CalcValue]) -> Option<CalcResult> {
     })
 }
 
+/// Weighted mean with sigma clipping. Returns `None` only for empty input or zero total
+/// weight; when clipping would remove all samples, it stops at the last non-empty subset.
 pub fn cappa_sigma_weighted_result(
     values:  &mut [CalcValue],
     kappa:   f32,
@@ -181,15 +189,27 @@ pub fn cappa_sigma_weighted_result(
         if let Some((mean, std_dev)) = mean_and_std_dev(values) {
             let max = mean + kappa * std_dev;
             let min = mean - kappa * std_dev;
-            let mut changed = false;
+
+            // Count-then-apply two-pass: avoids per-pixel allocation for mark rollback.
+            let mut used_cnt   = 0_usize;
+            let mut clipped_cnt = 0_usize;
+            for v in values.iter() {
+                if !v.used { continue; }
+                used_cnt += 1;
+                if (low && v.value < min) || (high && v.value > max) {
+                    clipped_cnt += 1;
+                }
+            }
+            // Stop if nothing was clipped or if all remaining samples would be clipped:
+            // keep the last non-empty subset (defensive against invalid kappa).
+            if clipped_cnt == 0 || clipped_cnt == used_cnt { break; }
+
             for v in values.iter_mut() {
                 if !v.used { continue; }
                 if (low && v.value < min) || (high && v.value > max) {
                     v.used = false;
-                    changed = true;
                 }
             }
-            if !changed { break; }
         } else {
             return None;
         }
@@ -533,6 +553,41 @@ mod tests {
         assert_eq!(median_result(&mut values).unwrap().result, 6.0);
         let mut values2 = make(&[1.0, 2.0, f64::NAN, f64::NAN, f64::NAN]);
         assert!(median_result(&mut values2).unwrap().result.is_nan());
+    }
+
+    #[test]
+    fn cappa_sigma_keeps_last_nonempty_subset_on_invalid_kappa() {
+        let make = |vals: &[f64]| -> Vec<CalcValue> {
+            vals.iter().map(|&v| CalcValue::new(v)).collect()
+        };
+
+        // Negative kappa makes min > max: every sample would be clipped in one
+        // iteration; must fall back to the full set instead of returning None.
+        let mut values = make(&[1.0, 2.0, 3.0, 4.0, 5.0]);
+        let res = cappa_sigma_weighted_result(&mut values, -3.0, 5, true, true).unwrap();
+        assert_eq!(res.result, 3.0);
+        assert_eq!(res.discarded, 0);
+
+        // 0 <= kappa < 1 also empties typical sample sets over the repeats.
+        let mut values = make(&[1.0, 2.0, 3.0, 4.0, 5.0]);
+        let res = cappa_sigma_weighted_result(&mut values, 0.0, 5, true, true).unwrap();
+        assert_eq!(res.result, 3.0);
+        assert_eq!(res.discarded, 4);
+
+        // NaN/inf kappa: comparisons are false, nothing gets clipped -> plain mean.
+        for kappa in [f32::NAN, f32::INFINITY] {
+            let mut values = make(&[1.0, 2.0, 3.0, 4.0, 5.0]);
+            let res = cappa_sigma_weighted_result(&mut values, kappa, 5, true, true).unwrap();
+            assert_eq!(res.result, 3.0);
+            assert_eq!(res.discarded, 0);
+        }
+
+        // Normal clipping is unaffected.
+        let mut values = make(&[1.0, 2.0, 3.0, 4.0, 5.0, 100.0]);
+        let res = cappa_sigma_weighted_result(&mut values, 2.0, 5, true, true).unwrap();
+        assert_eq!(res.result, 3.0);
+        assert_eq!(res.discarded, 1);
+        assert!(!values[5].used);
     }
 }
 

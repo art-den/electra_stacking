@@ -1,5 +1,8 @@
 use std::{rc::Rc, path::{Path, PathBuf}};
+use gettextrs::gettext;
 use gtk::{prelude::*, gio, glib, glib::clone};
+
+use crate::str_utils::transl_and_replace;
 
 pub fn set_dialog_default_button(dialog: &gtk::Dialog) {
     use gtk::ResponseType::*;
@@ -146,6 +149,70 @@ pub fn show_error_message(
     message: &str,
 ) {
     show_message(window, title, message, gtk::MessageType::Error);
+}
+
+/// Parses the entry text as `f32`; valid values are finite and `>= min`.
+/// Out-of-range input is clamped to `min`, written back into the entry and
+/// reported in `warnings`. Unparseable text keeps `prev`.
+pub fn parse_clamped_f32(
+    entry:    &gtk::Entry,
+    prev:     f32,
+    min:      f32,
+    label:    &str,
+    warnings: &mut Vec<String>,
+) -> f32 {
+    let text = entry.text();
+    match text.as_str().parse::<f32>() {
+        Ok(v) if f32::is_finite(v) && v >= min => v,
+        Ok(v) => {
+            warnings.push(clamp_warning(label, &v.to_string(), &format!("{min:.1}")));
+            entry.set_text(&format!("{min:.1}"));
+            min
+        }
+        Err(_) => prev,
+    }
+}
+
+fn clamp_warning(label: &str, value: &str, min_str: &str) -> String {
+    transl_and_replace(
+        "{label}: '{value}' is invalid, must be >= {min}. Using {min}.",
+        &[
+            ("{label}", label.to_string()),
+            ("{value}", value.to_string()),
+            ("{min}",    min_str.to_string()),
+        ],
+    )
+}
+
+/// Same as `parse_clamped_f32`, for integer (`u32`) entries.
+pub fn parse_clamped_u32(
+    entry:    &gtk::Entry,
+    prev:     u32,
+    min:      u32,
+    label:    &str,
+    warnings: &mut Vec<String>,
+) -> u32 {
+    let text = entry.text();
+    match text.as_str().parse::<u32>() {
+        Ok(v) if v >= min => v,
+        Ok(v) => {
+            warnings.push(clamp_warning(label, &v.to_string(), &min.to_string()));
+            entry.set_text(&min.to_string());
+            min
+        }
+        Err(_) => prev,
+    }
+}
+
+/// Shows a modal warning dialog listing `warnings`; no-op when the list is empty.
+pub fn show_warnings(window: &impl IsA<gtk::Window>, warnings: &[String]) {
+    if warnings.is_empty() { return; }
+    show_message(
+        window,
+        &gettext("Warning"),
+        &warnings.join("\n"),
+        gtk::MessageType::Warning,
+    );
 }
 
 pub fn exec_and_show_error(

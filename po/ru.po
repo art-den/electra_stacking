@@ -351,6 +351,12 @@ msgstr "Убрать файлы в количестве {cnt} из проект�
 msgid "Remove group '{group}' from project?"
 msgstr "Удалить группу '{group}' из проекта?"
 
+msgid "Warning"
+msgstr "Предупреждение"
+
+msgid "{label}: '{value}' is invalid, must be >= {min}. Using {min}."
+msgstr "{label}: значение '{value}' недопустимо, должно быть >= {min}. Использовано {min}."
+
 ###########################################################
 
 # Project options Dialog
@@ -390,6 +396,21 @@ msgstr "Выравнивать RGB-каналы в каждом light-изобр
 
 msgid "Repeats"
 msgstr "Повторов"
+
+msgid "Kappa"
+msgstr "Каппа"
+
+msgid "Lights stacking"
+msgstr "Сложение изображений (light)"
+
+msgid "Darks stacking"
+msgstr "Сложение темновых кадров (dark)"
+
+msgid "Flats stacking"
+msgstr "Сложение кадров поля (flat)"
+
+msgid "Bias stacking"
+msgstr "Сложение кадров смещения (bias)"
 
 msgid "Lights stacking mode:"
 msgstr "Режим сложения\nизображений (light):"

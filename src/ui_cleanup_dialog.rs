@@ -5,7 +5,7 @@ use gtk::{prelude::*, glib::clone, glib};
 
 use macros::FromBuilder;
 
-use crate::{gtk_utils::*, project::{CleanupConfItem, CleanupMode, Project}, str_utils::transl_and_replace};
+use crate::{calc::{MIN_KAPPA, MIN_REPEATS}, gtk_utils::*, project::{CleanupConfItem, CleanupMode, Project}, str_utils::transl_and_replace};
 
 pub struct CleanupDialog {
     widgets: Widgets,
@@ -207,8 +207,11 @@ impl CleanupDialog {
 
                 cleanup_conf.check_before_execute = self_.widgets.check_before.is_active();
 
-                let get_line = |
+                let mut warnings = Vec::<String>::new();
+
+                let mut get_line = |
                     item:      &mut CleanupConfItem,
+                    label:     &str,
                     chb_use:   &gtk::CheckButton,
                     cbt_mode:  &gtk::ComboBoxText,
                     e_kappa:   &gtk::Entry,
@@ -224,8 +227,10 @@ impl CleanupDialog {
                         Some(2) => CleanupMode::MinMax,
                         _       => panic!("Wrong cbt_mode.active(): {:?}", cbt_mode.active()),
                     };
-                    item.kappa = e_kappa.text().as_str().parse().unwrap_or(item.kappa);
-                    item.repeats = e_repeats.text().as_str().parse().unwrap_or(item.repeats);
+                    item.kappa = parse_clamped_f32(
+                        e_kappa, item.kappa, MIN_KAPPA, &format!("{}: {}", label, gettext("Kappa")), &mut warnings);
+                    item.repeats = parse_clamped_u32(
+                        e_repeats, item.repeats, MIN_REPEATS, &format!("{}: {}", label, gettext("Repeats")), &mut warnings);
                     item.percent = u32::clamp(e_percent.text().as_str().parse().unwrap_or(item.percent), 0, 100);
                     item.min = e_min.text().as_str().parse().ok();
                     item.max = e_max.text().as_str().parse().ok();
@@ -233,6 +238,7 @@ impl CleanupDialog {
 
                 get_line(
                     &mut cleanup_conf.stars_r_dev,
+                    &gettext("By stars ovality"),
                     &self_.widgets.chb_rdev,
                     &self_.widgets.cbt_rdev,
                     &self_.widgets.e_rdev_kappa,
@@ -244,6 +250,7 @@ impl CleanupDialog {
 
                 get_line(
                     &mut cleanup_conf.stars_fwhm,
+                    &gettext("By stars FWHM"),
                     &self_.widgets.chb_fwhm,
                     &self_.widgets.cbt_fwhm,
                     &self_.widgets.e_fwhm_kappa,
@@ -255,6 +262,7 @@ impl CleanupDialog {
 
                 get_line(
                     &mut cleanup_conf.stars_count,
+                    &gettext("By stars count"),
                     &self_.widgets.chb_stars,
                     &self_.widgets.cbt_stars,
                     &self_.widgets.e_stars_kappa,
@@ -266,6 +274,7 @@ impl CleanupDialog {
 
                 get_line(
                     &mut cleanup_conf.noise,
+                    &gettext("By noise"),
                     &self_.widgets.chb_noise,
                     &self_.widgets.cbt_noise,
                     &self_.widgets.e_noise_kappa,
@@ -277,6 +286,7 @@ impl CleanupDialog {
 
                 get_line(
                     &mut cleanup_conf.background,
+                    &gettext("By background"),
                     &self_.widgets.chb_bg,
                     &self_.widgets.cbt_bg,
                     &self_.widgets.e_bg_kappa,
@@ -285,6 +295,8 @@ impl CleanupDialog {
                     &self_.widgets.e_bg_min,
                     &self_.widgets.e_bg_max
                 );
+
+                show_warnings(&self_.widgets.dialog, &warnings);
 
                 project.set_cleanup_conf(cleanup_conf);
 

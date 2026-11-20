@@ -5,7 +5,7 @@ use gtk::{prelude::*, glib::clone};
 
 use macros::FromBuilder;
 
-use crate::{calc::{CalcMode, CalcOpts}, gtk_utils::{add_ok_and_cancel_buttons, set_dialog_default_button}, image_raw::CfaType, project::*};
+use crate::{calc::{CalcMode, CalcOpts, MIN_KAPPA, MIN_REPEATS}, gtk_utils::{add_ok_and_cancel_buttons, parse_clamped_f32, parse_clamped_u32, set_dialog_default_button, show_warnings}, image_raw::CfaType, project::*};
 
 pub struct ProjectOptionsDialog {
     widgets: Widgets,
@@ -177,21 +177,32 @@ impl ProjectOptionsDialog {
     }
 
     fn get_option(&self, project_config: &mut ProjectConfig) {
-        let get_calc_opts = |opts: &mut CalcOpts, mode: &gtk::ComboBoxText, kappa: &gtk::Entry, steps: &gtk::Entry| {
+        let mut warnings = Vec::<String>::new();
+
+        let mut get_calc_opts = |
+            opts:  &mut CalcOpts,
+            label: &str,
+            mode:  &gtk::ComboBoxText,
+            kappa: &gtk::Entry,
+            steps: &gtk::Entry,
+        | {
             opts.mode = match mode.active() {
                 Some(0) => CalcMode::CappaSigma,
                 Some(1) => CalcMode::Median,
                 Some(2) => CalcMode::Mean,
                 _ => panic!("Wrong mode.active(): {:?}", mode.active()),
             };
-            opts.kappa = kappa.text().as_str().parse().unwrap_or(opts.kappa);
-            opts.repeats = steps.text().as_str().parse().unwrap_or(opts.repeats);
+            opts.kappa = parse_clamped_f32(
+                kappa, opts.kappa, MIN_KAPPA, &format!("{}: {}", label, gettext("Kappa")), &mut warnings);
+            opts.repeats = parse_clamped_u32(
+                steps, opts.repeats, MIN_REPEATS, &format!("{}: {}", label, gettext("Repeats")), &mut warnings);
         };
 
         let widgets = &self.widgets;
 
         get_calc_opts(
             &mut project_config.light_calc_opts,
+            &gettext("Lights stacking"),
             &widgets.lights_stack_mode,
             &widgets.lights_stack_kappa,
             &widgets.lights_stack_steps
@@ -199,6 +210,7 @@ impl ProjectOptionsDialog {
 
         get_calc_opts(
             &mut project_config.dark_calc_opts,
+            &gettext("Darks stacking"),
             &widgets.darks_stack_mode,
             &widgets.darks_stack_kappa,
             &widgets.darks_stack_steps
@@ -206,6 +218,7 @@ impl ProjectOptionsDialog {
 
         get_calc_opts(
             &mut project_config.flat_calc_opts,
+            &gettext("Flats stacking"),
             &widgets.flats_stack_mode,
             &widgets.flats_stack_kappa,
             &widgets.flats_stack_steps
@@ -213,10 +226,17 @@ impl ProjectOptionsDialog {
 
         get_calc_opts(
             &mut project_config.bias_calc_opts,
+            &gettext("Bias stacking"),
             &widgets.bias_stack_mode,
             &widgets.bias_stack_kappa,
             &widgets.bias_stack_steps
         );
+
+        // The dialog is closed right after, so parent the warning to the main window.
+        match self.widgets.dialog.transient_for() {
+            Some(win) => show_warnings(&win, &warnings),
+            None      => show_warnings(&self.widgets.dialog, &warnings),
+        }
 
         let name = widgets.project_name.text();
         project_config.name = if !name.is_empty() { Some(name.to_string()) } else { None };

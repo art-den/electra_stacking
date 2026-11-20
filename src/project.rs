@@ -1222,6 +1222,24 @@ impl ProjectGroup {
             let max = mean + dev * conf.kappa as f64;
             let min = mean - dev * conf.kappa as f64;
 
+            let mut candidate_cnt = 0_usize;
+            let mut exclude_cnt   = 0_usize;
+            for (item, to_exclude) in self.light_files.list.iter().zip(&to_exclude) {
+                if *to_exclude || (item.flags & FILE_FLAG_ERROR) != 0 {
+                    continue;
+                }
+                if let Some(reg_info) = item.reg_info.as_ref() {
+                    candidate_cnt += 1;
+                    let value = fun(reg_info) as f64;
+                    if (remove_min && value < min) || (remove_max && value > max) {
+                        exclude_cnt += 1;
+                    }
+                }
+            }
+            // Keep the current set if nothing or everything would be excluded:
+            // guards against invalid kappa from a loaded project file.
+            if exclude_cnt == 0 || exclude_cnt == candidate_cnt { break; }
+
             for (item, to_exclude) in self.light_files.list.iter_mut().zip(&mut to_exclude) {
                 if *to_exclude || (item.flags & FILE_FLAG_ERROR) != 0 {
                     continue;
