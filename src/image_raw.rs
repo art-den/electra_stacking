@@ -1053,6 +1053,9 @@ impl CalibrationData {
                 );
                 let mut image = load_master_format_file(file_name)?;
                 if let Some(bias_image) = &bias_image {
+                    Self::is_usable_for_raw(
+                        &image.info, &bias_image.info, "master dark vs master bias", false
+                    )?;
                     image.data -= &bias_image.data;
                 }
                 let hot_pixels = image.find_hot_pixels_in_dark_file();
@@ -1069,6 +1072,11 @@ impl CalibrationData {
                     fs_utils::path_to_str(file_name)
                 );
                 let mut image = load_master_format_file(file_name)?;
+                if let Some(dark_image) = &dark_image {
+                    Self::is_usable_for_raw(
+                        &image.info, &dark_image.info, "master flat vs master dark", false
+                    )?;
+                }
                 image.remove_bad_pixels(&hot_pixels);
                 let filter_log = TimeLogger::start();
                 let mut image = image.filter_flat_image();
@@ -1087,7 +1095,8 @@ impl CalibrationData {
         })
     }
 
-    fn is_usable_for_raw(
+    // master_dark: additionally require matching ISO (meaningful only for light vs master dark)
+    pub(crate) fn is_usable_for_raw(
         info:        &RawImageInfo,
         cal_info:    &RawImageInfo,
         mode:        &str,
@@ -1248,5 +1257,49 @@ mod tests {
                 assert!(raw_image(0, 0, cfa).demosaic(algo, false).is_err());
             }
         }
+    }
+
+    #[test]
+    fn is_usable_for_raw_rejects_mismatched_masters() {
+        let base = RawImageInfo { width: 100, height: 80, ..Default::default() };
+        assert!(CalibrationData::is_usable_for_raw(&base, &base, "m", false).is_ok());
+
+        let diff_w = RawImageInfo { width: 90, ..base.clone() };
+        assert!(CalibrationData::is_usable_for_raw(&base, &diff_w, "m", false).is_err());
+
+        let diff_h = RawImageInfo { height: 70, ..base.clone() };
+        assert!(CalibrationData::is_usable_for_raw(&base, &diff_h, "m", false).is_err());
+
+        let diff_cfa = RawImageInfo {
+            cfa: Cfa::from_cfa_type(Some(CfaType::RGGB)),
+            ..base.clone()
+        };
+        assert!(CalibrationData::is_usable_for_raw(&base, &diff_cfa, "m", false).is_err());
+    }
+
+    #[test]
+    fn load_checks_masters_compatibility() {
+        let mut dir = std::env::temp_dir();
+        dir.push(format!("electra_calibr_test_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mfi = MasterFileInfo { files: Vec::new(), calc_opts: CalcOpts::default() };
+
+        // Mismatched dark/bias must produce an error instead of an assert-abort
+        let dark_fn = dir.join("master-dark.es_raw");
+        let bias_fn = dir.join("master-bias.es_raw");
+        save_master_format_file(&raw_image(100, 80, Cfa::Mono), &dark_fn, &mfi).unwrap();
+        save_master_format_file(&raw_image(90, 80, Cfa::Mono), &bias_fn, &mfi).unwrap();
+        let err = match CalibrationData::load(None, Some(&dark_fn), Some(&bias_fn)) {
+            Ok(_) => panic!("Mismatched dark/bias masters must be rejected"),
+            Err(err) => err,
+        };
+        assert!(err.to_string().contains("Width differs"), "Unexpected error: {}", err);
+
+        // Matched masters must load fine
+        let bias_fn2 = dir.join("master-bias2.es_raw");
+        save_master_format_file(&raw_image(100, 80, Cfa::Mono), &bias_fn2, &mfi).unwrap();
+        assert!(CalibrationData::load(None, Some(&dark_fn), Some(&bias_fn2)).is_ok());
+
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

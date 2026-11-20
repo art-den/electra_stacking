@@ -35,7 +35,7 @@ pub fn create_master_dark_or_bias_file(
         files_list,
         calc_opts,
         result_file,
-        |_| true,
+        |_| Ok(true),
         progress,
         thread_pool,
         cancel_flag,
@@ -101,8 +101,11 @@ fn postprocess_single_flat_image(
     raw_image:    &mut RawImage,
     bias_image:   Option<&RawImage>,
     check_values: bool,
-) -> bool {
+) -> anyhow::Result<bool> {
     if let Some(bias_image) = bias_image {
+        CalibrationData::is_usable_for_raw(
+            &raw_image.info, &bias_image.info, "flat frame vs master bias", false
+        )?;
         raw_image.data -= &bias_image.data;
     }
 
@@ -137,7 +140,7 @@ fn postprocess_single_flat_image(
     raw_image.info.max_values.fill(1.0);
     raw_image.info.black_values.fill(0.0);
 
-    mono_ok && r_ok && g_ok && b_ok
+    Ok(mono_ok && r_ok && g_ok && b_ok)
 }
 
 pub fn create_master_flat_file(
@@ -187,7 +190,7 @@ fn create_master_calibr_file<PF>(
     cancel_flag:     &IsCancelledFun,
     force_if_exist:  bool) -> anyhow::Result<bool>
 where
-    PF: Fn (&mut RawImage) -> bool + Send + Sync + 'static
+    PF: Fn (&mut RawImage) -> anyhow::Result<bool> + Send + Sync + 'static
 {
     let disk_access_mutex = Mutex::new(());
 
@@ -227,7 +230,17 @@ where
                     }
                 };
                 raw.extract_black();
-                let is_ok = postprocess_fun(&mut raw);
+                let is_ok = match postprocess_fun(&mut raw) {
+                    Ok(is_ok) => is_ok,
+                    Err(err) => {
+                        *cur_result.lock().unwrap() = Err(anyhow::anyhow!(
+                            r#"Error "{}" during processing of file "{}""#,
+                            err.to_string(),
+                            file_path.to_str().unwrap_or("")
+                        ));
+                        return;
+                    }
+                };
                 if !is_ok { return; }
                 let temp_fn = file_path.with_extension("temp_raw");
                 let locker = disk_access_mutex.lock();
