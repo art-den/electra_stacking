@@ -23,6 +23,19 @@ pub fn normalize_range_and_bg(
     ref_data:   &RefBgData,
     light_file: &mut LightFile
 ) -> anyhow::Result<NormResult> {
+    let ref_image = &ref_data.image.image;
+    let image = &light_file.image;
+    if image.width() != ref_image.width()
+        || image.height() != ref_image.height()
+        || image.is_rgb() != ref_image.is_rgb()
+    {
+        anyhow::bail!(
+            "Image size/color mismatch with reference: light {}x{} {} vs ref {}x{} {}",
+            image.width(), image.height(), if image.is_rgb() { "RGB" } else { "grey" },
+            ref_image.width(), ref_image.height(), if ref_image.is_rgb() { "RGB" } else { "grey" },
+        );
+    }
+
     let mut grey_image = light_file.image.create_greyscale_layer();
     let mut mask = ImageMask::new_empty();
 
@@ -266,7 +279,7 @@ pub struct ImageBg {
 
 impl ImageBg {
     pub fn apply_to_image(&self, image: &mut Image, neg: bool) -> anyhow::Result<()> {
-        let try_apply_layer = |cols: &Option<BgCols>, layer: &mut ImageLayerF32| -> anyhow::Result<()> {
+        let try_apply_layer = |name: &str, cols: &Option<BgCols>, layer: &mut ImageLayerF32| -> anyhow::Result<()> {
             match cols {
                 Some(cols) if !layer.is_empty() => {
                     cols.apply_to_image(layer, neg)?;
@@ -276,14 +289,18 @@ impl ImageBg {
                     Ok(())
                 },
                 _ =>
-                    anyhow::bail!("Internal error"),
+                    anyhow::bail!(
+                        "Internal error: bg coeffs {} for '{}' channel layer {}x{}",
+                        if cols.is_some() { "present" } else { "missing" },
+                        name, layer.width(), layer.height()
+                    ),
             }
         };
 
-        try_apply_layer(&self.l, &mut image.l)?;
-        try_apply_layer(&self.r, &mut image.r)?;
-        try_apply_layer(&self.g, &mut image.g)?;
-        try_apply_layer(&self.b, &mut image.b)?;
+        try_apply_layer("l", &self.l, &mut image.l)?;
+        try_apply_layer("r", &self.r, &mut image.r)?;
+        try_apply_layer("g", &self.g, &mut image.g)?;
+        try_apply_layer("b", &self.b, &mut image.b)?;
 
         Ok(())
     }
