@@ -7,6 +7,13 @@ use std::f64::consts::PI;
 pub const MAX_STAR_DIAMETER: Crd = 25; // in pixels
 pub const STAR_BG_BORDER: f32 = 0.001;
 
+// Saturation plateau detection: see is_core_overexposed
+const PLATEAU_BORDER_DIV:    f32   = 10.0;
+const PLATEAU_MIN_CORE_AREA: usize = 5;
+const PLATEAU_MIN_CNT:       usize = 5;
+const PLATEAU_FRACTION_NUM:  usize = 7;
+const PLATEAU_FRACTION_DEN:  usize = 20;
+
 pub struct StarPoint {
     pub x: Crd,
     pub y: Crd,
@@ -24,6 +31,8 @@ pub struct Star {
     pub brightness:     f64,
     pub radius:         f32,
     pub radius_std_dev: f32,
+    /// Saturated star. Kept in the list as an anchor for registration and
+    /// masking, but must be excluded from shape metrics and star statistics.
     pub overexposured:  bool,
     pub points:         StarPoints,
 }
@@ -38,6 +47,11 @@ impl Star {
 
 pub type Stars = Vec<Star>;
 
+/// Finds stars, sorted by brightness (largest first).
+/// The result may contain `overexposured` (saturated) stars: they are kept
+/// as anchors for registration/masking; shape metrics must exclude them.
+/// If no stars are found: errors, or returns an empty list when
+/// `return_no_error`.
 pub fn find_stars_on_image(
     img:             &ImageLayerF32,
     noise:           Option<f32>,
@@ -196,7 +210,12 @@ pub fn find_stars_on_image(
             max_img_value
         )?;
 
-        if radius_dev > 2.0 {
+        let overexposured = is_core_overexposed(img, &star_points, star_bg, max_img_value);
+
+        // Overexposed stars have shape metrics distorted by the clip,
+        // so they are exempt from shape-based rejection (kept as valid
+        // anchors for registration and star masking).
+        if radius_dev > 2.0 && !overexposured {
             continue;
         }
 
@@ -230,7 +249,7 @@ pub fn find_stars_on_image(
             brightness:     br,
             radius:         radius as f32,
             radius_std_dev: radius_dev as f32,
-            overexposured:  false,
+            overexposured,
             points,
         });
     }
@@ -240,21 +259,28 @@ pub fn find_stars_on_image(
 
     // remove strange stars by radius
     stars.retain(|s| {
+        if s.overexposured { return true; }
         let by_area_r = f64::sqrt(s.points.len() as f64 / PI);
         let ratio = by_area_r / s.radius as f64;
         ratio < 1.2 && ratio > 0.8
     });
 
-    // remove strange stars by radius deviation
+    // remove strange stars by radius deviation.
+    // Overexposed stars are exempt and excluded from the metric population
+    // so that their distorted values do not shift the clean-star thresholds.
     let mut star_r_devs = Vec::new();
     for _ in 0..10 {
         star_r_devs.clear();
-        for star in &stars {
+        for star in stars.iter().filter(|s| !s.overexposured) {
             star_r_devs.push(CalcValue::new(star.radius_std_dev as f64));
         }
         if let Some((mean, dev)) = mean_and_std_dev(&star_r_devs) {
             let max = mean + dev*2.5;
-            stars.retain(|s| (s.radius_std_dev as f64) < max);
+            let before = stars.len();
+            stars.retain(|s| s.overexposured || (s.radius_std_dev as f64) < max);
+            if stars.len() == before { break; }
+        } else if !stars.is_empty() {
+            break; // only overexposed stars left; keep them as anchors
         } else if return_no_error {
             return Ok(Vec::new());
         } else {
@@ -265,12 +291,16 @@ pub fn find_stars_on_image(
     // remove strange stars by area
     for _ in 0..10 {
         star_r_devs.clear();
-        for star in &stars {
+        for star in stars.iter().filter(|s| !s.overexposured) {
             star_r_devs.push(CalcValue::new((star.points.len() as f64).sqrt()));
         }
         if let Some((mean, dev)) = mean_and_std_dev(&star_r_devs) {
             let max = mean + dev * 8.0;
-            stars.retain(|s| (s.points.len() as f64).sqrt() < max);
+            let before = stars.len();
+            stars.retain(|s| s.overexposured || (s.points.len() as f64).sqrt() < max);
+            if stars.len() == before { break; }
+        } else if !stars.is_empty() {
+            break; // only overexposed stars left; keep them as anchors
         } else if return_no_error {
             return Ok(Vec::new());
         } else {
@@ -283,16 +313,57 @@ pub fn find_stars_on_image(
     Ok(stars)
 }
 
+/// Combines the raw sensor-ceiling test with the plateau flag from
+/// find_stars_on_image (OR), so a star flagged by either test is excluded.
 pub fn set_stars_overexposured_flag(
     stars:         &mut Stars,
     overexposures: &HashSet<(Crd, Crd)>
 ) {
     if overexposures.is_empty() { return; }
     for star in stars {
-        star.overexposured = star.points
+        star.overexposured |= star.points
             .iter()
             .any(|pt| overexposures.contains(&(pt.x, pt.y)));
     }
+}
+
+/// Detects a saturation plateau as a large fraction of the flood-fill core
+/// lying within 10 % of the star's own peak (amplitude independent).
+/// A clean Gaussian core has <= ~0.2 of its area near the peak; a clipped
+/// star has >= ~0.45, so the 7/20 border separates the two populations.
+/// The 7/20 threshold is calibrated for the half-of-peak flood-fill border
+/// used in find_stars_on_image; changing that border requires recalibration.
+fn is_core_overexposed(
+    img:           &ImageLayerF32,
+    core:          &HashSet<(Crd, Crd)>,
+    bg:            f32,
+    max_img_value: f32,
+) -> bool {
+    let area = core.len();
+    if area < PLATEAU_MIN_CORE_AREA { return false; }
+
+    // INF pixels are already-marked overexposures: clamp to the image max,
+    // as done elsewhere in find_stars_on_image
+    let core_value = |&(x, y): &(Crd, Crd)| -> Option<f32> {
+        let v = img.get(x, y)?;
+        if v.is_nan() { return None; }
+        Some(if v.is_infinite() { max_img_value } else { v })
+    };
+
+    let mut max = f32::NEG_INFINITY;
+    for v in core.iter().filter_map(&core_value) {
+        max = f32::max(max, v);
+    }
+    if max <= bg { return false; }
+
+    let plateau_border = max - (max - bg) / PLATEAU_BORDER_DIV;
+    let plateau_cnt = core.iter()
+        .filter_map(core_value)
+        .filter(|&v| v > plateau_border)
+        .count();
+
+    plateau_cnt >= PLATEAU_MIN_CNT
+        && plateau_cnt * PLATEAU_FRACTION_DEN > area * PLATEAU_FRACTION_NUM
 }
 
 struct StarCalulator {
@@ -732,6 +803,10 @@ pub fn create_common_star_image(
         stars.iter().filter(|s| !s.overexposured)
     };
 
+    if not_overexposured_stars().count() == 0 {
+        anyhow::bail!("No non-overexposured stars");
+    }
+
     let mut star_widths: Vec<_> = not_overexposured_stars()
         .map(|s| s.width)
         .collect();
@@ -930,5 +1005,143 @@ mod tests {
         let overexposures: HashSet<(Crd, Crd)> = HashSet::new();
         set_stars_overexposured_flag(&mut stars, &overexposures);
         assert!(!stars[0].overexposured);
+    }
+
+    #[test]
+    fn set_stars_overexposured_flag_keeps_already_flagged() {
+        let mut star = make_star(&[(50, 50)]);
+        star.overexposured = true; // e.g. flagged by plateau test
+        let mut stars = vec![star];
+        let overexposures: HashSet<(Crd, Crd)> =
+            [(999, 999)].iter().copied().collect();
+        set_stars_overexposured_flag(&mut stars, &overexposures);
+        assert!(stars[0].overexposured, "plateau flag must survive the OR-combine");
+    }
+
+    /// Gaussian star (optionally clipped) plus the flood-fill core
+    /// taken at bg + range/2, as find_stars_on_image does.
+    fn make_gauss_star(
+        sigma: f64,
+        amp:   f64,
+        bg:    f32,
+        clip:  Option<f64>,
+    ) -> (ImageLayerF32, HashSet<(Crd, Crd)>, f32) {
+        const SIZE: Crd = 25;
+        const C: Crd = SIZE / 2;
+        let mut data = vec![bg; (SIZE * SIZE) as usize];
+        for y in 0..SIZE { for x in 0..SIZE {
+            let dx = x - C;
+            let dy = y - C;
+            let mut g = amp * f64::exp(
+                -((dx * dx + dy * dy) as f64) / (2.0 * sigma * sigma)
+            );
+            if let Some(clip) = clip {
+                g = f64::min(g, clip);
+            }
+            data[(y * SIZE + x) as usize] = bg + g as f32;
+        }}
+        let img = ImageLayerF32::new_from_vec(SIZE, SIZE, data);
+        let peak = img.iter().copied().fold(bg, f32::max);
+        let border = bg + (peak - bg) / 2.0;
+        let mut core = HashSet::new();
+        for y in 0..SIZE { for x in 0..SIZE {
+            if img.get(x, y).unwrap() >= border {
+                core.insert((x, y));
+            }
+        }}
+        (img, core, peak)
+    }
+
+    #[test]
+    fn is_core_overexposed_clean_gaussians_not_flagged() {
+        for sigma in [1.0, 1.5, 2.0, 2.5, 3.0, 4.0] {
+            let (img, core, peak) = make_gauss_star(sigma, 1000.0, 10.0, None);
+            assert!(
+                !is_core_overexposed(&img, &core, 10.0, peak),
+                "clean gaussian sigma={} must not be flagged", sigma
+            );
+        }
+    }
+
+    #[test]
+    fn is_core_overexposed_clipped_stars_flagged() {
+        for sigma in [1.0, 1.5, 2.0, 3.0] {
+            for ratio in [2.0, 3.0, 5.0, 10.0] {
+                let amp = 10000.0;
+                let (img, core, peak) =
+                    make_gauss_star(sigma, amp, 10.0, Some(amp / ratio));
+                assert!(
+                    is_core_overexposed(&img, &core, 10.0, peak),
+                    "clipped star sigma={} amp/clip={} must be flagged",
+                    sigma, ratio
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn is_core_overexposed_tiny_core_not_flagged() {
+        // Documented known miss: undersampled hard-clipped core.
+        let (img, core, peak) = make_gauss_star(0.6, 10000.0, 10.0, Some(5000.0));
+        assert!(!is_core_overexposed(&img, &core, 10.0, peak));
+    }
+
+    #[test]
+    fn is_core_overexposed_infinite_core_flagged() {
+        // Already marked overexposures (INF) must count as a plateau
+        const SIZE: Crd = 5;
+        let data = vec![f32::INFINITY; (SIZE * SIZE) as usize];
+        let img = ImageLayerF32::new_from_vec(SIZE, SIZE, data);
+        let mut core = HashSet::new();
+        for y in 0..SIZE { for x in 0..SIZE {
+            core.insert((x, y));
+        }}
+        assert!(is_core_overexposed(&img, &core, 0.0, 1000.0));
+    }
+
+    #[test]
+    fn find_stars_on_image_starless_image_contract() {
+        let data = vec![10.0_f32; 64 * 64];
+        let img = ImageLayerF32::new_from_vec(64, 64, data);
+        assert!(
+            find_stars_on_image(&img, Some(1.0), false).is_err(),
+            "starless image must keep erroring 'No stars'"
+        );
+        assert!(
+            find_stars_on_image(&img, Some(1.0), true).unwrap().is_empty(),
+            "return_no_error must yield an empty list"
+        );
+    }
+
+    #[test]
+    fn find_stars_keeps_lone_saturated_star_flagged() {
+        // A lone hard-clipped star must survive shape filters (as a
+        // registration/masking anchor) with the overexposured flag set
+        const SIZE: Crd = 64;
+        const C: Crd = SIZE / 2;
+        let bg = 10.0_f32;
+        let mut data = vec![bg; (SIZE * SIZE) as usize];
+        for y in 0..SIZE { for x in 0..SIZE {
+            let dx = x - C;
+            let dy = y - C;
+            let g = f64::min(
+                10000.0 * f64::exp(-((dx * dx + dy * dy) as f64) / 8.0),
+                5000.0
+            );
+            data[(y * SIZE + x) as usize] = bg + g as f32;
+        }}
+        let img = ImageLayerF32::new_from_vec(SIZE, SIZE, data);
+        let stars = find_stars_on_image(&img, Some(1.0), false).unwrap();
+        assert_eq!(stars.len(), 1);
+        assert!(stars[0].overexposured, "saturated star must be flagged");
+    }
+
+    #[test]
+    fn create_common_star_image_requires_clean_stars() {
+        let mut star = make_star(&[(10, 10), (11, 10), (10, 11)]);
+        star.overexposured = true;
+        let img = ImageLayerF32::new(64, 64);
+        let stars = vec![star];
+        assert!(create_common_star_image(&stars, &img, 4, false).is_err());
     }
 }
