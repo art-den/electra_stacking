@@ -284,27 +284,14 @@ pub fn find_stars_on_image(
 }
 
 pub fn set_stars_overexposured_flag(
-    stars: &mut Stars,
-    img:   &Image
+    stars:         &mut Stars,
+    overexposures: &HashSet<(Crd, Crd)>
 ) {
+    if overexposures.is_empty() { return; }
     for star in stars {
-        let mut star_is_overexposured = false;
-        for &StarPoint{x, y} in &star.points {
-            if let Some(v) = img.l.get(x, y) { if v.is_infinite() {
-                star_is_overexposured = true;
-            }}
-            if let Some(v) = img.r.get(x, y) { if v.is_infinite() {
-                star_is_overexposured = true;
-            }}
-            if let Some(v) = img.g.get(x, y) { if v.is_infinite() {
-                star_is_overexposured = true;
-            }}
-            if let Some(v) = img.b.get(x, y) { if v.is_infinite() {
-                star_is_overexposured = true;
-            }}
-            if star_is_overexposured { break; }
-        }
-        star.overexposured = star_is_overexposured;
+        star.overexposured = star.points
+            .iter()
+            .any(|pt| overexposures.contains(&(pt.x, pt.y)));
     }
 }
 
@@ -904,4 +891,44 @@ fn calc_ovality(star_image: &ImageLayerF32, mag: Crd) -> f32 {
     let min_diam = diameters[min_diameter_pos];
 
     (max_diam as f32 - min_diam as f32) / mag as f32
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_star(points: &[(Crd, Crd)]) -> Star {
+        Star {
+            x: 0.0, y: 0.0,
+            background: 0.0, max_value: 0.0,
+            width: 0, height: 0,
+            brightness: 0.0,
+            radius: 0.0, radius_std_dev: 0.0,
+            overexposured: false,
+            points: points.iter()
+                .map(|&(x, y)| StarPoint { x, y })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn set_stars_overexposured_flag_matches_any_point() {
+        let mut stars = vec![
+            make_star(&[(10, 10), (11, 10)]),
+            make_star(&[(50, 50), (51, 50)]),
+        ];
+        let overexposures: HashSet<(Crd, Crd)> =
+            [(11, 10), (999, 999)].iter().copied().collect();
+        set_stars_overexposured_flag(&mut stars, &overexposures);
+        assert!(stars[0].overexposured, "star with an overexposed point must be flagged");
+        assert!(!stars[1].overexposured, "clean star must not be flagged");
+    }
+
+    #[test]
+    fn set_stars_overexposured_flag_empty_set_flags_nothing() {
+        let mut stars = vec![make_star(&[(10, 10)])];
+        let overexposures: HashSet<(Crd, Crd)> = HashSet::new();
+        set_stars_overexposured_flag(&mut stars, &overexposures);
+        assert!(!stars[0].overexposured);
+    }
 }

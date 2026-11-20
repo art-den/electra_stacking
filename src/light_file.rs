@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::path::*;
 use serde::*;
 use bitflags::bitflags;
@@ -191,17 +192,29 @@ impl LightFile {
             Stars::new()
         };
 
-        let stars_stat = calc_stars_stat(&stars, img_layer_to_calc, open_mode == OpenMode::Preview);
-
+        // Halving must stay above the overexposures_set build: set space must match star.points
         if bin == 2 {
             for (x, y) in &mut overexposures {
                 *x /= 2;
                 *y /= 2;
             }
         }
-        image.mark_overexposures(&overexposures);
 
-        set_stars_overexposured_flag(&mut stars, &image);
+        // Flag from coordinates before marking: calc_stars_stat must see a clean layer
+        // (INF marks would bleed into neighbor star samples via interpolation).
+        if !stars.is_empty() {
+            let overexposures_set: HashSet<(Crd, Crd)> =
+                overexposures.iter().copied().collect();
+            set_stars_overexposured_flag(&mut stars, &overexposures_set);
+        }
+
+        let stars_stat = if stars_stat_flag {
+            calc_stars_stat(&stars, img_layer_to_calc, open_mode == OpenMode::Preview)
+        } else {
+            Err(anyhow::anyhow!("stars stat not requested"))
+        };
+
+        image.mark_overexposures(&overexposures);
 
         Ok(LightFile{
             info: image_data.info,
