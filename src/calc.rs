@@ -42,18 +42,17 @@ impl CalcOpts {
     }
 }
 
+/// Total order via `f32::total_cmp`: sign-bit-clear NaN sorts last,
+/// sign-bit-set NaN first; `-0.0` before `+0.0`.
 #[inline]
 pub fn cmp_f32(v1: &f32, v2: &f32) -> core::cmp::Ordering {
-    if *v1 < *v2 { core::cmp::Ordering::Less }
-    else if *v1 > *v2 { core::cmp::Ordering::Greater }
-    else { core::cmp::Ordering::Equal }
+    f32::total_cmp(v1, v2)
 }
 
+/// Same as `cmp_f32`, for `f64`.
 #[inline]
 pub fn cmp_f64(v1: &f64, v2: &f64) -> core::cmp::Ordering {
-    if *v1 < *v2 { core::cmp::Ordering::Less }
-    else if *v1 > *v2 { core::cmp::Ordering::Greater }
-    else { core::cmp::Ordering::Equal }
+    f64::total_cmp(v1, v2)
 }
 
 #[derive(Debug)]
@@ -422,5 +421,73 @@ pub fn fast_pow(a: f64, b: f64) -> f64 {
     let tmp = a.to_bits() as i64;
     let tmp2 = (b * (tmp - 4606921280493453312_i64) as f64) as i64 + 4606921280493453312_i64;
     f64::from_bits(tmp2 as u64)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Negative quiet NaN: sign bit and mantissa bits set.
+    const NEG_NAN_F64: f64 = f64::from_bits(0xFFF8_0000_0000_0000);
+    const NEG_NAN_F32: f32 = f32::from_bits(0xFFC0_0000);
+
+    #[test]
+    fn cmp_f64_is_a_total_order_with_special_values() {
+        // Ordered ascending per total_cmp bitwise order.
+        let values: Vec<f64> = vec![
+            NEG_NAN_F64, f64::NEG_INFINITY, -1.0, -0.0, 0.0, 1.0, f64::INFINITY, f64::NAN,
+        ];
+        for (i, a) in values.iter().enumerate() {
+            for (j, b) in values.iter().enumerate() {
+                assert_eq!(
+                    cmp_f64(a, b),
+                    usize::cmp(&i, &j),
+                    "bad order for bits {:x} vs {:x}",
+                    f64::to_bits(*a),
+                    f64::to_bits(*b)
+                );
+                assert_eq!(cmp_f64(b, a), cmp_f64(a, b).reverse(), "antisymmetry broken");
+            }
+        }
+    }
+
+    #[test]
+    fn median_f64_with_nan_is_deterministic() {
+        // The nth slot must hold the sorted nth element (verified against std total_cmp).
+        let base: Vec<f64> = vec![4.0, 8.0, 2.0, 9.0, 1.0, 7.0, 3.0, 6.0, 5.0];
+        let mut v = base.clone();
+        v[2] = f64::NAN;
+        assert_eq!(median_f64(&mut v), Some(6.0));
+        let mut w = base;
+        w[2] = NEG_NAN_F64;
+        assert_eq!(median_f64(&mut w), Some(5.0));
+
+        let mut x = vec![5.0, 1.0, NEG_NAN_F64, 3.0, 4.0];
+        assert_eq!(median_f64(&mut x), Some(3.0));
+        let mut y = vec![5.0, 1.0, f64::NAN, 3.0, 4.0];
+        assert_eq!(median_f64(&mut y), Some(4.0));
+
+        let mut z = vec![1.0, 2.0, f64::NAN, f64::NAN, f64::NAN];
+        assert!(median_f64(&mut z).unwrap().is_nan());
+    }
+
+    #[test]
+    fn median_f32_with_nan_is_deterministic() {
+        let mut v: Vec<f32> = vec![4.0, 8.0, NEG_NAN_F32, 9.0, 1.0, 7.0, 3.0, 6.0, 5.0];
+        assert_eq!(median_f32(&mut v), Some(5.0));
+        let mut w: Vec<f32> = vec![4.0, 8.0, f32::NAN, 9.0, 1.0, 7.0, 3.0, 6.0, 5.0];
+        assert_eq!(median_f32(&mut w), Some(6.0));
+    }
+
+    #[test]
+    fn median_result_with_nan_selects_deterministic_slot() {
+        let make = |vals: &[f64]| -> Vec<CalcValue> {
+            vals.iter().map(|&v| CalcValue::new(v)).collect()
+        };
+        let mut values = make(&[4.0, 8.0, f64::NAN, 9.0, 1.0, 7.0, 3.0, 6.0, 5.0]);
+        assert_eq!(median_result(&mut values).unwrap().result, 6.0);
+        let mut values2 = make(&[1.0, 2.0, f64::NAN, f64::NAN, f64::NAN]);
+        assert!(median_result(&mut values2).unwrap().result.is_nan());
+    }
 }
 
