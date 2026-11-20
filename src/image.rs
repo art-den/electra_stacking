@@ -1176,33 +1176,42 @@ impl Image {
         auto_minimum: bool,
         auto_wb:      bool
     ) -> ToRgbBytesParams {
+        // Pixel sampling stride for percentile estimation
+        const THINNING_STRIDE: usize = 42;
+        const MIN_DIV: usize = 100;
+        const BG_DIV: usize = 4;
+        // Pre-existing arbitrary positive fallback for an empty RGB sample list
+        const RGB_MIN_FALLBACK: f32 = 42.0;
+
+        let get_thinned_out_values = |img_values: &[f32]| -> Vec<f32> {
+            img_values
+                .par_iter()
+                .step_by(THINNING_STRIDE)
+                .filter(|&v| *v > 0.0 && !v.is_infinite())
+                .copied()
+                .collect()
+        };
+        // Sample quantile at index len/div (div=100 -> ~1st percentile); `fallback` if samples are empty
+        let percentile = |values: &mut [f32], div: usize, fallback: f32| -> f32 {
+            debug_assert!(div > 1);
+            if !values.is_empty() {
+                let pos = values.len()/div;
+                values.select_nth_unstable_by(pos, cmp_f32).1.max(0.0)
+            } else {
+                fallback
+            }
+        };
+
         let (l_min, r_min, g_min, b_min, range) = if self.is_rgb() {
             if auto_minimum || auto_wb {
-                let get_thinned_out_values = |img_values: &[f32]| -> Vec<f32> {
-                    img_values
-                        .par_iter()
-                        .step_by(42)
-                        .filter(|&v| *v > 0.0 && !v.is_infinite())
-                        .copied()
-                        .collect()
-                };
                 let mut r_thinned_out = get_thinned_out_values(self.r.as_slice());
                 let mut g_thinned_out = get_thinned_out_values(self.g.as_slice());
                 let mut b_thinned_out = get_thinned_out_values(self.b.as_slice());
 
-                let get_min = |values: &mut [f32]| -> f32 {
-                    if !values.is_empty() {
-                        let pos = values.len() / 100;
-                        values.select_nth_unstable_by(pos, cmp_f32).1.max(0.0)
-                    } else {
-                        42.0
-                    }
-                };
-
                 let min = [
-                    get_min(&mut r_thinned_out),
-                    get_min(&mut g_thinned_out),
-                    get_min(&mut b_thinned_out)
+                    percentile(&mut r_thinned_out, MIN_DIV, RGB_MIN_FALLBACK),
+                    percentile(&mut g_thinned_out, MIN_DIV, RGB_MIN_FALLBACK),
+                    percentile(&mut b_thinned_out, MIN_DIV, RGB_MIN_FALLBACK)
                     ].into_iter()
                     .filter(|v| *v != NO_VALUE_F32)
                     .min_by(cmp_f32)
@@ -1213,17 +1222,9 @@ impl Image {
                 let mut b_min = min;
                 let range = 1.0/(1.0 - min);
                 if auto_wb {
-                    let get_bg = |values: &mut [f32]| -> f32 {
-                        if !values.is_empty() {
-                            let pos = values.len() / 4;
-                            values.select_nth_unstable_by(pos, cmp_f32).1.max(0.0)
-                        } else {
-                            0.0
-                        }
-                    };
-                    let r_bg = get_bg(&mut r_thinned_out);
-                    let g_bg = get_bg(&mut g_thinned_out);
-                    let b_bg = get_bg(&mut b_thinned_out);
+                    let r_bg = percentile(&mut r_thinned_out, BG_DIV, 0.0);
+                    let g_bg = percentile(&mut g_thinned_out, BG_DIV, 0.0);
+                    let b_bg = percentile(&mut b_thinned_out, BG_DIV, 0.0);
                     if auto_minimum {
                         let min_bg = [r_bg, g_bg, b_bg]
                             .into_iter()
@@ -1244,14 +1245,9 @@ impl Image {
                 (0.0, 0.0, 0.0, 0.0, 1.0)
             }
         } else if auto_minimum {
-            let mut thinned_out_values: Vec<_> = self.l.as_slice()
-                .par_iter()
-                .step_by(42)
-                .filter(|&v| *v > 0.0 && !v.is_infinite())
-                .copied()
-                .collect();
-            let pos = thinned_out_values.len()/100;
-            let min = thinned_out_values.select_nth_unstable_by(pos, cmp_f32).1.max(0.0);
+            let mut thinned_out_values = get_thinned_out_values(self.l.as_slice());
+            // Empty sample list -> min = 0.0 -> identity params, same as the !auto_minimum branch
+            let min = percentile(&mut thinned_out_values, MIN_DIV, 0.0);
             (min, 0.0, 0.0, 0.0, 1.0/(1.0-min))
         } else {
             (0.0, 0.0, 0.0, 0.0, 1.0)
@@ -1520,5 +1516,57 @@ mod tests {
         img.normalize_to_1(false).unwrap();
         assert!((img.r.get(0, 0).unwrap() - 0.999).abs() < 1e-6);
         assert!(img.b.get(3, 3).unwrap().is_infinite());
+    }
+
+    #[test]
+    fn calc_to_bytes_params_all_zero_grey_no_panic() {
+        let img = Image::new_grey(4, 4);
+        let p = img.calc_to_bytes_params(true, false);
+        assert_eq!(p.l_min, 0.0);
+        assert_eq!(p.range, 1.0);
+    }
+
+    #[test]
+    fn calc_to_bytes_params_all_novalue_grey_no_panic() {
+        let mut img = Image::new_grey(4, 4);
+        img.l = ImageLayerF32::new_from_vec(4, 4, vec![NO_VALUE_F32; 16]);
+        let p = img.calc_to_bytes_params(true, true);
+        assert_eq!(p.l_min, 0.0);
+        assert_eq!(p.range, 1.0);
+    }
+
+    #[test]
+    fn calc_to_bytes_params_grey_uses_percentile_min() {
+        let mut img = Image::new_grey(4, 4);
+        img.l = ImageLayerF32::new_from_vec(4, 4, vec![0.5; 16]);
+        let p = img.calc_to_bytes_params(true, false);
+        assert_eq!(p.l_min, 0.5);
+        assert_eq!(p.range, 2.0);
+    }
+
+    #[test]
+    fn calc_to_bytes_params_rgb_uses_channel_min_and_bg() {
+        let mut img = Image::new_color(4, 4);
+        img.r.set(0, 0, 0.25);
+        img.g.set(0, 0, 0.5);
+        img.b.set(0, 0, 0.125);
+        let p = img.calc_to_bytes_params(true, true);
+        assert_eq!(p.l_min, 0.0);
+        assert_eq!(p.r_min, 0.25);
+        assert_eq!(p.g_min, 0.5);
+        assert_eq!(p.b_min, 0.125);
+        assert_eq!(p.range, 1.0/(1.0-0.125));
+    }
+
+    #[test]
+    fn calc_to_bytes_params_all_novalue_rgb_no_panic() {
+        // Pins the pre-existing 42.0 fallback behavior (including its negative range)
+        let mut img = Image::new_color(4, 4);
+        img.r = ImageLayerF32::new_from_vec(4, 4, vec![NO_VALUE_F32; 16]);
+        img.g = ImageLayerF32::new_from_vec(4, 4, vec![NO_VALUE_F32; 16]);
+        img.b = ImageLayerF32::new_from_vec(4, 4, vec![NO_VALUE_F32; 16]);
+        let p = img.calc_to_bytes_params(true, false);
+        assert_eq!(p.r_min, 42.0);
+        assert_eq!(p.range, 1.0/(1.0-42.0));
     }
 }
