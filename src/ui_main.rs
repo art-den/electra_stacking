@@ -339,7 +339,6 @@ impl MainWindow {
             gtk::TargetEntry::new("text/uri-list", gtk::TargetFlags::OTHER_APP, 0),
         ];
         self.widgets.window.drag_dest_set(gtk::DestDefaults::DROP, &targets, gtk::gdk::DragAction::COPY);
-        self.widgets.window.drag_dest_set_track_motion(true);
         self.widgets.window.connect_drag_data_received(
             clone!(@strong self as self_ => move |_w, _, _, _, sd, _, _| {
                 self_.handler_files_dropped(sd);
@@ -791,7 +790,7 @@ impl MainWindow {
                                     .unwrap_or("Can't get file name")
                                     .to_string();
 
-                                if let Some(err_text) = file.get_error_test() {
+                                if let Some(err_text) = file.get_error_text() {
                                     file_name.push('/');
                                     file_name.push_str(err_text);
                                 }
@@ -1249,7 +1248,6 @@ impl MainWindow {
                 PrjTreeCol {
                     width: col.width(),
                     visible: col.is_visible(),
-                    pos: -1,
                 }
             );
         }
@@ -1939,7 +1937,7 @@ impl MainWindow {
 
         let cancel_flag = Arc::new(AtomicBool::new(false));
         *self.prev_preview_cancel_flags.borrow_mut() = Some(cancel_flag.clone());
-        self.widgets.preview_fname.set_label("???");
+        self.widgets.preview_fname.set_label(&gettext("???"));
         self.widgets.preview_ctrls_box.set_sensitive(false);
 
         let file_name = file_name.to_path_buf();
@@ -2191,7 +2189,7 @@ impl MainWindow {
         if !project.is_all_light_files_are_registered() {
             show_error_message(
                 &self.widgets.window, &gettext("Error"),
-                &gettext("You have execute register light files first!")
+                &gettext("You must register the light files first!")
             );
             return false;
         }
@@ -2382,7 +2380,6 @@ impl MainWindow {
             dlg.close();
         }));
 
-        set_dialog_default_button(dialog.upcast_ref());
         dialog.show();
     }
 

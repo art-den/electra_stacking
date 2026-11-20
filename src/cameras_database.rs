@@ -56,7 +56,7 @@ pub fn find_camera_params(
     camera_name: Option<&str>
 ) -> Option<(WbGains, Option<CfaType>, Option<ColorMatrix>)> {
     if let Some(camera_name) = camera_name {
-        let name_lc = camera_name.to_string().to_lowercase();
+        let name_lc = camera_name.to_lowercase();
         CAMERAS_TABLE.iter()
             .find(|(c, _, _, _)| name_lc.contains(c))
             .map(|(_, wb, cfa, ccm)| (*wb, *cfa, *ccm))

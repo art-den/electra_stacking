@@ -340,7 +340,7 @@ impl Project {
         // master-files
 
         for (idx, group) in self.groups.iter().filter(|g| g.used).enumerate() {
-            if cancel_flag() { anyhow::bail!("Termimated") }
+            if cancel_flag() { anyhow::bail!(gettext("Terminated")) }
             group.create_master_files(
                 idx,
                 progress,
@@ -383,7 +383,7 @@ impl Project {
 
         for (idx, group) in self.groups.iter().enumerate() {
             if cancel_flag() {
-                anyhow::bail!(gettext("Termimated"))
+                anyhow::bail!(gettext("Terminated"))
             }
             if !group.used {
                 continue;
@@ -424,7 +424,7 @@ impl Project {
         }
 
         if cancel_flag() {
-            anyhow::bail!(gettext("Termimated"))
+            anyhow::bail!(gettext("Terminated"))
         }
 
         Ok(())
@@ -445,7 +445,7 @@ impl Project {
         // master-files
 
         for (idx, group) in self.groups.iter().filter(|g| g.used).enumerate() {
-            if cancel_flag() { anyhow::bail!("Termimated") }
+            if cancel_flag() { anyhow::bail!(gettext("Terminated")) }
             group.create_master_files(
                 idx,
                 progress,
@@ -490,7 +490,7 @@ impl Project {
 
         for (idx, group) in self.groups.iter().enumerate() {
             if cancel_flag() {
-                anyhow::bail!(gettext("Termimated"))
+                anyhow::bail!(gettext("Terminated"))
             }
             if !group.used {
                 continue;
@@ -534,7 +534,7 @@ impl Project {
         }
 
         if cancel_flag() {
-            anyhow::bail!(gettext("Termimated"))
+            anyhow::bail!(gettext("Terminated"))
         }
         if temp_file_names.lock().unwrap().is_empty() {
             anyhow::bail!(gettext("No light files to stack"));
@@ -559,7 +559,7 @@ impl Project {
         )?;
 
         if cancel_flag() {
-            anyhow::bail!(gettext("Termimated"))
+            anyhow::bail!(gettext("Terminated"))
         }
 
         Ok(StackLightsResult {
@@ -1011,7 +1011,7 @@ impl ProjectGroup {
         thread_pool.scope(|s| {
             for file_name in file_names {
                 s.spawn(|_| {
-                    let file_name = file_name;
+                    let file_name = file_name;  // moves it into the closure; without this the closure borrows the loop var (E0373)
                     if cancel_flag()
                     || cur_result.lock().unwrap().is_err() {
                         return;
@@ -1723,7 +1723,7 @@ impl ProjectFile {
         self.project_changed.upgrade().unwrap().set(true);
     }
 
-    pub fn get_error_test(&self) -> Option<&str> {
+    pub fn get_error_text(&self) -> Option<&str> {
         self.error_text.as_deref()
     }
 }

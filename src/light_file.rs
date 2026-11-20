@@ -13,7 +13,6 @@ bitflags! { pub struct LoadLightFlags: u32 {
     const BACKGROUND         = 8;
     const NO_ERR_IF_NO_STARS = 16;
     const DO_NOT_DEMOSAIC    = 32;
-    const RAW_HISTOGRAM      = 64;
 }}
 
 #[derive(Clone, Copy, PartialEq, Debug)]

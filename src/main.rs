@@ -88,7 +88,7 @@ fn panic_handler(panic_info: &std::panic::PanicHookInfo) {
     log::error!("(╯°□°）╯︵ ┻━┻ PANIC OCCURRED");
 
     if let Some(payload) = payload_str {
-        log::error!("Panic paiload: {}", payload);
+        log::error!("Panic payload: {}", payload);
     }
 
     if let Some(loc) = panic_info.location() {

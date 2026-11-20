@@ -91,7 +91,7 @@ impl MoveFileToGroupDialog {
                 let mut project = self_.project.borrow_mut();
                 let group_id = if self_.widgets.rbtn_new_group.is_active() {
                     let mut group_options = GroupOptions::default();
-                    let new_group_name = self_.widgets.e_new_group.text().to_string().trim().to_string();
+                    let new_group_name = self_.widgets.e_new_group.text().trim().to_string();
                     if !new_group_name.is_empty() {
                         group_options.name = Some(new_group_name);
                     }

@@ -42,16 +42,9 @@ impl PrjColumnsDialog {
             String::static_type(),
             String::static_type(),
         ]);
-        let col = gtk::TreeViewColumn::builder()
-            .title("Name")
-            .resizable(true)
-            .clickable(true)
-            .build();
-        let cell_check = gtk::CellRendererToggle::builder()
-            .activatable(true)
-            .mode(gtk::CellRendererMode::Activatable)
-            .sensitive(true)
-            .build();
+        // headers are hidden in columns_selector.ui; toggle defaults are already activatable/sensitive
+        let col = gtk::TreeViewColumn::new();
+        let cell_check = gtk::CellRendererToggle::new();
         let cell_text = gtk::CellRendererText::new();
         TreeViewColumnExt::pack_start(&col, &cell_check, false);
         TreeViewColumnExt::pack_start(&col, &cell_text, true);

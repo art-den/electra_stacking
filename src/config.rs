@@ -12,7 +12,6 @@ pub enum ImgScale { Original, FitWindow }
 pub struct PrjTreeCol {
     pub width: i32,
     pub visible: bool,
-    pub pos: i32,
 }
 
 impl Default for PrjTreeCol {
@@ -20,7 +19,6 @@ impl Default for PrjTreeCol {
         Self {
             width: -1,
             visible: true,
-            pos: -1,
         }
     }
 }

@@ -2,7 +2,7 @@
 name = "electra_stacking"
 version = "0.1.118"
 edition = "2021"
-description = "Astronimical images stacking"
+description = "Astronomical images stacking"
 repository = "https://github.com/art-den/electra_stacking"
 license = "MIT"
 build = "build.rs"

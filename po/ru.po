@@ -288,7 +288,7 @@ msgstr "Завершено"
 msgid "Reference image is not defined"
 msgstr "Не задан опорный кадр"
 
-msgid "You have execute register light files first!"
+msgid "You must register the light files first!"
 msgstr "Вы должны выполнить регистрацию файлов изображения вначале!"
 
 msgid "Loading reference image..."
@@ -299,6 +299,9 @@ msgstr "Не могу найти группу с опорным кадром"
 
 msgid "Cancelled"
 msgstr "Отменено"
+
+msgid "Terminated"
+msgstr "Прервано"
 
 msgid "No light files to stack"
 msgstr "Нету файлов изображения для сложения"
@@ -463,6 +466,15 @@ msgstr "Режим очистки"
 
 msgid "Percent"
 msgstr "Процент"
+
+msgid "Sigma clipping"
+msgstr "Сигма-отсечение"
+
+msgid "Min/Max"
+msgstr "Мин/Макс"
+
+msgid "Kappa-Sigma clipping"
+msgstr "Каппа-сигма отсечение"
 
 msgid "Min"
 msgstr "Мин"

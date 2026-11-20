@@ -145,101 +145,6 @@ where T: Copy + Clone + ImgLayerDefValue<Type = T> {
     }
 }
 
-// `from_*` here denotes the diagonal traversal direction, not a conversion constructor
-#[allow(clippy::wrong_self_convention)]
-impl<T> ImageLayer<T>
-where T: Copy + Clone + ImgLayerDefValue<Type = T> {
-    fn get_end_for_from_top_iter_diag1(&self, x: Crd) -> usize {
-        let size_diff = self.width - self.height;
-        if x > size_diff {
-            (self.width * (self.height - (x - size_diff)) - 1) as usize
-        } else {
-            self.data.len() - 1
-        }
-    }
-
-    pub fn from_top_iter_diag1(&self, x: Crd) -> std::iter::StepBy<std::slice::Iter<'_, T>> {
-        let end = self.get_end_for_from_top_iter_diag1(x);
-        self.data[x as usize ..= end]
-            .iter()
-            .step_by(self.width as usize + 1)
-    }
-
-    pub fn from_top_iter_diag1_mut(&mut self, x: Crd) -> std::iter::StepBy<std::slice::IterMut<'_, T>> {
-        let end = self.get_end_for_from_top_iter_diag1(x);
-        self.data[x as usize ..= end]
-            .iter_mut()
-            .step_by(self.width as usize + 1)
-    }
-
-    fn get_end_for_from_left_diag1_iter(&self, y: Crd) -> usize {
-        let size_diff = self.height - self.width;
-        if y < size_diff {
-            (self.width * (self.height - (size_diff - y)) - 1) as usize
-        } else {
-            self.data.len() - 1
-        }
-    }
-
-    pub fn from_left_iter_diag1(&self, y: Crd) -> std::iter::StepBy<std::slice::Iter<'_, T>> {
-        let end = self.get_end_for_from_left_diag1_iter(y);
-        self.data[(y*self.width) as usize ..= end]
-            .iter()
-            .step_by(self.width as usize + 1)
-    }
-
-    pub fn from_left_iter_diag1_mut(&mut self, y: Crd) -> std::iter::StepBy<std::slice::IterMut<'_, T>> {
-        let end = self.get_end_for_from_left_diag1_iter(y);
-        self.data[(y*self.width) as usize ..= end]
-            .iter_mut()
-            .step_by(self.width as usize + 1)
-    }
-
-    fn get_end_for_from_top_iter_diag2(&self, x: Crd) -> usize {
-        if x < self.height {
-            (self.width * x) as usize
-        } else {
-            self.data.len() - 1
-        }
-    }
-
-    pub fn from_top_iter_diag2(&self, x: Crd) -> std::iter::StepBy<std::slice::Iter<'_, T>> {
-        let end = self.get_end_for_from_top_iter_diag2(x);
-        self.data[x as usize ..= end]
-            .iter()
-            .step_by(self.width as usize - 1)
-    }
-
-    pub fn from_top_iter_diag2_mut(&mut self, x: Crd) -> std::iter::StepBy<std::slice::IterMut<'_, T>> {
-        let end = self.get_end_for_from_top_iter_diag2(x);
-        self.data[x as usize ..= end]
-            .iter_mut()
-            .step_by(self.width as usize - 1)
-    }
-
-    fn get_end_for_from_right_iter_diag2(&self, y: Crd) -> usize {
-        if y <= self.height - self.width {
-            (self.width * (y + self.width-1)) as usize
-        } else {
-            self.data.len() - 1
-        }
-    }
-
-    pub fn from_right_iter_diag2(&self, y: Crd) -> std::iter::StepBy<std::slice::Iter<'_, T>> {
-        let end = self.get_end_for_from_right_iter_diag2(y);
-        self.data[(y*self.width + self.width - 1) as usize ..= end]
-            .iter()
-            .step_by(self.width as usize - 1)
-    }
-
-    pub fn from_right_iter_diag2_mut(&mut self, y: Crd) -> std::iter::StepBy<std::slice::IterMut<'_, T>> {
-        let end = self.get_end_for_from_right_iter_diag2(y);
-        self.data[(y*self.width + self.width - 1) as usize ..= end]
-            .iter_mut()
-            .step_by(self.width as usize - 1)
-    }
-}
-
 impl<T> ImageLayer<T>
 where T: Copy + Clone + ImgLayerDefValue<Type = T> {
     pub fn iter_crd(&self) -> ImageLayerIter1::<'_, T> {
@@ -475,7 +380,7 @@ impl ImageLayer<f32> {
         rotated_and_translated(self, angle, transl_x, transl_y, default_value, result_width, result_height)
     }
 
-    pub fn substract(&mut self, other: &ImageLayerF32) {
+    pub fn subtract(&mut self, other: &ImageLayerF32) {
         assert!(self.width == other.width);
         assert!(self.height == other.height);
         for (s, o) in self.data.iter_mut().zip(other.iter()) {
@@ -590,10 +495,10 @@ impl ImageLayer<f32> {
     ) -> anyhow::Result<()> {
         for (x, y, v) in self.iter_crd() {
             if check_inf && v.is_infinite() {
-                anyhow::bail!("Image contain INF in {} layer at ({}, {}) point", name, x, y);
+                anyhow::bail!("Image contains INF in {} layer at ({}, {}) point", name, x, y);
             }
             if check_nan && v.is_nan() {
-                anyhow::bail!("Image contain NAN in {} layer at ({}, {}) point", name, x, y);
+                anyhow::bail!("Image contains NAN in {} layer at ({}, {}) point", name, x, y);
             }
         }
         Ok(())
@@ -641,7 +546,7 @@ impl ImageLayer<f32> {
 
 impl std::ops::SubAssign<&ImageLayerF32> for ImageLayerF32 {
     fn sub_assign(&mut self, rhs: &ImageLayerF32) {
-        self.substract(rhs);
+        self.subtract(rhs);
     }
 }
 

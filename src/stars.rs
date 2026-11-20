@@ -116,7 +116,7 @@ pub fn find_stars_on_image(
     let mut star_bg_values = Vec::new();
     let mut flood_filler = FloodFiller::new();
 
-    let mut star_calc = StarCalulator::new();
+    let mut star_calc = StarCalculator::new();
 
     let tmr = TimeLogger::start();
 
@@ -366,11 +366,11 @@ fn is_core_overexposed(
         && plateau_cnt * PLATEAU_FRACTION_DEN > area * PLATEAU_FRACTION_NUM
 }
 
-struct StarCalulator {
+struct StarCalculator {
     r: Vec<f64>,
 }
 
-impl StarCalulator {
+impl StarCalculator {
     fn new() -> Self {
         Self {
             r: Vec::new(),
@@ -735,8 +735,8 @@ fn get_stars_triangles<'a>(
             .map(|s| Point {x: s.x, y: s.y})
             .collect();
 
-        let triagulation = triangulate(&points_to_triangulate);
-        for (&i, &j, &k) in triagulation.triangles.iter().tuples() {
+        let triangulation = triangulate(&points_to_triangulate);
+        for (&i, &j, &k) in triangulation.triangles.iter().tuples() {
             let tr = StarsTriangle::new(&other_stars[i], &other_stars[j], &other_stars[k]);
             let min_edge = tr.len / 20.0;
             if tr.edges[0] < min_edge || tr.edges[1] < min_edge || tr.edges[2] < min_edge { continue; }

@@ -94,7 +94,7 @@ impl CleanupDialog {
             min_w: &gtk::Entry,
             max_w: &gtk::Entry,
         | {
-            let correct_sensivity = |
+            let correct_sensitivity = |
                 chk_w:     &gtk::CheckButton,
                 mode_w:    &gtk::ComboBoxText,
                 kappa_w:   &gtk::Entry,
@@ -117,13 +117,13 @@ impl CleanupDialog {
             };
 
             chk_w.connect_active_notify(clone!(@weak mode_w, @weak kappa_w, @weak repeats_w, @weak percent_w, @weak min_w, @weak max_w => move |chk| {
-                correct_sensivity(chk, &mode_w, &kappa_w, &repeats_w, &percent_w, &min_w, &max_w);
+                correct_sensitivity(chk, &mode_w, &kappa_w, &repeats_w, &percent_w, &min_w, &max_w);
             }));
             chk_w.set_active(!item.used);
             chk_w.set_active(item.used);
 
             mode_w.connect_changed(clone!(@weak chk_w, @weak kappa_w, @weak repeats_w, @weak percent_w, @weak min_w, @weak max_w => move |cbt| {
-                correct_sensivity(&chk_w, cbt, &kappa_w, &repeats_w, &percent_w, &min_w, &max_w);
+                correct_sensitivity(&chk_w, cbt, &kappa_w, &repeats_w, &percent_w, &min_w, &max_w);
             }));
             mode_w.append_text(&gettext("Sigma clipping"));
             mode_w.append_text(&gettext("Percent"));

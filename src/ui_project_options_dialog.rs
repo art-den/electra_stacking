@@ -112,7 +112,7 @@ impl ProjectOptionsDialog {
         widgets.chb_align_rgb_each.set_active(project_config.align_rgb_each);
 
         let show_calc_opts = |opts: &CalcOpts, mode: &gtk::ComboBoxText, kappa: &gtk::Entry, steps: &gtk::Entry| {
-            mode.append_text("Kappa-Sigma clipping");
+            mode.append_text(&gettext("Kappa-Sigma clipping"));
             mode.append_text(&gettext("Median"));
             mode.append_text(&gettext("Mean"));
 

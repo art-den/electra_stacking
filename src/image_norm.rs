@@ -176,8 +176,8 @@ pub fn calc_image_layer_bg(image: &ImageLayerF32, mask: &ImageMask) -> anyhow::R
     let mut values = Vec::new();
     let mut bg_values = HashMap::<i64, Vec::<(f64, i64, i64, usize)>>::new();
     let mut cnt_values = Vec::new();
-    let mut x_values = Vec::new();
-    let mut y_values = Vec::new();
+    let mut y_coords = Vec::new();
+    let mut bg_vals = Vec::new();
     for (i, _j, area) in RectAreaIterator::new(image.width(), 16, image.height(), 16) {
         values.clear();
         let mut y_sum: i64 = 0;
@@ -223,19 +223,20 @@ pub fn calc_image_layer_bg(image: &ImageLayerF32, mask: &ImageMask) -> anyhow::R
         let median_len = median_f64(&mut cnt_values).unwrap_or(0.0) as usize;
         if median_len == 0 { continue; }
         let len_border = 2 * median_len / 3;
-        x_values.clear();
-        y_values.clear();
+        y_coords.clear();
+        bg_vals.clear();
         let mut x_sum: i64 = 0;
         for (value, x, y, len) in col_items.iter() {
             if *len < len_border { continue; }
-            x_values.push(*y as f64);
-            y_values.push(*value);
+            y_coords.push(*y as f64);
+            bg_vals.push(*value);
             x_sum += x;
         }
-        if x_values.len() < 3 { continue; }
+        if y_coords.len() < 3 { continue; }
 
-        let x = x_sum / x_values.len() as i64;
-        let col_coeffs = square_ls(&x_values, &y_values).ok_or_else(|| anyhow::anyhow!("cubic_ls"))?;
+        let x = x_sum / y_coords.len() as i64;
+        let col_coeffs = square_ls(&y_coords, &bg_vals)
+            .ok_or_else(|| anyhow::anyhow!("background fit failed"))?;
         cols.push(BgCol { coeffs: col_coeffs, x: x as f64 });
     }
 
@@ -267,7 +268,7 @@ impl BgCols {
                 y_values.push(col.coeffs.calc(y as f64));
             }
             let coeffs = square_ls(&x_values, &y_values)
-                .ok_or_else(|| anyhow::anyhow!("cubic_ls"))?;
+                .ok_or_else(|| anyhow::anyhow!("background fit failed"))?;
             for (x, v) in img.iter_row_mut(y).enumerate() {
                 let bg = coeffs.calc(x as f64) as f32;
                 if *v == NO_VALUE_F32 { continue; }

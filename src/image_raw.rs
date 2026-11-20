@@ -357,7 +357,7 @@ impl RawImage {
             if exp_diff == 0.0 || exp_diff < exp * 0.2 {
                 self.data -= &dark.data;
             } else {
-                log::info!("Master dark is used only for hot bixels because exposures differ")
+                log::info!("Master dark is used only for hot pixels because exposures differ")
             }
         }
 
